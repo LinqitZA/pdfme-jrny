@@ -3232,7 +3232,10 @@ export default function ErpDesigner({
                   data-testid={`publish-validation-error-${i}`}
                   data-element-id={err.elementId || ''}
                   data-page-index={err.pageIndex !== undefined ? err.pageIndex : ''}
+                  tabIndex={err.elementId ? 0 : undefined}
+                  role={err.elementId ? 'button' : undefined}
                   onClick={err.elementId ? () => handleValidationErrorClick(err) : undefined}
+                  onKeyDown={err.elementId ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleValidationErrorClick(err); } } : undefined}
                   style={{
                     fontSize: '12px',
                     marginTop: '2px',
@@ -3867,7 +3870,10 @@ export default function ErpDesigner({
           >
             Properties
           </div>
-          <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+          <div
+            data-testid="properties-scroll-container"
+            style={{ flex: 1, overflow: 'auto', padding: '16px', overscrollBehavior: 'contain' }}
+          >
             {renderPropertiesPanel()}
           </div>
         </div>
