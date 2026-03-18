@@ -174,6 +174,10 @@ export class RenderService {
       });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && err.stack) {
+        console.error('PDF generation error stack:', err.stack);
+      }
+      console.error('Template schemas at error:', JSON.stringify(pdfmeTemplate.schemas).substring(0, 500));
       // Create a failed document record
       const docId = createId();
       const [failedDoc] = await this.db
