@@ -5469,3 +5469,41 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 69/69 tests passing
 ### Current Status: 392/396 features passing (99.0%)
+
+---
+
+## Session - 2026-03-18 - Feature #396 (Print Job Queue with Reprint Support)
+
+### Completed Feature:
+- **Feature #396**: Print job queue with reprint support for failed/interrupted label jobs ✅
+
+### What Was Implemented/Fixed:
+- Fixed print-job.service.ts reprint method to not throw on printer failure (returns error info instead)
+- Fixed printer.controller.ts route ordering: moved POST /print-jobs/cleanup before :id routes
+- Fixed printer.controller.ts print flow: reads generated PDF from file storage after render (renderNow returns document, not buffer)
+- Added comprehensive test suite with 67 tests covering:
+  - Printer CRUD with SSRF protection (public IPs blocked)
+  - Print job creation via POST /print with input snapshotting
+  - Job lifecycle: pending -> rendered -> printing -> failed (printer unreachable)
+  - PDF stored in file storage at renderedPdfPath
+  - Full reprint with pdfSize returned
+  - Range reprint (pages 1-2) with pdf-lib page extraction
+  - Single label reprint (single page)
+  - Retention cleanup endpoint
+  - Job deletion with stored PDF cleanup
+  - Cursor-based pagination
+  - Cross-org isolation (404 for other org's jobs)
+  - Auth checks (401 without token)
+
+### Verification:
+- 67/67 tests passing
+- Data persists across server restart (PostgreSQL + file storage)
+- No mock data patterns in source code
+- SSRF protection blocks public IPs
+
+### Key Files Modified:
+- nest-module/src/print-job.service.ts - Fixed reprint error handling
+- nest-module/src/printer.controller.ts - Fixed route ordering, PDF read flow
+- tests/test-feature-396-print-job-queue.js - 67 comprehensive tests
+
+### Current Status: 392/396 features passing (99.0%)
