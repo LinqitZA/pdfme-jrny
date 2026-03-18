@@ -26,6 +26,7 @@ import { Response } from 'express';
 import { RenderService, RenderNowDto, RenderBulkDto } from './render.service';
 import { PdfaProcessor } from './pdfa-processor';
 import { RenderQueueService } from './render-queue.service';
+import { RequirePermissions } from './auth.guard';
 
 @Controller('api/pdfme/render')
 export class RenderController {
@@ -152,6 +153,7 @@ export class RenderController {
 
   @Post('bulk')
   @HttpCode(202)
+  @RequirePermissions('render:bulk')
   async renderBulk(
     @Body() body: RenderBulkDto,
     @Req() req: any,
