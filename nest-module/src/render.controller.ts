@@ -250,6 +250,31 @@ export class RenderController {
     });
   }
 
+  @Get('verify/:documentId')
+  async verifyDocument(
+    @Param('documentId') documentId: string,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.renderService.verifyDocument(documentId, user.orgId);
+
+    if ('error' in result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
   @Post('validate-pdfa')
   async validatePdfA(
     @Body() body: { documentPath: string },
@@ -282,6 +307,38 @@ export class RenderController {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  @Post('font-check')
+  async checkFonts(
+    @Body() body: { templateId: string },
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    if (!body.templateId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'templateId is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Use the render service's resolveFonts to check font availability
+    const result = await this.renderService.checkTemplateFonts(body.templateId, user.orgId);
+
+    if ('error' in result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
   }
 
   @Post('batch/:batchId/merge')

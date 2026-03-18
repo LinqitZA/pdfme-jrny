@@ -22,6 +22,13 @@ import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
 import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 import { PdfaProcessor } from './pdfa-processor';
+import * as path from 'path';
+
+/** Warnings emitted during font resolution */
+export interface FontWarning {
+  fontName: string;
+  message: string;
+}
 
 export interface RenderNowDto {
   templateId: string;
@@ -57,6 +64,46 @@ export class RenderService {
   ) {
     // Allow many listeners (one per SSE client)
     this.batchEvents.setMaxListeners(100);
+  }
+
+  /**
+   * Check font availability for a template without rendering.
+   * Returns which fonts are available and which would fall back.
+   */
+  async checkTemplateFonts(templateId: string, orgId: string) {
+    const [template] = await this.db
+      .select()
+      .from(templates)
+      .where(eq(templates.id, templateId));
+
+    if (!template) {
+      return { error: 'Template not found' };
+    }
+
+    const templateSchema = template.schema as Record<string, unknown>;
+    const pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+    const fontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+
+    const fontNames = new Set<string>();
+    for (const page of pdfmeTemplate.schemas) {
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (element && typeof element === 'object' && 'fontName' in element) {
+          const fn = (element as { fontName?: string }).fontName;
+          if (fn && typeof fn === 'string' && fn.trim()) {
+            fontNames.add(fn.trim());
+          }
+        }
+      }
+    }
+
+    return {
+      templateId,
+      fontsReferenced: Array.from(fontNames),
+      fontsResolved: fontResult.font ? Object.keys(fontResult.font) : [],
+      warnings: fontResult.warnings,
+      fallbackUsed: fontResult.warnings.length > 0,
+    };
   }
 
   /**
@@ -151,6 +198,9 @@ export class RenderService {
       });
     });
 
+    // 3j. Resolve fonts - load custom fonts or fall back to default
+    const fontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+
     // 4. Generate PDF using @pdfme/generator
     let pdfBuffer: Uint8Array;
     try {
@@ -179,10 +229,16 @@ export class RenderService {
         drawnSignature: schemas.image,
       };
 
+      const generateOptions: Record<string, unknown> = {};
+      if (fontResult.font) {
+        generateOptions.font = fontResult.font;
+      }
+
       pdfBuffer = await generate({
         template: pdfmeTemplate,
         inputs,
         plugins,
+        options: generateOptions,
       });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -931,6 +987,107 @@ export class RenderService {
   }
 
   /**
+   * Resolve fonts for a template.
+   *
+   * Scans template schemas for fontName references, attempts to load custom fonts
+   * from org file storage, and falls back to pdfme's built-in default font (Roboto)
+   * for any fonts that cannot be found. Logs a warning for each missing font.
+   *
+   * Returns a Font map suitable for passing to pdfme generate() via options.font,
+   * plus an array of warnings for any fonts that had to be substituted.
+   */
+  async resolveFonts(
+    pdfmeTemplate: { schemas: unknown[]; basePdf: unknown; columns?: unknown[] },
+    orgId: string,
+  ): Promise<{ font: Record<string, { data: string | ArrayBuffer | Uint8Array; fallback?: boolean; subset?: boolean }> | null; warnings: FontWarning[] }> {
+    const warnings: FontWarning[] = [];
+
+    // 1. Extract all fontName references from template schemas
+    const fontNames = new Set<string>();
+    for (const page of pdfmeTemplate.schemas) {
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (element && typeof element === 'object' && 'fontName' in element) {
+          const fn = (element as { fontName?: string }).fontName;
+          if (fn && typeof fn === 'string' && fn.trim()) {
+            fontNames.add(fn.trim());
+          }
+        }
+      }
+    }
+
+    // If no custom fonts referenced, let pdfme use its built-in default
+    if (fontNames.size === 0) {
+      return { font: null, warnings };
+    }
+
+    // 2. Get pdfme's built-in default font (Roboto) for fallback
+    const { getDefaultFont } = await import('@pdfme/common');
+    const defaultFont = getDefaultFont();
+    // The default font map has exactly one entry with fallback: true
+    const defaultFontName = Object.keys(defaultFont)[0]; // 'Roboto'
+    const defaultFontData = defaultFont[defaultFontName];
+
+    // 3. Build the font map, attempting to load each referenced font
+    const fontMap: Record<string, { data: string | ArrayBuffer | Uint8Array; fallback?: boolean; subset?: boolean }> = {};
+
+    // Always include the fallback font
+    fontMap[defaultFontName] = { ...defaultFontData, fallback: true };
+
+    for (const fontName of fontNames) {
+      // Skip if it's the default font
+      if (fontName === defaultFontName) continue;
+
+      // Try to load from org font storage
+      let loaded = false;
+      try {
+        // Try common font file extensions
+        const extensions = ['.ttf', '.otf', '.woff2'];
+        const fontDir = `${orgId}/fonts`;
+        const files = await this.fileStorage.list(fontDir).catch(() => [] as string[]);
+
+        for (const ext of extensions) {
+          // Look for a file matching the font name (case-insensitive)
+          const matchingFile = files.find((f: string) => {
+            const baseName = path.basename(f, path.extname(f)).toLowerCase().replace(/[_-]/g, '');
+            const searchName = fontName.toLowerCase().replace(/[_-\s]/g, '');
+            return baseName.includes(searchName) || searchName.includes(baseName);
+          });
+
+          if (matchingFile) {
+            try {
+              const fontData = await this.fileStorage.read(matchingFile);
+              fontMap[fontName] = { data: new Uint8Array(fontData), subset: true };
+              loaded = true;
+              break;
+            } catch {
+              // File exists but couldn't be read - continue to fallback
+            }
+          }
+        }
+      } catch {
+        // Storage access failed - continue to fallback
+      }
+
+      if (!loaded) {
+        // Font not found - log warning and map to fallback
+        const warning: FontWarning = {
+          fontName,
+          message: `Font "${fontName}" not found in storage, falling back to ${defaultFontName}`,
+        };
+        warnings.push(warning);
+        console.warn(`[RenderService] ${warning.message}`);
+
+        // Register the missing font name pointing to the fallback font data
+        // This prevents pdfme from throwing an error about unknown fonts
+        fontMap[fontName] = { data: defaultFontData.data, subset: true };
+      }
+    }
+
+    return { font: fontMap, warnings };
+  }
+
+  /**
    * Generate a preview PDF from a template with sample data.
    *
    * This endpoint works on any template status (draft or published).
@@ -1019,6 +1176,9 @@ export class RenderService {
       });
     });
 
+    // 3j. Resolve fonts - load custom fonts or fall back to default
+    const previewFontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+
     // 4. Generate PDF
     let pdfBuffer: Uint8Array;
     const { generate } = await import('@pdfme/generator');
@@ -1043,10 +1203,16 @@ export class RenderService {
       drawnSignature: schemas.image,
     };
 
+    const previewGenerateOptions: Record<string, unknown> = {};
+    if (previewFontResult.font) {
+      previewGenerateOptions.font = previewFontResult.font;
+    }
+
     pdfBuffer = await generate({
       template: pdfmeTemplate,
       inputs,
       plugins,
+      options: previewGenerateOptions,
     });
 
     // 4b. Apply rich text
@@ -1084,6 +1250,77 @@ export class RenderService {
       templateName: template.name,
       channel,
       sampleRowCount,
+    };
+  }
+
+  /**
+   * Verify document integrity by comparing the stored SHA-256 hash with the
+   * actual hash of the PDF file on disk.
+   *
+   * @param documentId - The ID of the generated document
+   * @param orgId - Tenant org ID
+   * @returns Verification result with integrity status
+   */
+  async verifyDocument(documentId: string, orgId: string) {
+    // 1. Look up the document record
+    const [doc] = await this.db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.id, documentId),
+          eq(generatedDocuments.orgId, orgId),
+        ),
+      );
+
+    if (!doc) {
+      return { error: 'Document not found' };
+    }
+
+    // 2. Read the PDF file from storage
+    let pdfBuffer: Buffer;
+    try {
+      pdfBuffer = await this.fileStorage.read(doc.filePath);
+    } catch {
+      return {
+        documentId: doc.id,
+        verified: false,
+        status: 'file_missing',
+        message: 'PDF file not found on disk',
+        storedHash: doc.pdfHash,
+      };
+    }
+
+    if (!pdfBuffer || pdfBuffer.length === 0) {
+      return {
+        documentId: doc.id,
+        verified: false,
+        status: 'file_missing',
+        message: 'PDF file is empty or not found on disk',
+        storedHash: doc.pdfHash,
+      };
+    }
+
+    // 3. Compute the current SHA-256 hash of the file
+    const currentHash = crypto
+      .createHash('sha256')
+      .update(pdfBuffer)
+      .digest('hex');
+
+    // 4. Compare hashes
+    const verified = currentHash === doc.pdfHash;
+
+    return {
+      documentId: doc.id,
+      verified,
+      status: verified ? 'intact' : 'tampered',
+      message: verified
+        ? 'Document integrity confirmed — hash matches'
+        : 'Document integrity check failed — PDF has been modified (tamper detected)',
+      storedHash: doc.pdfHash,
+      currentHash,
+      filePath: doc.filePath,
+      createdAt: doc.createdAt,
     };
   }
 
