@@ -3214,3 +3214,46 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 117/117 tests passing across 3 test suites
 ### Current Status: ~228/388 features passing (58.8%)
+
+---
+
+## Session - 2026-03-18 - Features #313, #314, #315 (Keyboard Accessibility)
+
+### Completed Features:
+- **Feature #313**: Keyboard shortcut accessibility ✅
+  - Added aria-keyshortcuts attributes to undo (Control+Z), redo (Control+Shift+Z), save (Control+S) buttons
+  - Enhanced keyboard handler with Ctrl+S save, Delete at window level, ? for shortcuts help
+  - Keyboard shortcuts help dialog with table of all shortcuts using <kbd> elements
+  - Dialog accessible with role="dialog", aria-modal="true", aria-label
+  - Shortcuts disabled in input/textarea/select fields (no screen reader conflicts)
+  - Escape closes dialog, backdrop click dismisses
+  - 39/39 tests passing
+
+- **Feature #314**: Drag and drop has keyboard alternative ✅
+  - Block cards already had Enter/Space keyboard support to add elements
+  - Field items already had Enter/Space to bind fields
+  - Added arrow key nudging: 1px default, 10px with Shift held
+  - Arrow keys update element position via updateElement with Math.max(0) clamping
+  - Position also adjustable via number inputs in Properties panel
+  - All interactive elements have tabIndex={0}, role attributes, aria-labels
+  - Arrow key shortcuts documented in help dialog
+  - 23/23 tests passing
+
+- **Feature #315**: Canvas elements have alt text capability ✅
+  - Added altText optional string property to DesignElement interface
+  - Alt text input field in Properties panel for image-type elements
+  - Input has placeholder, aria-label, and help text about PDF/UA compliance
+  - altText included in template serialization for persistence
+  - Canvas img elements use altText for alt attribute
+  - Backend persistence verified: create, retrieve, update all preserve altText in schema
+  - Empty altText saves successfully
+  - 24/24 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Keyboard shortcuts, arrow nudging, alt text support
+- tests/test-feature-313-keyboard-shortcuts.js - 39 tests
+- tests/test-feature-314-keyboard-dnd-alt.js - 23 tests
+- tests/test-feature-315-alt-text.js - 24 tests
+
+### Test Results: 86/86 tests passing across 3 test suites
+### Current Status: ~234/388 features passing (60.3%)
