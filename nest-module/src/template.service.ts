@@ -1166,6 +1166,51 @@ export class TemplateService {
   }
 
   /**
+   * Heartbeat: refresh a lock's expiry without re-acquiring.
+   * Only the current lock holder can send a heartbeat.
+   * This resets lockedAt to now, extending the lock by another LOCK_DURATION_MS.
+   */
+  async heartbeatLock(id: string, userId: string, orgId?: string): Promise<{ refreshed: boolean; lockedAt?: Date; expiresAt?: Date; error?: string; statusCode?: number }> {
+    const template = await this.findById(id, orgId);
+    if (!template) {
+      return { refreshed: false, error: 'Template not found', statusCode: 404 };
+    }
+
+    if (!template.lockedBy || !template.lockedAt) {
+      return { refreshed: false, error: 'Template is not locked', statusCode: 409 };
+    }
+
+    // Check if lock has expired
+    const now = new Date();
+    const lockExpiry = new Date(template.lockedAt.getTime() + LOCK_DURATION_MS);
+    if (now >= lockExpiry) {
+      return { refreshed: false, error: 'Lock has expired', statusCode: 409 };
+    }
+
+    // Only the lock holder can heartbeat
+    if (template.lockedBy !== userId) {
+      return { refreshed: false, error: 'Lock is held by another user', statusCode: 403 };
+    }
+
+    // Refresh the lock timestamp
+    await this.db
+      .update(templates)
+      .set({
+        lockedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(templates.id, id));
+
+    const expiresAt = new Date(now.getTime() + LOCK_DURATION_MS);
+
+    return {
+      refreshed: true,
+      lockedAt: now,
+      expiresAt,
+    };
+  }
+
+  /**
    * Release a lock on a template.
    * Only the lock holder can release it (or an admin can force-release).
    */

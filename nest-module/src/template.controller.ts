@@ -489,6 +489,36 @@ export class TemplateController {
     return result;
   }
 
+  @Post(':id/lock/heartbeat')
+  @HttpCode(HttpStatus.OK)
+  async heartbeatLock(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const result = await this.templateService.heartbeatLock(id, jwt.sub, jwt.orgId);
+    if (!result.refreshed) {
+      const statusCode = result.statusCode || 409;
+      const errorLabel = statusCode === 404 ? 'Not Found' : statusCode === 403 ? 'Forbidden' : 'Conflict';
+      throw new HttpException(
+        {
+          statusCode,
+          error: errorLabel,
+          message: result.error,
+        },
+        statusCode,
+      );
+    }
+    return result;
+  }
+
   @Delete(':id/lock')
   async releaseLock(
     @Param('id') id: string,
