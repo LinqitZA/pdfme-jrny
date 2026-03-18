@@ -372,8 +372,9 @@ export default function ErpDesigner({
 
   // Asset management state
   const [assets, setAssets] = useState<AssetInfo[]>([]);
-  const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'uploading' | 'error'>('idle');
+  const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
+  const [assetUploadProgress, setAssetUploadProgress] = useState<number>(0);
   const assetFileInputRef = useRef<HTMLInputElement>(null);
 
   // Template status (draft/published/archived) - shown in UI
@@ -1241,28 +1242,49 @@ export default function ErpDesigner({
   const handleAssetUpload = useCallback(async (file: File) => {
     setAssetUploadStatus('uploading');
     setAssetUploadError(null);
+    setAssetUploadProgress(0);
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      const headers: Record<string, string> = {};
-      if (authToken) {
-        headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
-      }
+      // Use XMLHttpRequest for upload progress tracking
+      const result = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
 
-      const response = await fetch(`${apiBase}/assets/upload`, {
-        method: 'POST',
-        headers,
-        body: formData,
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            setAssetUploadProgress(pct);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              resolve(JSON.parse(xhr.responseText));
+            } catch {
+              reject(new Error('Invalid server response'));
+            }
+          } else {
+            try {
+              const errBody = JSON.parse(xhr.responseText);
+              reject(new Error(errBody.message || `Upload failed with status ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed (${xhr.status})`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Network error during upload')));
+        xhr.addEventListener('abort', () => reject(new Error('Upload cancelled')));
+
+        xhr.open('POST', `${apiBase}/assets/upload`);
+        if (authToken) {
+          xhr.setRequestHeader('Authorization', authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`);
+        }
+        xhr.send(formData);
       });
-
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({ message: `Upload failed (${response.status})` }));
-        throw new Error(errBody.message || `Upload failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
 
       const newAsset: AssetInfo = {
         id: result.id || result.assetId || `asset-${Date.now()}`,
@@ -1274,7 +1296,14 @@ export default function ErpDesigner({
       };
 
       setAssets((prev) => [...prev, newAsset]);
-      setAssetUploadStatus('idle');
+      setAssetUploadProgress(100);
+      setAssetUploadStatus('success');
+
+      // Auto-dismiss success after 3 seconds
+      setTimeout(() => {
+        setAssetUploadStatus((prev) => prev === 'success' ? 'idle' : prev);
+        setAssetUploadProgress(0);
+      }, 3000);
 
       // Call the onAssetUpload callback if provided
       if (onAssetUpload) {
@@ -1286,6 +1315,7 @@ export default function ErpDesigner({
       const msg = err instanceof Error ? err.message : String(err);
       setAssetUploadStatus('error');
       setAssetUploadError(msg);
+      setAssetUploadProgress(0);
       setTimeout(() => {
         setAssetUploadStatus((prev) => prev === 'error' ? 'idle' : prev);
         setAssetUploadError(null);
@@ -3297,15 +3327,42 @@ export default function ErpDesigner({
                   style={{
                     ...toolbarBtnStyle,
                     width: '100%',
-                    marginBottom: '12px',
+                    marginBottom: assetUploadStatus === 'uploading' || assetUploadStatus === 'success' ? '4px' : '12px',
                     opacity: assetUploadStatus === 'uploading' ? 0.6 : 1,
                     cursor: assetUploadStatus === 'uploading' ? 'wait' : 'pointer',
                   }}
                   disabled={assetUploadStatus === 'uploading'}
                   onClick={() => assetFileInputRef.current?.click()}
                 >
-                  {assetUploadStatus === 'uploading' ? 'Uploading...' : 'Upload Asset'}
+                  {assetUploadStatus === 'uploading' ? `Uploading… ${assetUploadProgress}%` : assetUploadStatus === 'success' ? '✓ Upload Complete' : 'Upload Asset'}
                 </button>
+                {/* Upload progress bar */}
+                {(assetUploadStatus === 'uploading' || assetUploadStatus === 'success') && (
+                  <div data-testid="asset-upload-progress-section" style={{ marginBottom: '12px' }}>
+                    <div style={{
+                      width: '100%',
+                      height: '6px',
+                      backgroundColor: '#e2e8f0',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      marginBottom: '4px',
+                    }}>
+                      <div
+                        data-testid="asset-upload-progress-bar"
+                        style={{
+                          height: '100%',
+                          width: `${assetUploadProgress}%`,
+                          backgroundColor: assetUploadStatus === 'success' ? '#10b981' : '#3b82f6',
+                          borderRadius: '3px',
+                          transition: 'width 0.2s ease',
+                        }}
+                      />
+                    </div>
+                    <div data-testid="asset-upload-progress-text" style={{ fontSize: '11px', color: assetUploadStatus === 'success' ? '#10b981' : '#64748b', textAlign: 'center' }}>
+                      {assetUploadStatus === 'success' ? 'Upload complete — asset added to library' : `Uploading… ${assetUploadProgress}%`}
+                    </div>
+                  </div>
+                )}
                 {assetUploadStatus === 'error' && assetUploadError && (
                   <div
                     data-testid="asset-upload-error"
