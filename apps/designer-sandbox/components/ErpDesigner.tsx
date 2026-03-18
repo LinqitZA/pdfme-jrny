@@ -3260,6 +3260,9 @@ export default function ErpDesigner({
         {templateId && (
           <span
             data-testid="auto-save-indicator"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
             style={{
               fontSize: '11px',
               color: autoSaveStatus === 'saving' ? '#b45309'
@@ -3473,6 +3476,8 @@ export default function ErpDesigner({
       {saveStatus === 'saved' && (
         <div
           data-testid="save-success-toast"
+          role="status"
+          aria-live="polite"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -3582,6 +3587,8 @@ export default function ErpDesigner({
       {publishStatus === 'published' && (
         <div
           data-testid="publish-success-toast"
+          role="status"
+          aria-live="polite"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -4374,8 +4381,10 @@ export default function ErpDesigner({
       {/* ─── Render Progress Overlay ─── */}
       {renderStatus !== 'idle' && (
         <div
+          ref={renderDialogRef}
           data-testid="render-overlay"
           role="alertdialog"
+          aria-modal="true"
           aria-label={renderStatus === 'error' ? 'Render error' : renderStatus === 'complete' ? 'Render complete' : 'Rendering in progress'}
           style={{
             position: 'fixed',
