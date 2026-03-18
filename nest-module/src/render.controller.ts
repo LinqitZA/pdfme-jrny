@@ -37,12 +37,30 @@ export class RenderController {
     @Body() body: RenderNowDto,
     @Req() req: any,
   ) {
-    if (!body.templateId || !body.entityId || !body.channel) {
+    // Validate required fields with detailed error envelope
+    const missingFields: string[] = [];
+    if (!body.templateId) missingFields.push('templateId');
+    if (!body.entityId) missingFields.push('entityId');
+    if (!body.channel) missingFields.push('channel');
+    if (missingFields.length > 0) {
       throw new HttpException(
         {
           statusCode: 400,
           error: 'Bad Request',
           message: 'templateId, entityId, and channel are required',
+          details: missingFields.map(f => ({ field: f, reason: `${f} is required` })),
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    // Validate templateId format (must be non-empty string)
+    if (typeof body.templateId !== 'string' || body.templateId.trim() === '') {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'templateId must be a non-empty string',
+          details: [{ field: 'templateId', reason: 'must be a non-empty string identifier' }],
         },
         HttpStatus.BAD_REQUEST,
       );
@@ -98,15 +116,23 @@ export class RenderController {
     @Body() body: RenderBulkDto,
     @Req() req: any,
   ) {
-    if (!body.templateId || !body.entityIds || !Array.isArray(body.entityIds) || body.entityIds.length === 0) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          error: 'Bad Request',
-          message: 'templateId and entityIds (non-empty array) are required',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
+    // Validate required fields with detailed error envelope
+    {
+      const missingFields: string[] = [];
+      if (!body.templateId) missingFields.push('templateId');
+      if (!body.entityIds || !Array.isArray(body.entityIds) || body.entityIds.length === 0) missingFields.push('entityIds');
+      if (!body.channel) missingFields.push('channel');
+      if (missingFields.length > 0) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: 'templateId, entityIds (non-empty array), and channel are required',
+            details: missingFields.map(f => ({ field: f, reason: `${f} is required` })),
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
     }
 
     if (body.entityIds.length > 2000) {
@@ -115,17 +141,7 @@ export class RenderController {
           statusCode: 400,
           error: 'Bad Request',
           message: 'Maximum 2000 entityIds per request',
-        },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    if (!body.channel) {
-      throw new HttpException(
-        {
-          statusCode: 400,
-          error: 'Bad Request',
-          message: 'channel is required',
+          details: [{ field: 'entityIds', reason: `array length ${body.entityIds.length} exceeds maximum of 2000` }],
         },
         HttpStatus.BAD_REQUEST,
       );

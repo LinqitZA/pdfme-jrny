@@ -76,9 +76,31 @@ export class TemplateController {
     @Body() body: CreateTemplateDto,
     @Headers('authorization') authHeader?: string,
   ) {
-    if (!body.name || !body.type || !body.schema) {
+    // Validate required fields with detailed error envelope
+    const missingFields: string[] = [];
+    if (!body.name) missingFields.push('name');
+    if (!body.type) missingFields.push('type');
+    if (!body.schema) missingFields.push('schema');
+    if (missingFields.length > 0) {
       throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'name, type, and schema are required' },
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'name, type, and schema are required',
+          details: missingFields.map(f => ({ field: f, reason: `${f} is required` })),
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    // Validate schema is an object
+    if (typeof body.schema !== 'object' || Array.isArray(body.schema)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'schema must be a JSON object',
+          details: [{ field: 'schema', reason: 'must be a JSON object, not an array or primitive' }],
+        },
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -266,6 +288,23 @@ export class TemplateController {
   ) {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId;
+    const userId = jwt?.sub || 'unknown';
+
+    // Check for edit lock conflict
+    const lockConflict = await this.templateService.checkLockConflict(id, userId, orgId);
+    if (lockConflict) {
+      throw new HttpException(
+        {
+          statusCode: 409,
+          error: 'Conflict',
+          message: `Template is locked by user ${lockConflict.lockedBy}`,
+          lockedBy: lockConflict.lockedBy,
+          lockedAt: lockConflict.lockedAt,
+          expiresAt: lockConflict.expiresAt,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
 
     const result = await this.templateService.saveDraft(id, body, orgId);
     if (!result) {
@@ -290,6 +329,17 @@ export class TemplateController {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
         HttpStatus.NOT_FOUND,
+      );
+    }
+    if ('validationErrors' in result) {
+      throw new HttpException(
+        {
+          statusCode: 422,
+          error: 'Unprocessable Entity',
+          message: 'Template validation failed',
+          details: (result as any).validationErrors,
+        },
+        HttpStatus.UNPROCESSABLE_ENTITY,
       );
     }
     if ('error' in result) {
@@ -360,6 +410,23 @@ export class TemplateController {
   ) {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId;
+    const userId = jwt?.sub || 'unknown';
+
+    // Check for edit lock conflict
+    const lockConflict = await this.templateService.checkLockConflict(id, userId, orgId);
+    if (lockConflict) {
+      throw new HttpException(
+        {
+          statusCode: 409,
+          error: 'Conflict',
+          message: `Template is locked by user ${lockConflict.lockedBy}`,
+          lockedBy: lockConflict.lockedBy,
+          lockedAt: lockConflict.lockedAt,
+          expiresAt: lockConflict.expiresAt,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
 
     const result = await this.templateService.update(id, body, orgId);
     if (!result) {
