@@ -14,6 +14,7 @@ export { drawnSignature } from './drawn-signature';
 export { qrBarcode } from './qr-barcode';
 export { watermark } from './watermark';
 export { calculatedField } from './calculated-field';
+export { currencyField } from './currency-field';
 export { richText } from './rich-text';
 
 // Expression engine

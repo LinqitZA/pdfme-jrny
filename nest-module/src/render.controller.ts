@@ -456,6 +456,7 @@ export class RenderController {
    * POST /api/pdfme/render/format-currency
    */
   @Post('format-currency')
+  @HttpCode(200)
   formatCurrency(
     @Body() body: {
       value: number;

@@ -21,6 +21,7 @@ import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
 import { resolveErpImages, generatePlaceholderImage } from '../../packages/erp-schemas/src/erp-image';
 import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
+import { resolveCurrencyFields } from '../../packages/erp-schemas/src/currency-field';
 import { PdfaProcessor } from './pdfa-processor';
 import { DataSourceRegistry } from './datasource.registry';
 import * as path from 'path';
@@ -362,6 +363,11 @@ export class RenderService {
     const resolvedCalc = resolveCalculatedFields(pdfmeTemplate, inputs);
     pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
     inputs = resolvedCalc.inputs;
+
+    // 3h1. Resolve currencyField elements - format with symbol and dual-currency display
+    const resolvedCurrency = resolveCurrencyFields(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedCurrency.template as typeof pdfmeTemplate;
+    inputs = resolvedCurrency.inputs;
 
     // 3h2. Resolve missing images with placeholder rectangles
     const placeholderImages = this.resolveMissingImages(pdfmeTemplate, inputs);
@@ -1590,6 +1596,11 @@ export class RenderService {
     const resolvedCalc = resolveCalculatedFields(pdfmeTemplate, inputs);
     pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
     inputs = resolvedCalc.inputs;
+
+    // 3h1. Resolve currency fields
+    const resolvedCurrency = resolveCurrencyFields(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedCurrency.template as typeof pdfmeTemplate;
+    inputs = resolvedCurrency.inputs;
 
     // 3h2. Resolve missing images with placeholder rectangles
     const previewPlaceholders = this.resolveMissingImages(pdfmeTemplate, inputs);
