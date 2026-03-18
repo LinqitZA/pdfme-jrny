@@ -127,7 +127,10 @@ export class TemplateService {
    */
   async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string; status?: string; sort?: 'createdAt' | 'name' | 'updatedAt' | 'type'; order?: 'asc' | 'desc'; search?: string }) {
     const limit = options?.limit ?? 100;
-    const conditions: SQL[] = [ne(templates.status, 'archived')];
+    // When an explicit status filter is provided, use it; otherwise exclude archived
+    const conditions: SQL[] = options?.status
+      ? [eq(templates.status, options.status)]
+      : [ne(templates.status, 'archived')];
 
     if (orgId) {
       conditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
@@ -135,10 +138,6 @@ export class TemplateService {
 
     if (options?.type) {
       conditions.push(eq(templates.type, options.type));
-    }
-
-    if (options?.status) {
-      conditions.push(eq(templates.status, options.status));
     }
 
     // Search by name (case-insensitive partial match)
@@ -203,15 +202,14 @@ export class TemplateService {
     }
 
     // Count total (without cursor filter, just org + status + type filter)
-    const countConditions: SQL[] = [ne(templates.status, 'archived')];
+    const countConditions: SQL[] = options?.status
+      ? [eq(templates.status, options.status)]
+      : [ne(templates.status, 'archived')];
     if (orgId) {
       countConditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
     }
     if (options?.type) {
       countConditions.push(eq(templates.type, options.type));
-    }
-    if (options?.status) {
-      countConditions.push(eq(templates.status, options.status));
     }
     if (options?.search && options.search.trim()) {
       countConditions.push(ilike(templates.name, `%${options.search.trim()}%`));

@@ -40,6 +40,7 @@ export default function TemplateList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
@@ -94,6 +95,7 @@ export default function TemplateList({
       if (orgId) params.set('orgId', orgId);
       params.set('limit', '20');
       if (typeFilter) params.set('type', typeFilter);
+      if (statusFilter) params.set('status', statusFilter);
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (appendCursor) params.set('cursor', appendCursor);
 
@@ -122,7 +124,7 @@ export default function TemplateList({
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [apiBase, orgId, typeFilter, searchQuery, getAuthHeaders]);
+  }, [apiBase, orgId, typeFilter, statusFilter, searchQuery, getAuthHeaders]);
 
   // Load types on mount
   useEffect(() => {
@@ -173,6 +175,11 @@ export default function TemplateList({
 
   const handleTypeChange = (newType: string) => {
     setTypeFilter(newType);
+    setCursor(null);
+  };
+
+  const handleStatusChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
     setCursor(null);
   };
 
@@ -234,7 +241,8 @@ export default function TemplateList({
           {pagination && (
             <p data-testid="template-count" style={{ fontSize: '14px', color: '#64748b', marginTop: '4px' }}>
               {pagination.total} template{pagination.total !== 1 ? 's' : ''} found
-              {typeFilter && ` (filtered by ${formatTypeName(typeFilter)})`}
+              {typeFilter && ` (type: ${formatTypeName(typeFilter)})`}
+              {statusFilter && ` (status: ${statusFilter})`}
             </p>
           )}
         </div>
@@ -285,6 +293,30 @@ export default function TemplateList({
               {formatTypeName(type)}
             </option>
           ))}
+        </select>
+        <label htmlFor="status-filter" style={{ fontSize: '14px', fontWeight: 500, color: '#475569' }}>
+          Status:
+        </label>
+        <select
+          id="status-filter"
+          data-testid="status-filter-dropdown"
+          value={statusFilter}
+          onChange={(e) => handleStatusChange(e.target.value)}
+          style={{
+            padding: '8px 12px',
+            borderRadius: '6px',
+            border: '1px solid #d1d5db',
+            fontSize: '14px',
+            backgroundColor: '#fff',
+            color: '#1e293b',
+            cursor: 'pointer',
+            minWidth: '150px',
+          }}
+        >
+          <option value="">All statuses</option>
+          <option value="draft" data-testid="status-option-draft">Draft</option>
+          <option value="published" data-testid="status-option-published">Published</option>
+          <option value="archived" data-testid="status-option-archived">Archived</option>
         </select>
         {loadingTypes && (
           <span data-testid="types-loading" style={{ fontSize: '12px', color: '#94a3b8' }}>Loading types...</span>
