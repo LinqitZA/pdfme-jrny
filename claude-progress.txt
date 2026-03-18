@@ -1432,3 +1432,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - apps/designer-sandbox/components/ErpDesigner.tsx - publish handler, error/success UI
 
 ### Current Status: ~107/388 features passing (27.6%)
+
+---
+
+## Session - 2026-03-18 - Features #184, #185, #186 (Canvas Properties, Block Drag, Field Drag)
+
+### Completed Features:
+- **Feature #184**: Real-time canvas reflects properties changes ✅
+  - updateElement callback updates React state immediately on property changes
+  - Properties panel inputs (x, y, w, h, fontSize, fontFamily, color, fontWeight, fontStyle, textAlign, lineHeight) all trigger updateElement via onChange
+  - Canvas rendering directly reads element state (el.x, el.y, el.w, el.h, el.fontSize, etc.)
+  - React re-render propagates changes instantly from Properties panel to canvas
+  - Image properties (src, objectFit, opacity) and table properties (showHeader, borderStyle) also update immediately
+  - 39/39 code structure tests passing
+
+- **Feature #185**: Drag block from panel creates element on canvas ✅
+  - Added handleBlockDragStart handler: sets 'application/x-erp-block-type' drag data
+  - Block cards wire onDragStart alongside existing onClick
+  - Canvas page has onDragOver (prevents default) and onDrop handlers
+  - handleCanvasDrop calculates drop position relative to canvas page, accounting for zoom
+  - addElementToCanvas enhanced to accept optional position parameter
+  - Click-to-add still works (backwards compatible)
+  - 23/23 tests passing
+
+- **Feature #186**: Drag field from Fields tab binds to element ✅
+  - Added handleFieldDragStart handler: sets 'application/x-erp-field-key' drag data
+  - Field items now have draggable attribute and onDragStart handler
+  - Dropping field on existing text/qr-barcode element creates {{field.key}} binding
+  - Dropping field on empty canvas area creates new text element with binding
+  - Uses data-element-type attribute on canvas elements to detect drop targets
+  - Click-to-bind still works (backwards compatible)
+  - 33/33 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx
+  - Added handleBlockDragStart, handleFieldDragStart, handleCanvasDragOver, handleCanvasDrop
+  - Enhanced addElementToCanvas with optional position param
+  - Added onDragStart to block cards and field items
+  - Added onDragOver/onDrop to canvas page
+- tests/test-features-184-185-186.js - 95 tests
+
+### Test Results: 95/95 tests passing
+### Current Status: ~107/388 features passing (27.6%)
