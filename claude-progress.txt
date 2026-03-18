@@ -1853,3 +1853,28 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-health-no-auth-213.js - 17 tests
 
 ### Current Status: ~132/388 features passing (34.0%)
+
+---
+
+## Session - 2026-03-18 - Features #214, #215, #216 (API Input Validation)
+
+### Completed Features:
+- **Feature #214**: API validates Content-Type header - 23/23 tests
+  - Created ContentTypeMiddleware returning 415 for non-JSON POST/PUT requests
+  - Registered as global middleware in AppModule
+- **Feature #215**: Render endpoint rejects missing required fields - 31/31 tests
+  - render/now, render/bulk, render/async all validate required fields
+  - Returns 400 with details array listing each missing field
+- **Feature #216**: Batch endpoint validates entityIds array - 24/24 tests
+  - Added entityIds entry validation (null, empty, non-string, whitespace rejected)
+  - Over 2000 entityIds limit also enforced
+
+### Key Files Created/Modified:
+- nest-module/src/content-type.middleware.ts - New Content-Type validation middleware
+- nest-module/src/app.module.ts - Registered ContentTypeMiddleware
+- nest-module/src/render.controller.ts - Added entityIds entry validation
+- tests/test-feature-214-content-type.js - 23 tests
+- tests/test-feature-215-render-validation.js - 31 tests
+- tests/test-feature-216-entityids-validation.js - 24 tests
+
+### Current Status: ~135/388 features passing (34.8%)
