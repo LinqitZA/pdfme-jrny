@@ -3936,3 +3936,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-360-no-memory-leaks.js - 17 tests
 
 ### Test Results: 70/70 tests passing across 3 features
+
+---
+
+## Session - 2026-03-18 - Features #364, #365, #366 (PDF Merge, Complex Template, DataSource)
+
+### Completed Features:
+- **Feature #364**: PDF merge handles large batches ✅
+  - Created template, bulk rendered 50 documents
+  - Merged all 50 PDFs via POST /render/batch/:batchId/merge
+  - Merged PDF has correct page count (50 pages)
+  - Merge completed in 29ms (well under 60s)
+  - Server healthy after merge, single render still works
+  - Second merge also succeeds (idempotent)
+  - 21/21 tests passing
+
+- **Feature #365**: Render pipeline handles complex template ✅
+  - Created 2-page template with 38 elements across 8 element types
+  - Element types: text, line, rectangle, ellipse, qrcode, code128 barcode, image (base64)
+  - Render completed in 39ms for complex template
+  - Both email and print channels work
+  - Custom input data binds correctly
+  - Bulk render of 5 complex documents succeeds
+  - 23/23 tests passing
+
+- **Feature #366**: DataSource resolves complex hierarchical data ✅
+  - Registered test DataSource with hierarchical invoice data (10 flat fields)
+  - DataSource auto-resolves during render (no explicit inputs)
+  - Grouped table with 8 line items across 3 categories (Hardware/Software/Services)
+  - Subtotals calculated correctly: Hardware=5750, Software=2500, Services=6500
+  - Grand total calculated correctly: 14750
+  - 2-level grouping (region+category) works with 6 data rows
+  - Grouped table PDF generation succeeds
+  - DataSource cleanup (unregister) works
+  - 43/43 tests passing
+
+### Key Files Created:
+- tests/test-feature-364-pdf-merge-large.js - 21 tests
+- tests/test-feature-365-complex-template.js - 23 tests
+- tests/test-feature-366-datasource-hierarchical.js - 43 tests
+
+### Test Results: 87/87 tests passing across 3 features
+### Current Status: ~285/388 features passing (73.5%)
+
+### Notes:
+- Template elements MUST have a `name` field for pdfme to render correctly
+- GroupedTable columns use `key` (not `field`) and `aggregation` (not `aggregate`)
+- GroupedTable aggregation values must be uppercase: 'SUM', 'COUNT', etc.
