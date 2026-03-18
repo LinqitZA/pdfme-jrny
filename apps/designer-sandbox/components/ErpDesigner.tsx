@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 
 /**
  * ErpDesigner - Three-panel WYSIWYG template designer for ERP documents.
@@ -11,6 +11,11 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
  *   [Right Panel: Properties panel]
  *
  * Toolbar: template name, page size, undo/redo, zoom, preview, save, publish
+ *
+ * Features:
+ * - Context-sensitive properties panel (#54)
+ * - Position/size inputs update elements on canvas (#55)
+ * - Data binding picker with {{field.key}} syntax (#56)
  */
 
 export interface ErpDesignerProps {
@@ -23,12 +28,88 @@ export interface ErpDesignerProps {
 
 type LeftTab = 'blocks' | 'fields' | 'assets' | 'pages';
 
+/** Element type categories for context-sensitive properties */
+type ElementType =
+  | 'text'
+  | 'rich-text'
+  | 'calculated'
+  | 'image'
+  | 'erp-image'
+  | 'signature'
+  | 'drawn-signature'
+  | 'line-items'
+  | 'grouped-table'
+  | 'qr-barcode'
+  | 'watermark';
+
+/** Full element model with type-specific properties */
+interface DesignElement {
+  id: string;
+  type: ElementType;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  // Text properties
+  content?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  fontWeight?: 'normal' | 'bold';
+  fontStyle?: 'normal' | 'italic';
+  textAlign?: 'left' | 'center' | 'right';
+  color?: string;
+  lineHeight?: number;
+  // Image properties
+  src?: string;
+  objectFit?: 'contain' | 'cover' | 'fill';
+  opacity?: number;
+  // Table properties
+  columns?: Array<{ key: string; header: string; width: number }>;
+  showHeader?: boolean;
+  borderStyle?: 'solid' | 'dashed' | 'none';
+  // Data binding
+  binding?: string;
+}
+
 /** Represents a single page in the template */
 interface TemplatePage {
   id: string;
   label: string;
-  elements: Array<{ id: string; type: string; x: number; y: number; w: number; h: number }>;
+  elements: DesignElement[];
 }
+
+/** Available data fields for binding picker */
+const DATA_FIELDS = [
+  {
+    group: 'Document',
+    fields: [
+      { key: 'document.number', label: 'Document Number', example: 'INV-2026-001' },
+      { key: 'document.date', label: 'Date', example: '2026-03-18' },
+      { key: 'document.dueDate', label: 'Due Date', example: '2026-04-17' },
+      { key: 'document.total', label: 'Total', example: 'R 1,250.00' },
+      { key: 'document.subtotal', label: 'Subtotal', example: 'R 1,086.96' },
+      { key: 'document.tax', label: 'Tax', example: 'R 163.04' },
+    ],
+  },
+  {
+    group: 'Customer',
+    fields: [
+      { key: 'customer.name', label: 'Name', example: 'Acme Corporation' },
+      { key: 'customer.email', label: 'Email', example: 'billing@acme.com' },
+      { key: 'customer.address', label: 'Address', example: '123 Main St' },
+      { key: 'customer.phone', label: 'Phone', example: '+27 11 123 4567' },
+      { key: 'customer.vatNumber', label: 'VAT Number', example: 'VAT4530001234' },
+    ],
+  },
+  {
+    group: 'Company',
+    fields: [
+      { key: 'company.name', label: 'Company Name', example: 'My Company Ltd' },
+      { key: 'company.regNumber', label: 'Reg Number', example: '2020/123456/07' },
+      { key: 'company.address', label: 'Address', example: '456 Business Park' },
+    ],
+  },
+];
 
 let pageIdCounter = 0;
 function createPage(label: string): TemplatePage {
@@ -40,42 +121,121 @@ function createPage(label: string): TemplatePage {
   };
 }
 
+let elementIdCounter = 0;
+function createElementId(): string {
+  elementIdCounter += 1;
+  return `el-${elementIdCounter}`;
+}
+
+/** Default element dimensions and properties by type */
+function getDefaultElement(type: ElementType): Omit<DesignElement, 'id'> {
+  const base = { type, x: 50, y: 50 };
+  switch (type) {
+    case 'text':
+      return { ...base, w: 200, h: 24, content: 'Text', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.4 };
+    case 'rich-text':
+      return { ...base, w: 250, h: 60, content: 'Rich text content', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.5 };
+    case 'calculated':
+      return { ...base, w: 120, h: 24, content: '0.00', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'right', color: '#000000', lineHeight: 1.4, binding: '' };
+    case 'image':
+      return { ...base, w: 150, h: 100, src: '', objectFit: 'contain', opacity: 100 };
+    case 'erp-image':
+      return { ...base, w: 150, h: 80, src: '', objectFit: 'contain', opacity: 100 };
+    case 'signature':
+      return { ...base, w: 200, h: 60, src: '', objectFit: 'contain', opacity: 100 };
+    case 'drawn-signature':
+      return { ...base, w: 200, h: 60, src: '', objectFit: 'contain', opacity: 100 };
+    case 'line-items':
+      return { ...base, w: 495, h: 200, columns: [{ key: 'description', header: 'Description', width: 200 }, { key: 'qty', header: 'Qty', width: 60 }, { key: 'price', header: 'Price', width: 80 }, { key: 'total', header: 'Total', width: 80 }], showHeader: true, borderStyle: 'solid' };
+    case 'grouped-table':
+      return { ...base, w: 495, h: 250, columns: [{ key: 'group', header: 'Group', width: 150 }, { key: 'value', header: 'Value', width: 100 }], showHeader: true, borderStyle: 'solid' };
+    case 'qr-barcode':
+      return { ...base, w: 80, h: 80, content: '', binding: '' };
+    case 'watermark':
+      return { ...base, x: 100, y: 300, w: 395, h: 200, content: 'DRAFT', fontFamily: 'Helvetica', fontSize: 72, fontWeight: 'bold', fontStyle: 'normal', textAlign: 'center', color: '#00000015', opacity: 15 };
+    default:
+      return { ...base, w: 100, h: 40 };
+  }
+}
+
+/** Determine element type category for properties panel */
+function getElementCategory(type: ElementType): 'text' | 'image' | 'table' | 'other' {
+  switch (type) {
+    case 'text':
+    case 'rich-text':
+    case 'calculated':
+    case 'watermark':
+      return 'text';
+    case 'image':
+    case 'erp-image':
+    case 'signature':
+    case 'drawn-signature':
+      return 'image';
+    case 'line-items':
+    case 'grouped-table':
+      return 'table';
+    case 'qr-barcode':
+    default:
+      return 'other';
+  }
+}
+
+/** Human-readable element type label */
+function getElementTypeLabel(type: ElementType): string {
+  const labels: Record<ElementType, string> = {
+    'text': 'Text',
+    'rich-text': 'Rich Text',
+    'calculated': 'Calculated Field',
+    'image': 'Image',
+    'erp-image': 'ERP Image',
+    'signature': 'Signature Block',
+    'drawn-signature': 'Drawn Signature',
+    'line-items': 'Line Items Table',
+    'grouped-table': 'Grouped Table',
+    'qr-barcode': 'QR/Barcode',
+    'watermark': 'Watermark',
+  };
+  return labels[type] || type;
+}
+
 const BLOCK_CATEGORIES = [
   {
     name: 'Content',
     blocks: [
-      { id: 'text', label: 'Text', icon: 'T' },
-      { id: 'rich-text', label: 'Rich Text', icon: 'Rt' },
-      { id: 'calculated', label: 'Calculated Field', icon: 'fx' },
+      { id: 'text' as ElementType, label: 'Text', icon: 'T' },
+      { id: 'rich-text' as ElementType, label: 'Rich Text', icon: 'Rt' },
+      { id: 'calculated' as ElementType, label: 'Calculated Field', icon: 'fx' },
     ],
   },
   {
     name: 'Media',
     blocks: [
-      { id: 'image', label: 'Image', icon: 'Img' },
-      { id: 'erp-image', label: 'ERP Image', icon: 'EI' },
-      { id: 'signature', label: 'Signature Block', icon: 'Sig' },
-      { id: 'drawn-signature', label: 'Drawn Signature', icon: 'DS' },
+      { id: 'image' as ElementType, label: 'Image', icon: 'Img' },
+      { id: 'erp-image' as ElementType, label: 'ERP Image', icon: 'EI' },
+      { id: 'signature' as ElementType, label: 'Signature Block', icon: 'Sig' },
+      { id: 'drawn-signature' as ElementType, label: 'Drawn Signature', icon: 'DS' },
     ],
   },
   {
     name: 'Data',
     blocks: [
-      { id: 'line-items', label: 'Line Items Table', icon: 'LI' },
-      { id: 'grouped-table', label: 'Grouped Table', icon: 'GT' },
-      { id: 'qr-barcode', label: 'QR/Barcode', icon: 'QR' },
+      { id: 'line-items' as ElementType, label: 'Line Items Table', icon: 'LI' },
+      { id: 'grouped-table' as ElementType, label: 'Grouped Table', icon: 'GT' },
+      { id: 'qr-barcode' as ElementType, label: 'QR/Barcode', icon: 'QR' },
     ],
   },
   {
     name: 'Layout',
     blocks: [
-      { id: 'watermark', label: 'Watermark', icon: 'Wm' },
+      { id: 'watermark' as ElementType, label: 'Watermark', icon: 'Wm' },
     ],
   },
 ];
 
 const PAGE_SIZES = ['A4', 'Letter', 'Legal', 'A3', 'A5'];
 const ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200];
+
+const FONT_FAMILIES = ['Helvetica', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
 
 export default function ErpDesigner({
   templateName = 'Untitled Template',
@@ -85,8 +245,10 @@ export default function ErpDesigner({
   const [zoom, setZoom] = useState(100);
   const [pageSize, setPageSize] = useState('A4');
   const [name, setName] = useState(templateName);
-  const [selectedElement, setSelectedElement] = useState<string | null>(null);
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
+  const [showBindingPicker, setShowBindingPicker] = useState(false);
+  const [bindingSearch, setBindingSearch] = useState('');
 
   // Multi-page state
   const [pages, setPages] = useState<TemplatePage[]>(() => [
@@ -108,6 +270,15 @@ export default function ErpDesigner({
     pageIndex: number;
   }>({ visible: false, x: 0, y: 0, pageIndex: 0 });
   const contextMenuRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+
+  const currentPage = pages[currentPageIndex];
+
+  // Find selected element from current page
+  const selectedElement = useMemo(() => {
+    if (!selectedElementId || !currentPage) return null;
+    return currentPage.elements.find((el) => el.id === selectedElementId) || null;
+  }, [selectedElementId, currentPage]);
 
   // Close context menu on click outside
   useEffect(() => {
@@ -123,6 +294,46 @@ export default function ErpDesigner({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [contextMenu.visible]);
+
+  // ─── Element update helper ───
+  const updateElement = useCallback((elementId: string, updates: Partial<DesignElement>) => {
+    setPages((prev) => {
+      const next = prev.map((page, idx) => {
+        if (idx !== currentPageIndex) return page;
+        return {
+          ...page,
+          elements: page.elements.map((el) =>
+            el.id === elementId ? { ...el, ...updates } : el
+          ),
+        };
+      });
+      return next;
+    });
+    setIsDirty(true);
+  }, [currentPageIndex]);
+
+  // ─── Add element to canvas ───
+  const addElementToCanvas = useCallback((type: ElementType) => {
+    const id = createElementId();
+    const defaults = getDefaultElement(type);
+    // Offset slightly for each new element to avoid stacking
+    const existingCount = currentPage?.elements.length || 0;
+    const offset = existingCount * 20;
+    const newElement: DesignElement = {
+      id,
+      ...defaults,
+      x: defaults.x + offset,
+      y: defaults.y + offset,
+    };
+    setPages((prev) => {
+      return prev.map((page, idx) => {
+        if (idx !== currentPageIndex) return page;
+        return { ...page, elements: [...page.elements, newElement] };
+      });
+    });
+    setSelectedElementId(id);
+    setIsDirty(true);
+  }, [currentPageIndex, currentPage]);
 
   const handleSave = useCallback(() => {
     if (onSave) {
@@ -146,7 +357,7 @@ export default function ErpDesigner({
       const source = prev[index];
       const dup: TemplatePage = {
         ...createPage(`${source.label} (Copy)`),
-        elements: [...source.elements],
+        elements: source.elements.map((el) => ({ ...el, id: createElementId() })),
       };
       const next = [...prev];
       next.splice(index + 1, 0, dup);
@@ -158,7 +369,7 @@ export default function ErpDesigner({
 
   const deletePage = useCallback((index: number) => {
     setPages((prev) => {
-      if (prev.length <= 1) return prev; // Cannot delete last page
+      if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== index);
       return next;
     });
@@ -195,7 +406,6 @@ export default function ErpDesigner({
       next.splice(dropIndex, 0, moved);
       return next;
     });
-    // Update current page index to follow the selected page
     if (currentPageIndex === dragIndex) {
       setCurrentPageIndex(dropIndex);
     } else if (dragIndex < currentPageIndex && dropIndex >= currentPageIndex) {
@@ -226,7 +436,623 @@ export default function ErpDesigner({
     });
   }, []);
 
-  const currentPage = pages[currentPageIndex];
+  // ─── Data binding picker ───
+  const handleBindField = useCallback((fieldKey: string) => {
+    if (!selectedElementId) return;
+    const bindingSyntax = `{{${fieldKey}}}`;
+    updateElement(selectedElementId, { binding: bindingSyntax, content: bindingSyntax });
+    setShowBindingPicker(false);
+    setBindingSearch('');
+  }, [selectedElementId, updateElement]);
+
+  // Filtered data fields for binding search
+  const filteredFields = useMemo(() => {
+    if (!bindingSearch) return DATA_FIELDS;
+    const q = bindingSearch.toLowerCase();
+    return DATA_FIELDS.map((group) => ({
+      ...group,
+      fields: group.fields.filter(
+        (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
+      ),
+    })).filter((g) => g.fields.length > 0);
+  }, [bindingSearch]);
+
+  // ─── Element visual representation on canvas ───
+  const renderCanvasElement = useCallback((el: DesignElement) => {
+    const scale = zoom / 100;
+    const isSelected = selectedElementId === el.id;
+    const category = getElementCategory(el.type);
+
+    const baseStyle: React.CSSProperties = {
+      position: 'absolute',
+      left: `${el.x * scale}px`,
+      top: `${el.y * scale}px`,
+      width: `${el.w * scale}px`,
+      height: `${el.h * scale}px`,
+      border: isSelected ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+      borderRadius: '2px',
+      cursor: 'pointer',
+      boxSizing: 'border-box',
+      overflow: 'hidden',
+      backgroundColor: category === 'image' ? '#f8fafc' : 'transparent',
+    };
+
+    let content: React.ReactNode = null;
+    if (category === 'text') {
+      const displayText = el.binding || el.content || el.type;
+      content = (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            padding: `${2 * scale}px`,
+            fontSize: `${(el.fontSize || 14) * scale}px`,
+            fontFamily: el.fontFamily || 'Helvetica',
+            fontWeight: el.fontWeight || 'normal',
+            fontStyle: el.fontStyle || 'normal',
+            textAlign: (el.textAlign as React.CSSProperties['textAlign']) || 'left',
+            color: el.color || '#000',
+            lineHeight: el.lineHeight || 1.4,
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+            userSelect: 'none',
+          }}
+        >
+          {displayText}
+        </div>
+      );
+    } else if (category === 'image') {
+      content = (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#94a3b8',
+            fontSize: `${12 * scale}px`,
+            userSelect: 'none',
+          }}
+        >
+          {el.src ? (
+            <img src={el.src} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: el.objectFit || 'contain' }} />
+          ) : (
+            getElementTypeLabel(el.type)
+          )}
+        </div>
+      );
+    } else if (category === 'table') {
+      content = (
+        <div
+          style={{
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            userSelect: 'none',
+          }}
+        >
+          {el.showHeader && el.columns && (
+            <div style={{ display: 'flex', borderBottom: `1px solid ${el.borderStyle === 'none' ? 'transparent' : '#cbd5e1'}`, fontSize: `${10 * scale}px`, fontWeight: 600, color: '#475569' }}>
+              {el.columns.map((col) => (
+                <div key={col.key} style={{ flex: col.width, padding: `${2 * scale}px ${4 * scale}px`, borderRight: `1px solid ${el.borderStyle === 'none' ? 'transparent' : '#e2e8f0'}` }}>
+                  {col.header}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: `${10 * scale}px` }}>
+            {getElementTypeLabel(el.type)}
+          </div>
+        </div>
+      );
+    } else {
+      content = (
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: `${10 * scale}px`, userSelect: 'none' }}>
+          {el.binding || getElementTypeLabel(el.type)}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={el.id}
+        data-testid={`canvas-element-${el.id}`}
+        data-element-type={el.type}
+        style={baseStyle}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedElementId(el.id);
+        }}
+      >
+        {content}
+        {/* Selection handles */}
+        {isSelected && (
+          <>
+            <div style={{ position: 'absolute', top: -4, left: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
+            <div style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
+            <div style={{ position: 'absolute', bottom: -4, left: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
+            <div style={{ position: 'absolute', bottom: -4, right: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
+          </>
+        )}
+      </div>
+    );
+  }, [zoom, selectedElementId]);
+
+  // ─── Properties Panel Rendering ───
+
+  const renderPropertiesPanel = () => {
+    if (!selectedElement) {
+      return (
+        <div
+          data-testid="properties-empty"
+          style={{
+            textAlign: 'center',
+            color: '#94a3b8',
+            fontSize: '13px',
+            padding: '40px 20px',
+          }}
+        >
+          Select an element on the canvas to edit its properties
+        </div>
+      );
+    }
+
+    const category = getElementCategory(selectedElement.type);
+
+    return (
+      <div data-testid="properties-content" data-element-type={selectedElement.type}>
+        {/* Element type header */}
+        <div
+          data-testid="properties-type-label"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            marginBottom: '16px',
+            padding: '8px',
+            backgroundColor: '#f1f5f9',
+            borderRadius: '6px',
+          }}
+        >
+          <span style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', textTransform: 'uppercase' }}>
+            {getElementTypeLabel(selectedElement.type)}
+          </span>
+        </div>
+
+        {/* Position & Size (always shown) */}
+        <div style={{ marginBottom: '16px' }} data-testid="properties-position-size">
+          <label style={labelStyle}>Position &amp; Size</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>X</span>
+              <input
+                data-testid="prop-x"
+                type="number"
+                style={propInputStyle}
+                value={selectedElement.x}
+                onChange={(e) => updateElement(selectedElement.id, { x: Number(e.target.value) || 0 })}
+              />
+            </div>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Y</span>
+              <input
+                data-testid="prop-y"
+                type="number"
+                style={propInputStyle}
+                value={selectedElement.y}
+                onChange={(e) => updateElement(selectedElement.id, { y: Number(e.target.value) || 0 })}
+              />
+            </div>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>W</span>
+              <input
+                data-testid="prop-w"
+                type="number"
+                style={propInputStyle}
+                value={selectedElement.w}
+                onChange={(e) => updateElement(selectedElement.id, { w: Number(e.target.value) || 1 })}
+              />
+            </div>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>H</span>
+              <input
+                data-testid="prop-h"
+                type="number"
+                style={propInputStyle}
+                value={selectedElement.h}
+                onChange={(e) => updateElement(selectedElement.id, { h: Number(e.target.value) || 1 })}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Typography section - for text-like elements */}
+        {category === 'text' && (
+          <div data-testid="properties-typography" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Typography</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Family</span>
+                <select
+                  data-testid="prop-font-family"
+                  style={propInputStyle}
+                  value={selectedElement.fontFamily || 'Helvetica'}
+                  onChange={(e) => updateElement(selectedElement.id, { fontFamily: e.target.value })}
+                >
+                  {FONT_FAMILIES.map((f) => (
+                    <option key={f} value={f}>{f}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Size</span>
+                  <input
+                    data-testid="prop-font-size"
+                    type="number"
+                    style={propInputStyle}
+                    value={selectedElement.fontSize || 14}
+                    onChange={(e) => updateElement(selectedElement.id, { fontSize: Number(e.target.value) || 14 })}
+                  />
+                </div>
+                <div>
+                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Line Height</span>
+                  <input
+                    data-testid="prop-line-height"
+                    type="number"
+                    step="0.1"
+                    style={propInputStyle}
+                    value={selectedElement.lineHeight || 1.4}
+                    onChange={(e) => updateElement(selectedElement.id, { lineHeight: Number(e.target.value) || 1.4 })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button
+                  data-testid="prop-bold"
+                  style={{
+                    ...toolbarBtnStyle,
+                    fontWeight: 700,
+                    backgroundColor: selectedElement.fontWeight === 'bold' ? '#e0e7ff' : '#f8fafc',
+                    color: selectedElement.fontWeight === 'bold' ? '#3b82f6' : '#334155',
+                    flex: 1,
+                  }}
+                  onClick={() => updateElement(selectedElement.id, { fontWeight: selectedElement.fontWeight === 'bold' ? 'normal' : 'bold' })}
+                >
+                  B
+                </button>
+                <button
+                  data-testid="prop-italic"
+                  style={{
+                    ...toolbarBtnStyle,
+                    fontStyle: 'italic',
+                    backgroundColor: selectedElement.fontStyle === 'italic' ? '#e0e7ff' : '#f8fafc',
+                    color: selectedElement.fontStyle === 'italic' ? '#3b82f6' : '#334155',
+                    flex: 1,
+                  }}
+                  onClick={() => updateElement(selectedElement.id, { fontStyle: selectedElement.fontStyle === 'italic' ? 'normal' : 'italic' })}
+                >
+                  I
+                </button>
+                {(['left', 'center', 'right'] as const).map((align) => (
+                  <button
+                    key={align}
+                    data-testid={`prop-align-${align}`}
+                    style={{
+                      ...toolbarBtnStyle,
+                      backgroundColor: selectedElement.textAlign === align ? '#e0e7ff' : '#f8fafc',
+                      color: selectedElement.textAlign === align ? '#3b82f6' : '#334155',
+                      flex: 1,
+                      fontSize: '11px',
+                    }}
+                    onClick={() => updateElement(selectedElement.id, { textAlign: align })}
+                  >
+                    {align === 'left' ? 'L' : align === 'center' ? 'C' : 'R'}
+                  </button>
+                ))}
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Color</span>
+                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                  <input
+                    data-testid="prop-color"
+                    type="color"
+                    style={{ width: '32px', height: '28px', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
+                    value={selectedElement.color || '#000000'}
+                    onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
+                  />
+                  <input
+                    data-testid="prop-color-hex"
+                    type="text"
+                    style={{ ...propInputStyle, flex: 1 }}
+                    value={selectedElement.color || '#000000'}
+                    onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Content</span>
+                <textarea
+                  data-testid="prop-content"
+                  style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical' }}
+                  value={selectedElement.content || ''}
+                  onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Image options - for image-like elements */}
+        {category === 'image' && (
+          <div data-testid="properties-image" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Image Options</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Source URL</span>
+                <input
+                  data-testid="prop-src"
+                  type="text"
+                  style={propInputStyle}
+                  placeholder="Image URL or asset reference"
+                  value={selectedElement.src || ''}
+                  onChange={(e) => updateElement(selectedElement.id, { src: e.target.value })}
+                />
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Object Fit</span>
+                <select
+                  data-testid="prop-object-fit"
+                  style={propInputStyle}
+                  value={selectedElement.objectFit || 'contain'}
+                  onChange={(e) => updateElement(selectedElement.id, { objectFit: e.target.value as 'contain' | 'cover' | 'fill' })}
+                >
+                  <option value="contain">Contain</option>
+                  <option value="cover">Cover</option>
+                  <option value="fill">Fill</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Opacity (%)</span>
+                <input
+                  data-testid="prop-opacity"
+                  type="number"
+                  min="0"
+                  max="100"
+                  style={propInputStyle}
+                  value={selectedElement.opacity ?? 100}
+                  onChange={(e) => updateElement(selectedElement.id, { opacity: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Table column config - for table elements */}
+        {category === 'table' && (
+          <div data-testid="properties-table" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Table Configuration</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  data-testid="prop-show-header"
+                  type="checkbox"
+                  checked={selectedElement.showHeader ?? true}
+                  onChange={(e) => updateElement(selectedElement.id, { showHeader: e.target.checked })}
+                />
+                <span style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</span>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Border Style</span>
+                <select
+                  data-testid="prop-border-style"
+                  style={propInputStyle}
+                  value={selectedElement.borderStyle || 'solid'}
+                  onChange={(e) => updateElement(selectedElement.id, { borderStyle: e.target.value as 'solid' | 'dashed' | 'none' })}
+                >
+                  <option value="solid">Solid</option>
+                  <option value="dashed">Dashed</option>
+                  <option value="none">None</option>
+                </select>
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Columns</span>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                  {(selectedElement.columns || []).map((col, colIdx) => (
+                    <div
+                      key={colIdx}
+                      data-testid={`prop-column-${colIdx}`}
+                      style={{
+                        display: 'flex',
+                        gap: '4px',
+                        padding: '4px 6px',
+                        borderBottom: colIdx < (selectedElement.columns?.length || 0) - 1 ? '1px solid #f1f5f9' : 'none',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <input
+                        data-testid={`prop-col-key-${colIdx}`}
+                        type="text"
+                        style={{ ...propInputStyle, flex: 1 }}
+                        value={col.key}
+                        placeholder="Key"
+                        onChange={(e) => {
+                          const newCols = [...(selectedElement.columns || [])];
+                          newCols[colIdx] = { ...newCols[colIdx], key: e.target.value };
+                          updateElement(selectedElement.id, { columns: newCols });
+                        }}
+                      />
+                      <input
+                        data-testid={`prop-col-header-${colIdx}`}
+                        type="text"
+                        style={{ ...propInputStyle, flex: 1 }}
+                        value={col.header}
+                        placeholder="Header"
+                        onChange={(e) => {
+                          const newCols = [...(selectedElement.columns || [])];
+                          newCols[colIdx] = { ...newCols[colIdx], header: e.target.value };
+                          updateElement(selectedElement.id, { columns: newCols });
+                        }}
+                      />
+                      <input
+                        data-testid={`prop-col-width-${colIdx}`}
+                        type="number"
+                        style={{ ...propInputStyle, width: '50px' }}
+                        value={col.width}
+                        onChange={(e) => {
+                          const newCols = [...(selectedElement.columns || [])];
+                          newCols[colIdx] = { ...newCols[colIdx], width: Number(e.target.value) || 60 };
+                          updateElement(selectedElement.id, { columns: newCols });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button
+                  data-testid="prop-add-column"
+                  style={{ ...toolbarBtnStyle, width: '100%', marginTop: '4px', fontSize: '11px' }}
+                  onClick={() => {
+                    const newCols = [...(selectedElement.columns || []), { key: `col${(selectedElement.columns?.length || 0) + 1}`, header: `Column ${(selectedElement.columns?.length || 0) + 1}`, width: 80 }];
+                    updateElement(selectedElement.id, { columns: newCols });
+                  }}
+                >
+                  + Add Column
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Data Binding section - for text and calculated elements */}
+        {(category === 'text' || selectedElement.type === 'qr-barcode') && (
+          <div data-testid="properties-binding" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Data Binding</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Bound Field</span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <input
+                    data-testid="prop-binding"
+                    type="text"
+                    style={{ ...propInputStyle, flex: 1 }}
+                    placeholder="e.g. {{customer.name}}"
+                    value={selectedElement.binding || ''}
+                    onChange={(e) => updateElement(selectedElement.id, { binding: e.target.value })}
+                  />
+                  <button
+                    data-testid="btn-open-binding-picker"
+                    style={{ ...toolbarBtnStyle, padding: '4px 8px', fontSize: '11px' }}
+                    onClick={() => setShowBindingPicker(!showBindingPicker)}
+                  >
+                    Pick
+                  </button>
+                </div>
+              </div>
+
+              {/* Binding field picker dropdown */}
+              {showBindingPicker && (
+                <div
+                  data-testid="binding-picker"
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    backgroundColor: '#fff',
+                    maxHeight: '250px',
+                    overflow: 'auto',
+                  }}
+                >
+                  <div style={{ padding: '6px', borderBottom: '1px solid #e2e8f0' }}>
+                    <input
+                      data-testid="binding-search"
+                      type="text"
+                      style={{ ...propInputStyle, width: '100%' }}
+                      placeholder="Search fields..."
+                      value={bindingSearch}
+                      onChange={(e) => setBindingSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  {filteredFields.map((group) => (
+                    <div key={group.group}>
+                      <div style={{ padding: '6px 8px', fontSize: '11px', fontWeight: 600, color: '#64748b', backgroundColor: '#f8fafc', textTransform: 'uppercase' }}>
+                        {group.group}
+                      </div>
+                      {group.fields.map((field) => (
+                        <div
+                          key={field.key}
+                          data-testid={`binding-field-${field.key}`}
+                          style={{
+                            padding: '6px 12px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                          onClick={() => handleBindField(field.key)}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f5f9')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <span style={{ color: '#334155' }}>{field.label}</span>
+                          <span data-testid={`binding-preview-${field.key}`} style={{ color: '#94a3b8', fontSize: '11px' }}>{field.example}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Preview of bound value */}
+              {selectedElement.binding && (
+                <div data-testid="binding-preview-value" style={{ padding: '6px 8px', backgroundColor: '#f0fdf4', borderRadius: '4px', fontSize: '12px' }}>
+                  <span style={{ color: '#64748b' }}>Preview: </span>
+                  <span style={{ color: '#16a34a', fontWeight: 500 }}>
+                    {(() => {
+                      const match = selectedElement.binding.match(/^\{\{(.+)\}\}$/);
+                      if (!match) return selectedElement.binding;
+                      const key = match[1];
+                      for (const group of DATA_FIELDS) {
+                        const field = group.fields.find((f) => f.key === key);
+                        if (field) return field.example;
+                      }
+                      return selectedElement.binding;
+                    })()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Delete element button */}
+        <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
+          <button
+            data-testid="btn-delete-element"
+            style={{
+              ...toolbarBtnStyle,
+              width: '100%',
+              color: '#ef4444',
+              borderColor: '#fecaca',
+              backgroundColor: '#fef2f2',
+            }}
+            onClick={() => {
+              setPages((prev) => prev.map((page, idx) => {
+                if (idx !== currentPageIndex) return page;
+                return { ...page, elements: page.elements.filter((el) => el.id !== selectedElementId) };
+              }));
+              setSelectedElementId(null);
+              setIsDirty(true);
+            }}
+          >
+            Delete Element
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div
@@ -296,8 +1122,8 @@ export default function ErpDesigner({
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Undo / Redo */}
-        <button data-testid="btn-undo" title="Undo" style={toolbarBtnStyle} disabled>↩</button>
-        <button data-testid="btn-redo" title="Redo" style={toolbarBtnStyle} disabled>↪</button>
+        <button data-testid="btn-undo" title="Undo" style={toolbarBtnStyle} disabled>&#8617;</button>
+        <button data-testid="btn-redo" title="Redo" style={toolbarBtnStyle} disabled>&#8618;</button>
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
@@ -429,6 +1255,7 @@ export default function ErpDesigner({
                           key={block.id}
                           data-testid={`block-${block.id}`}
                           draggable
+                          onClick={() => addElementToCanvas(block.id)}
                           style={{
                             padding: '8px',
                             borderRadius: '6px',
@@ -462,14 +1289,26 @@ export default function ErpDesigner({
                   }}
                 />
                 <div style={{ fontSize: '13px', color: '#64748b' }}>
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Document</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}>{'{{document.number}}'}</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}>{'{{document.date}}'}</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '8px', cursor: 'pointer' }}>{'{{document.dueDate}}'}</div>
-                  <div style={{ fontWeight: 600, marginBottom: '4px' }}>Customer</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}>{'{{customer.name}}'}</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}>{'{{customer.email}}'}</div>
-                  <div style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}>{'{{customer.address}}'}</div>
+                  {DATA_FIELDS.map((group) => (
+                    <div key={group.group}>
+                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>{group.group}</div>
+                      {group.fields.map((field) => (
+                        <div
+                          key={field.key}
+                          data-testid={`field-${field.key}`}
+                          style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}
+                          onClick={() => {
+                            if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
+                              handleBindField(field.key);
+                            }
+                          }}
+                        >
+                          {`{{${field.key}}}`}
+                        </div>
+                      ))}
+                      <div style={{ height: '8px' }} />
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -515,7 +1354,7 @@ export default function ErpDesigner({
                       userSelect: 'none',
                     }}
                   >
-                    {/* Thumbnail preview - miniature page representation */}
+                    {/* Thumbnail preview */}
                     <div
                       data-testid={`page-thumb-preview-${index}`}
                       style={{
@@ -529,7 +1368,6 @@ export default function ErpDesigner({
                         overflow: 'hidden',
                       }}
                     >
-                      {/* Mini content representation */}
                       {page.elements.length > 0 ? (
                         page.elements.map((el) => (
                           <div
@@ -597,6 +1435,7 @@ export default function ErpDesigner({
         <div
           className="erp-designer-canvas"
           data-testid="center-canvas"
+          ref={canvasRef}
           style={{
             flex: 1,
             backgroundColor: '#e2e8f0',
@@ -606,7 +1445,10 @@ export default function ErpDesigner({
             overflow: 'auto',
             padding: '24px',
           }}
-          onClick={() => setSelectedElement(null)}
+          onClick={() => {
+            setSelectedElementId(null);
+            setShowBindingPicker(false);
+          }}
         >
           {/* A4 Page */}
           <div
@@ -630,10 +1472,14 @@ export default function ErpDesigner({
                 fontSize: `${10 * (zoom / 100)}px`,
                 color: '#94a3b8',
                 userSelect: 'none',
+                zIndex: 1,
               }}
             >
               {currentPage?.label}
             </div>
+
+            {/* Render elements on canvas */}
+            {currentPage && currentPage.elements.map((el) => renderCanvasElement(el))}
 
             {/* Placeholder content showing it's a template canvas */}
             {currentPage && currentPage.elements.length === 0 && (
@@ -650,7 +1496,7 @@ export default function ErpDesigner({
                 }}
               >
                 <div style={{ fontSize: `${24 * (zoom / 100)}px`, marginBottom: '8px' }}>+</div>
-                Drag blocks here to design your template
+                Drag blocks here or click to add
               </div>
             )}
           </div>
@@ -681,31 +1527,7 @@ export default function ErpDesigner({
             Properties
           </div>
           <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
-            {selectedElement ? (
-              <div data-testid="properties-content">
-                <div style={{ marginBottom: '16px' }}>
-                  <label style={labelStyle}>Position &amp; Size</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                    <div><span style={{ fontSize: '11px', color: '#94a3b8' }}>X</span><input style={propInputStyle} defaultValue="0" /></div>
-                    <div><span style={{ fontSize: '11px', color: '#94a3b8' }}>Y</span><input style={propInputStyle} defaultValue="0" /></div>
-                    <div><span style={{ fontSize: '11px', color: '#94a3b8' }}>W</span><input style={propInputStyle} defaultValue="100" /></div>
-                    <div><span style={{ fontSize: '11px', color: '#94a3b8' }}>H</span><input style={propInputStyle} defaultValue="20" /></div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                data-testid="properties-empty"
-                style={{
-                  textAlign: 'center',
-                  color: '#94a3b8',
-                  fontSize: '13px',
-                  padding: '40px 20px',
-                }}
-              >
-                Select an element on the canvas to edit its properties
-              </div>
-            )}
+            {renderPropertiesPanel()}
           </div>
         </div>
       </div>
@@ -735,7 +1557,7 @@ export default function ErpDesigner({
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f5f9')}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <span style={{ marginRight: '8px' }}>📄</span> Duplicate Page
+            Duplicate Page
           </button>
           <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '4px 0' }} />
           <button
@@ -752,7 +1574,7 @@ export default function ErpDesigner({
             }}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
-            <span style={{ marginRight: '8px' }}>🗑️</span> Delete Page
+            Delete Page
             {pages.length <= 1 && <span style={{ fontSize: '11px', marginLeft: 'auto', color: '#94a3b8' }}>(last page)</span>}
           </button>
         </div>
