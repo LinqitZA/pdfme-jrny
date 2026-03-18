@@ -1000,3 +1000,58 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-font-upload.js - 21 tests for font upload
 
 ### Current Status: 75/388 features passing (19.3%)
+
+---
+
+## Session - 2026-03-18 - Features #151, #152, #153 (Font Fallback, DataSource Error, PDF/A Failure)
+
+### Completed Features:
+- **Feature #151**: Font fallback to default on missing ✅
+  - Added resolveFonts() method to RenderService
+  - Scans template schemas for fontName references
+  - Tries to load custom fonts from org file storage
+  - Falls back to pdfme's built-in Roboto for missing fonts
+  - Logs console warnings for each missing font
+  - Returns FontWarning[] array with font name and message
+  - Added POST /api/pdfme/render/font-check endpoint
+  - Added checkTemplateFonts() method to RenderService
+  - Integrated into both renderNow() and generatePreview() pipelines
+  - 13 automated tests passing
+
+- **Feature #152**: Render fails cleanly on DataSource error ✅
+  - Integrated DataSourceRegistry into RenderService (optional dependency)
+  - When DataSource registered for template type and no explicit inputs provided:
+    - Calls DataSource.resolve() to get input data
+    - On success: uses resolved data as inputs
+    - On failure: creates failed GeneratedDocument with error details
+  - Explicit inputs bypass DataSource (even if registered)
+  - Added register-test and unregister endpoints to DataSourceController
+  - Error response includes: HTTP 500, error message, document with status=failed, errorMessage field
+  - 11 automated tests passing
+
+- **Feature #153**: Render stores raw PDF on Ghostscript failure ✅
+  - Modified PDF/A conversion failure handling in renderNow()
+  - On PDF/A conversion failure: stores raw PDF with _non-pdfa suffix
+  - Creates failed GeneratedDocument with filePath pointing to debug PDF
+  - errorMessage contains "PDF/A-3b conversion failed: [original error]"
+  - Console logs error details for debugging
+  - Added setForceFailure()/getForceFailure() to PdfaProcessor for testing
+  - Added POST /api/pdfme/render/force-pdfa-failure endpoint
+  - Force failure auto-clears after one use
+  - Normal renders unaffected after forced failure
+  - 15 automated tests passing
+
+### Key Files Modified:
+- nest-module/src/render.service.ts - Added resolveFonts(), checkTemplateFonts(), DataSource integration, PDF/A failure handling
+- nest-module/src/render.controller.ts - Added font-check and force-pdfa-failure endpoints
+- nest-module/src/pdfa-processor.ts - Added setForceFailure()/getForceFailure() for testing
+- nest-module/src/datasource.controller.ts - Added register-test and unregister endpoints
+
+### API Endpoints Added:
+- POST /api/pdfme/render/font-check - Check font availability for a template
+- POST /api/pdfme/render/force-pdfa-failure - Force PDF/A failure for testing
+- POST /api/pdfme/datasources/:type/register-test - Register test DataSource
+- POST /api/pdfme/datasources/:type/unregister - Unregister DataSource
+
+### Test Results: 39/39 tests passing across 3 test suites
+### Current Status: Features #151, #152, #153 marked passing (~72/388)
