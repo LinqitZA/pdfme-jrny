@@ -721,3 +721,65 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 13. applyWatermark, applyRichText, applySignatureBlocks (post-processing)
 
 ### Current Status: Features #131, #132, #133 marked passing (~52/388)
+
+---
+
+## Session - 2026-03-18 - Features #127, #128, #129 (Schema Plugins: Rich Text, ERP Image, Signature Block)
+
+### Completed Features:
+- **Feature #127**: Rich text renders HTML subset ✅
+  - Full HTML parser for bold, italic, underline, font-size, color, line breaks
+  - Supports <b>, <strong>, <i>, <em>, <u>, <br>, <span style="...">, <p> tags
+  - Field binding resolution ({{field.key}}) within rich text content
+  - PDF rendering via pdf-lib post-processing with Helvetica font variants
+  - 56 unit tests + 10 integration tests passing
+
+- **Feature #128**: ERP image resolves from file storage ✅
+  - Resolves images from org asset storage via assetPath or assetId
+  - Converts erpImage type to pdfme image with base64 data URI
+  - Supports dynamic images via inputs (storage path or base64 data URI)
+  - Proper MIME type detection from extension and magic bytes
+  - 9 integration tests passing
+
+- **Feature #129**: Signature block renders placeholder ✅
+  - Horizontal signature line with centered label text below
+  - Sub-label text with {{field.key}} binding resolution
+  - PDF rendering via pdf-lib post-processing (line + text)
+  - Supports label-only mode (no sub-label)
+  - Different sub-labels produce different PDF hashes (verified)
+  - 10 integration tests passing
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/rich-text/index.ts - Full rich text HTML parser and renderer
+- packages/erp-schemas/src/erp-image/index.ts - ERP image resolver with FileStorage integration
+- packages/erp-schemas/src/signature-block/index.ts - Signature block line+label renderer
+- nest-module/src/render.service.ts - Integrated all three plugins into render pipeline
+
+### Render Pipeline Order (updated):
+1. Build pdfme template from schema
+2. Resolve inputs
+3. Resolve drawnSignatures (base64 from storage)
+4. Resolve erpImages (asset from FileStorageService)
+5. Resolve lineItemsTables (convert to table)
+6. Resolve qrBarcodes (convert to qrcode)
+7. Resolve richText (extract for post-processing)
+8. Resolve signatureBlocks (extract for post-processing)
+9. Resolve pageScopes (filter by first/last/all)
+10. Resolve conditions (fieldNonEmpty/expression)
+11. Resolve outputChannels (email/print filtering)
+12. Resolve calculatedFields (expression evaluation)
+13. Extract watermark config
+14. Remove watermark/unknown elements
+15. pdfme generate() - base PDF
+16. Post-process: richText (pdf-lib)
+17. Post-process: signatureBlock (pdf-lib)
+18. Post-process: watermark (pdf-lib)
+19. Hash, store, create DB record
+
+### Current Status: 58/388 features passing (14.9%)
+
+### Notes for next session:
+- Server runs on port 3000, Docker containers: pdfme-postgres (5432), pdfme-redis (6379)
+- Other agents added: resolvePageScopes, resolveConditions, resolveOutputChannels, resolveCalculatedFields, resolveQrBarcodes
+- All three new plugins use pdf-lib post-processing pattern (like watermark)
+- No mock data patterns in any new code
