@@ -1095,3 +1095,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - nest-module/src/main.ts - Added body parser limit
 
 ### Current Status: ~80/388 features passing (20.6%)
+
+
+---
+
+## Session - 2026-03-18 - Features #157, #158, #159 (Expression Error Handling and Validation)
+
+### Completed Features:
+- **Feature #157**: Expression error handling configurable
+  - Added ExpressionErrorMode type: 'emptyString' | '#ERROR' | 'fail'
+  - evaluateCalculatedField accepts per-field onError parameter
+  - Division by zero and invalid expressions handled per config
+  - 'emptyString' returns blank, '#ERROR' returns text, 'fail' throws error
+  - onError from engineOptions serves as fallback, per-field overrides it
+  - Infinity/NaN detection for division by zero
+  - 23/23 tests passing (unit + integration)
+
+- **Feature #158**: Returns 400 for invalid request body
+  - Template creation: validates name, type, schema with detailed error envelope
+  - Schema type validation (must be JSON object, not array or primitive)
+  - Render/now: validates templateId, entityId, channel with details array
+  - Render/bulk: validates templateId, entityIds (non-empty array), channel
+  - Error envelope format: {statusCode, error, message, details: [{field, reason}]}
+  - 35/35 tests passing
+
+- **Feature #159**: Returns 404 for nonexistent resources
+  - Template GET, export, publish, update, delete all return 404
+  - Render verify, render/now (template not published), batch status return 404
+  - System template, datasource type return 404
+  - Error envelope: {statusCode: 404, error: 'Not Found', message: '<descriptive>'}
+  - 26/26 tests passing
+
+### Key Files Modified:
+- packages/erp-schemas/src/expression-engine/index.ts - Added ExpressionErrorMode type
+- packages/erp-schemas/src/calculated-field/index.ts - onError param, Infinity/NaN detection
+- packages/erp-schemas/src/index.ts - Export ExpressionErrorMode
+- nest-module/src/template.controller.ts - Enhanced validation with details array
+- nest-module/src/render.controller.ts - Enhanced validation with details array
+- tests/test-expression-error-handling.js - 23 tests
+- tests/test-invalid-request-400.js - 35 tests
+- tests/test-nonexistent-resource-404.js - 26 tests
+
+### Current Status: ~80/388 features passing (20.6%)
