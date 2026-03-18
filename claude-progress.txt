@@ -3257,3 +3257,44 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 86/86 tests passing across 3 test suites
 ### Current Status: ~234/388 features passing (60.3%)
+
+---
+
+## Session - 2026-03-18 - Features #310, #311, #312 (Accessibility)
+
+### Completed Features:
+- **Feature #310**: Color contrast meets WCAG AA ✅
+  - Replaced #94a3b8 (2.5:1 contrast) with #64748b (4.8:1) across 35+ property labels
+  - Replaced #3b82f6 (3.8:1) with #2563eb (5.1:1) for section headers and active toggles
+  - Fixed badge colors: amber #92400e, blue #1e40af on respective backgrounds
+  - Fixed error text #ef4444→#dc2626 (4.9:1), warning #f59e0b→#b45309 (5.0:1)
+  - Fixed green text #10b981→#15803d, #16a34a→#15803d for AA compliance
+  - Save button backgrounds updated: #3b82f6→#2563eb, #94a3b8→#475569
+  - 24/24 contrast ratio tests passing
+
+- **Feature #311**: Form inputs have associated labels ✅
+  - Converted 21 span labels to proper <label> elements with htmlFor attributes
+  - Added id attributes to all property panel inputs/selects matching htmlFor
+  - Position (X,Y,W,H), Typography (font, size, height), Color, Content, Overflow
+  - Image (src, fit, opacity, alt), Table (border, header), Binding, Scope, Channel
+  - Conditional visibility, condition expression all properly labeled
+  - 24/24 label association tests passing
+
+- **Feature #312**: Error announcements for screen readers ✅
+  - Save/publish error banners now have role="alert" + aria-live="assertive"
+  - Toast notifications: role="alert" for errors, role="status" for success/info
+  - Render overlay: role="alertdialog" with dynamic aria-label per status
+  - Loading overlay: role="status" + aria-live="polite" with contextual label
+  - Added announceError() calls to render error paths (preview, render, bulk)
+  - Validation errors list gets aria-label="Validation errors"
+  - Hidden screen reader announcer already existed (assertive + role=alert)
+  - 23/23 ARIA announcement tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - All accessibility changes
+- tests/test-feature-310-color-contrast.js - 24 tests
+- tests/test-feature-311-form-labels.js - 24 tests
+- tests/test-feature-312-error-announcements.js - 23 tests
+
+### Test Results: 71/71 tests passing across 3 test suites
+### Current Status: ~233/388 features passing (60.1%)
