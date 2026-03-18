@@ -1987,3 +1987,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 58/58 tests passing across 3 test suites
 ### Current Status: ~141/388 features passing (36.3%)
+
+---
+
+## Session - 2026-03-18 - Features #226, #227, #228 (Bulk Concurrency, Lock Idempotency, Archive Cascade)
+
+### Completed Features:
+- **Feature #226**: Concurrent bulk submit prevented ✅
+  - Added running batch check in renderBulk() service method
+  - Queries render_batches for same orgId + templateType + status='running'
+  - Returns conflict info (existingBatchId, status, progress) if found
+  - Controller returns 409 Conflict with detailed error envelope
+  - Different template types allowed concurrently
+  - Different orgs allowed concurrently for same type
+  - After batch completion, re-submit allowed
+  - No data corruption in original batch
+  - 17/17 tests passing
+
+- **Feature #227**: Idempotent lock acquisition ✅
+  - Existing acquireLock() implementation already handles same-user re-acquisition
+  - Same user re-acquiring refreshes lockedAt timestamp (heartbeat pattern)
+  - No error returned for same-user lock re-acquisition
+  - Other users still properly blocked (409 Conflict)
+  - ExpiresAt extended on each heartbeat
+  - Multiple rapid heartbeats all succeed
+  - Release and re-acquire cycle works correctly
+  - 24/24 tests passing
+
+- **Feature #228**: Template archive cascades - not in render dropdown ✅
+  - Archived templates excluded from GET /api/pdfme/templates (findAll uses ne(status, 'archived'))
+  - Archived templates excluded from type-filtered lists
+  - Archived templates cannot be rendered (renderNow requires status='published')
+  - Existing rendered documents still accessible after template archival
+  - Template count properly decreases after archival
+  - Cannot re-publish archived template
+  - Other templates unaffected by archival
+  - 17/17 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.service.ts - Added running batch check in renderBulk()
+- nest-module/src/render.controller.ts - Added 409 Conflict response for concurrent bulk
+- tests/test-concurrent-bulk-226.js - 17 tests
+- tests/test-idempotent-lock-227.js - 24 tests
+- tests/test-archive-cascade-228.js - 17 tests
+
+### Test Results: 58/58 tests passing across 3 test suites
+### Current Status: ~145/388 features passing (37.4%)
