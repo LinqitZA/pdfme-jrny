@@ -111,6 +111,45 @@ export const templateVersions = pgTable('template_versions', {
   index('idx_template_versions_template').on(table.templateId),
 ]);
 
+// ─── Printers ───────────────────────────────────────────────────────
+export const printers = pgTable('printers', {
+  id: text('id').primaryKey(), // cuid2
+  orgId: text('org_id').notNull(),
+  name: text('name').notNull(),
+  host: text('host').notNull(),
+  port: integer('port').notNull().default(9100),
+  type: text('type').notNull().default('raw'), // raw
+  isDefault: text('is_default').default('false'), // 'true' | 'false'
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── PrintJobs ──────────────────────────────────────────────────────
+export const printJobs = pgTable(
+  'print_jobs',
+  {
+    id: text('id').primaryKey(), // cuid2
+    orgId: text('org_id').notNull(),
+    templateId: text('template_id').references(() => templates.id),
+    printerId: text('printer_id').references(() => printers.id),
+    status: text('status').notNull().default('pending'), // pending | rendered | printing | completed | failed | partial
+    totalLabels: integer('total_labels').notNull().default(1),
+    labelsPrinted: integer('labels_printed').notNull().default(0),
+    renderedPdfPath: text('rendered_pdf_path'), // file storage reference
+    inputsSnapshot: jsonb('inputs_snapshot'), // frozen inputs at creation time
+    errorMessage: text('error_message'),
+    errorAt: timestamp('error_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    createdBy: text('created_by').notNull(),
+  },
+  (table) => [
+    index('idx_print_jobs_org_status').on(table.orgId, table.status),
+    index('idx_print_jobs_created_at').on(table.createdAt),
+  ],
+);
+
 // ─── AuditLog ────────────────────────────────────────────────────────
 // APPEND-ONLY: no UPDATE or DELETE
 export const auditLogs = pgTable('audit_logs', {

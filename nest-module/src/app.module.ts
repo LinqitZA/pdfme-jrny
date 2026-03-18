@@ -43,12 +43,15 @@ import { OrgSettingsService } from './org-settings.service';
 import { SystemController } from './system.controller';
 import { RateLimiterService } from './rate-limiter.service';
 import { HashService } from './hash.service';
+import { PrinterController } from './printer.controller';
+import { PrinterService } from './printer.service';
+import { PrintJobService } from './print-job.service';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController, OrgSettingsController, SystemController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController, OrgSettingsController, SystemController, PrinterController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -215,8 +218,10 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     OrgSettingsService,
     RateLimiterService,
     HashService,
+    PrinterService,
+    PrintJobService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService, OrgSettingsService, RateLimiterService, HashService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService, OrgSettingsService, RateLimiterService, HashService, PrinterService, PrintJobService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

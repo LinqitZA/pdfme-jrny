@@ -108,6 +108,43 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Printers table
+CREATE TABLE IF NOT EXISTS printers (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL DEFAULT 9100,
+  type TEXT NOT NULL DEFAULT 'raw',
+  is_default TEXT DEFAULT 'false',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_printers_org_id ON printers (org_id);
+
+-- PrintJobs table
+CREATE TABLE IF NOT EXISTS print_jobs (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  template_id TEXT REFERENCES templates(id),
+  printer_id TEXT REFERENCES printers(id),
+  status TEXT NOT NULL DEFAULT 'pending',
+  total_labels INTEGER NOT NULL DEFAULT 1,
+  labels_printed INTEGER NOT NULL DEFAULT 0,
+  rendered_pdf_path TEXT,
+  inputs_snapshot JSONB,
+  error_message TEXT,
+  error_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  completed_at TIMESTAMPTZ,
+  created_by TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_print_jobs_org_status ON print_jobs (org_id, status);
+CREATE INDEX IF NOT EXISTS idx_print_jobs_created_at ON print_jobs (created_at);
+
 -- Enforce APPEND-ONLY on audit_logs: block UPDATE
 CREATE OR REPLACE FUNCTION audit_logs_prevent_update()
 RETURNS TRIGGER AS $$

@@ -45,6 +45,22 @@ export interface PlaceholderImageInfo {
   fieldName: string;
 }
 
+/** N-up sheet layout configuration for label printing */
+export interface NupSheetLayout {
+  type: 'sheet';
+  columns: number;
+  rows: number;
+  sheetSize?: string; // 'A4' | 'Letter' - defaults to 'A4'
+  margins?: {
+    top?: number;    // mm
+    left?: number;   // mm
+    columnGap?: number; // mm
+    rowGap?: number; // mm
+  };
+}
+
+export type RenderLayout = 'single' | NupSheetLayout;
+
 export interface RenderNowDto {
   templateId: string;
   entityId: string;
@@ -53,6 +69,8 @@ export interface RenderNowDto {
   inputs?: Record<string, string>[];
   /** When true, store full input snapshot on GeneratedDocument for audit reproduction */
   storeInputSnapshot?: boolean;
+  /** Label layout mode: 'single' (one label per page) or N-up sheet layout */
+  layout?: RenderLayout;
 }
 
 export interface RenderBulkDto {
@@ -662,6 +680,17 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // 4f. Apply N-up sheet layout for label batch printing
+    if (dto.layout && typeof dto.layout === 'object' && dto.layout.type === 'sheet') {
+      try {
+        pdfBuffer = await this.applyNupLayout(pdfBuffer, dto.layout);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        console.error(`[RenderService] N-up layout failed: ${errorMessage}`);
+        // Continue with original single-per-page layout
+      }
+    }
+
     // 5. Compute document hash (algorithm configurable via module config)
     const pdfHash = this.hashService.computeHash(pdfBuffer);
 
@@ -745,6 +774,88 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     }
 
     return { document };
+  }
+
+  /**
+   * Apply N-up layout: arrange multiple single-label pages onto sheets (e.g., 3x7 on A4).
+   * Uses pdf-lib to read each page from the input PDF and embed them onto new sheet-sized pages.
+   */
+  private async applyNupLayout(pdfBuffer: Uint8Array, layout: NupSheetLayout): Promise<Uint8Array> {
+    const { PDFDocument } = await import('pdf-lib');
+
+    const MM_TO_PT = 2.83465;
+
+    // Sheet dimensions in points
+    const sheetDims: Record<string, { width: number; height: number }> = {
+      A4: { width: 595, height: 842 },
+      Letter: { width: 612, height: 792 },
+    };
+    const sheet = sheetDims[layout.sheetSize || 'A4'] || sheetDims.A4;
+
+    const cols = Math.max(1, Math.floor(layout.columns));
+    const rows = Math.max(1, Math.floor(layout.rows));
+    const labelsPerSheet = cols * rows;
+
+    // Margins in points
+    const marginTop = (layout.margins?.top ?? 10) * MM_TO_PT;
+    const marginLeft = (layout.margins?.left ?? 5) * MM_TO_PT;
+    const colGap = (layout.margins?.columnGap ?? 2) * MM_TO_PT;
+    const rowGap = (layout.margins?.rowGap ?? 2) * MM_TO_PT;
+
+    // Calculate label cell size
+    const availableWidth = sheet.width - 2 * marginLeft;
+    const availableHeight = sheet.height - 2 * marginTop;
+    const cellWidth = (availableWidth - (cols - 1) * colGap) / cols;
+    const cellHeight = (availableHeight - (rows - 1) * rowGap) / rows;
+
+    // Read input PDF
+    const inputPdf = await PDFDocument.load(pdfBuffer);
+    const pageCount = inputPdf.getPageCount();
+
+    if (pageCount === 0) return pdfBuffer;
+
+    // Create output PDF
+    const outputPdf = await PDFDocument.create();
+
+    let labelIndex = 0;
+    while (labelIndex < pageCount) {
+      // Create a new sheet page
+      const sheetPage = outputPdf.addPage([sheet.width, sheet.height]);
+
+      for (let row = 0; row < rows && labelIndex < pageCount; row++) {
+        for (let col = 0; col < cols && labelIndex < pageCount; col++) {
+          // Embed the label page
+          const [embeddedPage] = await outputPdf.embedPdf(inputPdf, [labelIndex]);
+
+          // Calculate position (top-left origin in PDF is bottom-left)
+          const x = marginLeft + col * (cellWidth + colGap);
+          const y = sheet.height - marginTop - (row + 1) * cellHeight - row * rowGap;
+
+          // Scale label to fit cell
+          const labelDims = inputPdf.getPage(labelIndex).getSize();
+          const scaleX = cellWidth / labelDims.width;
+          const scaleY = cellHeight / labelDims.height;
+          const scale = Math.min(scaleX, scaleY);
+
+          // Center label within cell
+          const scaledWidth = labelDims.width * scale;
+          const scaledHeight = labelDims.height * scale;
+          const offsetX = (cellWidth - scaledWidth) / 2;
+          const offsetY = (cellHeight - scaledHeight) / 2;
+
+          sheetPage.drawPage(embeddedPage, {
+            x: x + offsetX,
+            y: y + offsetY,
+            width: scaledWidth,
+            height: scaledHeight,
+          });
+
+          labelIndex++;
+        }
+      }
+    }
+
+    return outputPdf.save();
   }
 
   /**

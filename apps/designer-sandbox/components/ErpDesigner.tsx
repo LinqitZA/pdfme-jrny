@@ -326,6 +326,20 @@ const BLOCK_CATEGORIES = [
 
 const PAGE_SIZES = ['A4', 'Letter', 'Legal', 'A3', 'A5'];
 
+const LABEL_SIZES = [
+  'Label 100×50mm',
+  'Label 100×150mm',
+  'Label 101.6×152.4mm',
+  'Label 57×32mm',
+  'Label 76×51mm',
+  'Label 102×64mm',
+  'Label 60×40mm',
+  'Label 80×40mm',
+];
+
+/** mm to PDF points conversion factor (1mm = 2.83465pt) */
+const MM_TO_PT_FACTOR = 2.83465;
+
 /** Page dimensions in PDF points (1 pt = 1/72 inch) */
 const PAGE_SIZE_DIMENSIONS: Record<string, { width: number; height: number }> = {
   A4: { width: 595, height: 842 },
@@ -333,6 +347,15 @@ const PAGE_SIZE_DIMENSIONS: Record<string, { width: number; height: number }> = 
   Legal: { width: 612, height: 1008 },
   A3: { width: 842, height: 1191 },
   A5: { width: 420, height: 595 },
+  // Label sizes (mm → pt)
+  'Label 100×50mm': { width: Math.round(100 * MM_TO_PT_FACTOR), height: Math.round(50 * MM_TO_PT_FACTOR) },
+  'Label 100×150mm': { width: Math.round(100 * MM_TO_PT_FACTOR), height: Math.round(150 * MM_TO_PT_FACTOR) },
+  'Label 101.6×152.4mm': { width: Math.round(101.6 * MM_TO_PT_FACTOR), height: Math.round(152.4 * MM_TO_PT_FACTOR) },
+  'Label 57×32mm': { width: Math.round(57 * MM_TO_PT_FACTOR), height: Math.round(32 * MM_TO_PT_FACTOR) },
+  'Label 76×51mm': { width: Math.round(76 * MM_TO_PT_FACTOR), height: Math.round(51 * MM_TO_PT_FACTOR) },
+  'Label 102×64mm': { width: Math.round(102 * MM_TO_PT_FACTOR), height: Math.round(64 * MM_TO_PT_FACTOR) },
+  'Label 60×40mm': { width: Math.round(60 * MM_TO_PT_FACTOR), height: Math.round(40 * MM_TO_PT_FACTOR) },
+  'Label 80×40mm': { width: Math.round(80 * MM_TO_PT_FACTOR), height: Math.round(40 * MM_TO_PT_FACTOR) },
 };
 
 const ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200];
@@ -358,6 +381,9 @@ export default function ErpDesigner({
   const [activeTab, setActiveTab] = useState<LeftTab>('blocks');
   const [zoom, setZoom] = useState(100);
   const [pageSize, setPageSize] = useState('A4');
+  const [customWidthMm, setCustomWidthMm] = useState(100);
+  const [customHeightMm, setCustomHeightMm] = useState(50);
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [name, setName] = useState(templateName);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -383,6 +409,26 @@ export default function ErpDesigner({
     if (gridSizeMm === 0 || gridSizePt === 0) return value;
     return Math.round(value / gridSizePt) * gridSizePt;
   }, [gridSizeMm, gridSizePt]);
+
+  // ─── Effective page dimensions (accounts for Custom sizes and orientation) ───
+  const effectivePageDims = useMemo(() => {
+    let w: number, h: number;
+    if (pageSize === 'Custom') {
+      w = Math.round(customWidthMm * MM_TO_PT_FACTOR);
+      h = Math.round(customHeightMm * MM_TO_PT_FACTOR);
+    } else {
+      const dims = PAGE_SIZE_DIMENSIONS[pageSize] || PAGE_SIZE_DIMENSIONS.A4;
+      w = dims.width;
+      h = dims.height;
+    }
+    // Apply orientation: if landscape and w < h, swap; if portrait and w > h, swap
+    if (orientation === 'landscape' && w < h) {
+      [w, h] = [h, w];
+    } else if (orientation === 'portrait' && w > h) {
+      [w, h] = [h, w];
+    }
+    return { width: w, height: h };
+  }, [pageSize, customWidthMm, customHeightMm, orientation]);
 
   // Auto-save state
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -4050,7 +4096,18 @@ export default function ErpDesigner({
           data-testid="page-size-selector"
           aria-label="Page size"
           value={pageSize}
-          onChange={(e) => { setPageSize(e.target.value); setIsDirty(true); }}
+          onChange={(e) => {
+            const val = e.target.value;
+            setPageSize(val);
+            setIsDirty(true);
+            // Reset orientation for new selections
+            if (val !== 'Custom') {
+              const dims = PAGE_SIZE_DIMENSIONS[val];
+              if (dims) {
+                setOrientation(dims.width <= dims.height ? 'portrait' : 'landscape');
+              }
+            }
+          }}
           style={{
             padding: '4px 8px',
             borderRadius: '4px',
@@ -4059,10 +4116,95 @@ export default function ErpDesigner({
             backgroundColor: '#fff',
           }}
         >
-          {PAGE_SIZES.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
+          <optgroup label="Standard">
+            {PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Labels">
+            {LABEL_SIZES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </optgroup>
+          <option value="Custom">Custom</option>
         </select>
+
+        {/* Orientation Toggle */}
+        <button
+          data-testid="btn-orientation-toggle"
+          aria-label={`Orientation: ${orientation}`}
+          title={`Switch to ${orientation === 'portrait' ? 'landscape' : 'portrait'}`}
+          onClick={() => {
+            const newOrientation = orientation === 'portrait' ? 'landscape' : 'portrait';
+            setOrientation(newOrientation);
+            if (pageSize === 'Custom') {
+              // Swap custom dimensions
+              const tmpW = customWidthMm;
+              setCustomWidthMm(customHeightMm);
+              setCustomHeightMm(tmpW);
+            }
+            setIsDirty(true);
+          }}
+          style={{
+            ...toolbarBtnStyle,
+            fontSize: '11px',
+            padding: '4px 8px',
+            minWidth: '24px',
+          }}
+          data-orientation={orientation}
+        >
+          {orientation === 'portrait' ? '▯' : '▭'}
+        </button>
+
+        {/* Custom Dimension Inputs */}
+        {pageSize === 'Custom' && (
+          <div data-testid="custom-dimensions" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input
+              data-testid="custom-width-mm"
+              type="number"
+              aria-label="Custom width (mm)"
+              min={10}
+              max={1000}
+              value={customWidthMm}
+              onChange={(e) => {
+                const v = Math.max(10, Math.min(1000, Number(e.target.value) || 10));
+                setCustomWidthMm(v);
+                setIsDirty(true);
+              }}
+              style={{
+                width: '60px',
+                padding: '4px',
+                borderRadius: '4px',
+                border: '1px solid #e2e8f0',
+                fontSize: '12px',
+                textAlign: 'center',
+              }}
+            />
+            <span style={{ fontSize: '12px', color: '#64748b' }}>×</span>
+            <input
+              data-testid="custom-height-mm"
+              type="number"
+              aria-label="Custom height (mm)"
+              min={10}
+              max={1000}
+              value={customHeightMm}
+              onChange={(e) => {
+                const v = Math.max(10, Math.min(1000, Number(e.target.value) || 10));
+                setCustomHeightMm(v);
+                setIsDirty(true);
+              }}
+              style={{
+                width: '60px',
+                padding: '4px',
+                borderRadius: '4px',
+                border: '1px solid #e2e8f0',
+                fontSize: '12px',
+                textAlign: 'center',
+              }}
+            />
+            <span style={{ fontSize: '11px', color: '#94a3b8' }}>mm</span>
+          </div>
+        )}
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
@@ -5214,7 +5356,7 @@ export default function ErpDesigner({
               aria-label="Horizontal ruler"
               data-zoom={zoom}
               style={{
-                width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
+                width: `${(effectivePageDims.width) * (zoom / 100)}px`,
                 height: '20px',
                 marginLeft: '20px',
                 position: 'relative',
@@ -5229,7 +5371,7 @@ export default function ErpDesigner({
             >
               {/* Ruler tick marks - every 10mm (28.3465pt) */}
               {(() => {
-                const pageW = PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595;
+                const pageW = effectivePageDims.width;
                 const scale = zoom / 100;
                 const mmStep = 10; // tick every 10mm
                 const ptStep = mmStep * MM_TO_PT;
@@ -5262,7 +5404,7 @@ export default function ErpDesigner({
                 data-zoom={zoom}
                 style={{
                   width: '20px',
-                  height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
+                  height: `${(effectivePageDims.height) * (zoom / 100)}px`,
                   position: 'relative',
                   backgroundColor: '#f1f5f9',
                   borderRight: '1px solid #cbd5e1',
@@ -5275,7 +5417,7 @@ export default function ErpDesigner({
               >
                 {/* Vertical tick marks - every 10mm */}
                 {(() => {
-                  const pageH = PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842;
+                  const pageH = effectivePageDims.height;
                   const scale = zoom / 100;
                   const mmStep = 10;
                   const ptStep = mmStep * MM_TO_PT;
@@ -5303,15 +5445,15 @@ export default function ErpDesigner({
               <div
                 data-testid="canvas-page"
                 data-page-size={pageSize}
-                data-page-width={PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595}
-                data-page-height={PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842}
-                data-aspect-ratio={((PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) / (PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842)).toFixed(4)}
+                data-page-width={effectivePageDims.width}
+                data-page-height={effectivePageDims.height}
+                data-aspect-ratio={((effectivePageDims.width) / (effectivePageDims.height)).toFixed(4)}
                 data-grid-size-mm={gridSizeMm}
                 onDragOver={handleCanvasDragOver}
                 onDrop={handleCanvasDrop}
                 style={{
-                  width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
-                  height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
+                  width: `${(effectivePageDims.width) * (zoom / 100)}px`,
+                  height: `${(effectivePageDims.height) * (zoom / 100)}px`,
                   backgroundColor: '#ffffff',
                   boxShadow: '0 2px 4px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.14), 4px 4px 12px rgba(0,0,0,0.08)',
                   border: '1px solid #d1d5db',

@@ -88,6 +88,55 @@ export class RenderController {
       );
     }
 
+    // Validate layout parameter if provided
+    if (body.layout !== undefined && body.layout !== 'single') {
+      if (typeof body.layout !== 'object' || body.layout === null) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: "layout must be 'single' or an object with type: 'sheet'",
+            details: [{ field: 'layout', reason: "must be 'single' or {type: 'sheet', columns, rows}" }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const layout = body.layout as Record<string, unknown>;
+      if (layout.type !== 'sheet') {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: "layout.type must be 'sheet'",
+            details: [{ field: 'layout.type', reason: "must be 'sheet'" }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (!layout.columns || !layout.rows || typeof layout.columns !== 'number' || typeof layout.rows !== 'number' || layout.columns < 1 || layout.rows < 1) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: 'layout.columns and layout.rows must be positive integers',
+            details: [{ field: 'layout.columns/rows', reason: 'must be positive integers' }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      if (layout.sheetSize && !['A4', 'Letter'].includes(layout.sheetSize as string)) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: "layout.sheetSize must be 'A4' or 'Letter'",
+            details: [{ field: 'layout.sheetSize', reason: "must be 'A4' or 'Letter'" }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
     const user = req.user;
     if (!user?.orgId) {
       throw new HttpException(
