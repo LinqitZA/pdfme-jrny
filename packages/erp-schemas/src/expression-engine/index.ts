@@ -89,7 +89,22 @@ export class ExpressionEngine {
    * @param context - Key-value pairs of field references and their values
    * @returns The result of the expression evaluation
    */
+  /**
+   * Blocked keywords that could be used to escape the sandbox.
+   * These are Node.js globals, code execution primitives, and object traversal paths.
+   */
+  private static readonly BLOCKED_KEYWORDS: ReadonlySet<string> = new Set([
+    'require', 'eval', 'Function', 'process', 'global', 'globalThis',
+    'module', 'exports', '__dirname', '__filename', 'import',
+    'setTimeout', 'setInterval', 'setImmediate',
+    'Buffer', 'constructor', 'prototype', '__proto__',
+    'window', 'document', 'self', 'this',
+  ]);
+
   evaluate(expression: string, context: Record<string, unknown> = {}): unknown {
+    // Sandbox check: reject expressions containing blocked keywords
+    this.assertNoBlockedKeywords(expression);
+
     // Pre-process: resolve dot-notation field references like field.price
     const { processedExpr, flatContext } = this.resolveFieldReferences(expression, context);
 
@@ -111,6 +126,23 @@ export class ExpressionEngine {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Expression evaluation error: ${message}`);
+    }
+  }
+
+  /**
+   * Check that the expression does not reference any blocked/dangerous keywords.
+   * Uses word-boundary matching to avoid false positives (e.g. "processing" is allowed).
+   */
+  private assertNoBlockedKeywords(expression: string): void {
+    for (const keyword of ExpressionEngine.BLOCKED_KEYWORDS) {
+      // Match the keyword as a whole word (not part of another identifier)
+      const regex = new RegExp(`\\b${keyword}\\b`);
+      if (regex.test(expression)) {
+        throw new Error(
+          `Sandbox violation: "${keyword}" is not allowed in expressions. ` +
+          `Only whitelisted functions and field references are permitted.`,
+        );
+      }
     }
   }
 
