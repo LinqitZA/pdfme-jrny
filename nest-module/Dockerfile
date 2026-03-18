@@ -17,11 +17,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # Build upstream packages in order
-RUN npm run build:pdf-lib 2>/dev/null || true
-RUN npm run build:common 2>/dev/null || true
-RUN npm run build:converter 2>/dev/null || true
-RUN npm run build:schemas 2>/dev/null || true
-RUN npm run build:generator 2>/dev/null || true
+RUN npm run build:pdf-lib
+RUN npm run build:common
+RUN npm run build:converter
+RUN npm run build:schemas
+RUN npm run build:generator
 # Build erp-schemas
 RUN cd packages/erp-schemas && npx tsc
 # Build nest-module
