@@ -1621,3 +1621,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 123/123 tests passing across 3 test suites
 ### Current Status: ~116/388 features passing (29.9%)
+
+---
+
+## Session - 2026-03-18 - Features #190, #191, #192 (Currency, Text Overflow)
+
+### Completed Features:
+- **Feature #190**: Multi-currency field displays correctly ✅
+  - Created currencyField schema plugin (packages/erp-schemas/src/currency-field/)
+  - Currency symbol resolution for 30+ ISO 4217 codes (USD, EUR, GBP, ZAR, etc.)
+  - Symbol position (before/after), custom separators, decimal places
+  - Dual-currency display with exchange rate (inline or below format)
+  - Field binding support for exchange rates ({{field.exchangeRate}})
+  - Integrated into render pipeline (renderNow + preview)
+  - Added POST /api/pdfme/render/format-currency test endpoint
+  - Exported from @pdfme-erp/schemas index
+  - 52/52 tests passing
+
+- **Feature #191**: Text overflow clip strategy ✅
+  - Modified packages/schemas/src/text/pdfRender.ts
+  - Default textOverflow is 'clip' - wraps text drawing in PDF clipping rectangle
+  - Uses pushGraphicsState/rectangle/clip/endPath/popGraphicsState operators
+  - Clipping ensures text beyond element boundary is hidden in rendered PDF
+  - Rebuilt @pdfme/schemas dist for generator consumption
+  - 28/28 tests passing (with decompressed PDF stream verification)
+
+- **Feature #192**: Text overflow truncate with ellipsis ✅
+  - Added truncation logic to pdfRender.ts for textOverflow='truncate'
+  - Calculates maxLines from element height / (lineHeight * fontSize)
+  - Truncates to maxLines, adds "..." ellipsis to last visible line
+  - Handles both horizontal overflow (single long line) and vertical overflow (many lines)
+  - Preserves short text without modification (no unnecessary ellipsis)
+  - 27/27 tests passing (with glyph-level PDF verification)
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/currency-field/index.ts - New currency field schema plugin
+- packages/erp-schemas/src/index.ts - Added currencyField export
+- packages/schemas/src/text/pdfRender.ts - Added clip + truncate text overflow handling
+- nest-module/src/render.service.ts - Integrated currency field resolution in render pipeline
+- nest-module/src/render.controller.ts - Added format-currency endpoint
+- tests/test-currency-field.js - 52 tests for currency formatting
+- tests/test-text-overflow-clip-191.js - 28 tests for clip overflow
+- tests/test-text-overflow-truncate-192.js - 27 tests for truncate overflow
+
+### Current Status: ~110/388 features passing (28.4%)
