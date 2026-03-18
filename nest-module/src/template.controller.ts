@@ -102,7 +102,6 @@ export class TemplateController {
     // Validate required fields with detailed error envelope
     const missingFields: string[] = [];
     if (!body.name) missingFields.push('name');
-    if (!body.type) missingFields.push('type');
     if (!body.schema) missingFields.push('schema');
     if (missingFields.length > 0) {
       throw new HttpException(
@@ -134,6 +133,7 @@ export class TemplateController {
 
     const result = await this.templateService.create({
       ...body,
+      type: body.type || 'custom',
       orgId,
       createdBy,
     });
