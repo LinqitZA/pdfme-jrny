@@ -1522,3 +1522,48 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 106/106 tests passing across 3 test suites
 ### Current Status: ~108/388 features passing (27.8%)
+
+---
+
+## Session - 2026-03-18 - Features #193, #194, #195 (Text Overflow, Auto-save, Tab State)
+
+### Completed Features:
+- **Feature #193**: Text overflow shrinkToFit to min 6pt ✅
+  - Added TEXT_OVERFLOW type to TextSchema: 'clip' | 'truncate' | 'shrinkToFit'
+  - Modified getFontProp in pdfRender.ts to handle shrinkToFit
+  - Uses existing calculateDynamicFontSize with min=6pt, max=currentFontSize
+  - SHRINK_TO_FIT_MIN_FONT_SIZE constant (6pt) added to constants.ts
+  - Enforces minimum 6pt even with extremely long text in tiny boxes
+  - dynamicFontSize takes precedence when both are set
+  - Backwards compatible - no textOverflow property means normal behavior
+  - 23/23 tests passing
+
+- **Feature #194**: Designer auto-save preserves changes on navigation ✅
+  - Added beforeunload event handler to warn about unsaved changes
+  - beforeunload triggers performAutoSave before showing browser dialog
+  - Added visibilitychange handler to trigger auto-save on tab switch/navigation
+  - Event listeners properly cleaned up on component unmount
+  - Auto-save timer (30s default) saves draft to PUT /templates/:id/draft
+  - isDirty flag cleared on successful save, preserved on error
+  - Auto-save status indicator shows saving/saved/error states
+  - 35/35 tests passing
+
+- **Feature #195**: Designer state preserved across tab switches ✅
+  - Verified canvas state (pages, selectedElementId, zoom, currentPageIndex) is
+    stored at component level, independent of activeTab state
+  - Tab switching only affects left panel content via conditional rendering
+  - Canvas always rendered regardless of active tab
+  - setSelectedElementId and setPages never called from tab switching code
+  - isDirty state decoupled from tab navigation
+  - 35/35 tests passing
+
+### Key Files Modified:
+- packages/schemas/src/text/pdfRender.ts - shrinkToFit logic in getFontProp
+- packages/schemas/src/text/types.ts - Added TEXT_OVERFLOW type and textOverflow property
+- packages/schemas/src/text/constants.ts - Added SHRINK_TO_FIT_MIN_FONT_SIZE
+- apps/designer-sandbox/components/ErpDesigner.tsx - beforeunload/visibilitychange handlers
+- tests/test-shrink-to-fit-193.js - 23 tests
+- tests/test-auto-save-194.js - 35 tests
+- tests/test-tab-switch-state-195.js - 35 tests
+
+### Current Status: 118/388 features passing (30.4%)
