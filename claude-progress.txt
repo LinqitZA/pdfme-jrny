@@ -3464,3 +3464,48 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - packages/erp-schemas/src/expression-engine/index.ts - TZ-aware date functions
 
 ### Current Status: ~246/388 features passing (63.4%)
+
+---
+
+## Session - 2026-03-18 - Features #331, #332, #333 (Concurrency and Pagination)
+
+### Completed Features:
+- **Feature #331**: Concurrent render of same entity stable ✅
+  - Fired 3 render/now requests simultaneously for same entityId
+  - All 3 complete successfully with status 201
+  - 3 separate GeneratedDocument records with unique IDs
+  - 3 separate PDF files at unique paths
+  - All docs reference correct entityId and templateId
+  - Documents retrievable via list endpoint
+  - 25/25 tests passing
+
+- **Feature #332**: Lock heartbeat prevents premature expiry ✅
+  - Added POST :id/lock/heartbeat endpoint to template controller
+  - Added heartbeatLock method to template service
+  - Heartbeat refreshes lockedAt to current time, extending expiry by 30 min
+  - Only lock holder can send heartbeat (403 for others)
+  - Heartbeat on unlocked template returns 409
+  - Heartbeat on expired lock returns 409
+  - Other user blocked from acquiring lock while heartbeat keeps it alive
+  - After heartbeat stops and lock expires, other user can acquire
+  - 24/24 tests passing
+
+- **Feature #333**: Rapid pagination requests handled ✅
+  - Created 8 templates for pagination testing
+  - Sequential pagination through 4 pages (limit=2) returns all items in correct order
+  - Parallel requests for same page return identical results (no race conditions)
+  - No duplicate items across all pages (18 unique of 18)
+  - All 8 test templates found across pagination
+  - Different page sizes return consistent data (limit=1/4/8 first item matches)
+  - Limit=4 results are proper subset of limit=8 results
+  - 44/44 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - Added heartbeatLock method
+- nest-module/src/template.controller.ts - Added POST :id/lock/heartbeat endpoint
+- tests/test-feature-331-concurrent-same-entity.js - 25 tests
+- tests/test-feature-332-lock-heartbeat.js - 24 tests
+- tests/test-feature-333-rapid-pagination.js - 44 tests
+
+### Test Results: 93/93 tests passing across 3 features
+### Current Status: ~251/388 features passing (64.7%)
