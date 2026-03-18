@@ -4,6 +4,7 @@ node_modules/
 /packages/common/src/version.ts
 .cache
 dist
+.next/
 coverage/
 
 **/repomix-output.{txt,xml}
