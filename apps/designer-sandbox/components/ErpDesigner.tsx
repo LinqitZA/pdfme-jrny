@@ -87,6 +87,8 @@ interface DesignElement {
   pageScope?: 'all' | 'first' | 'last' | 'notFirst';
   // Output channel
   outputChannel?: 'both' | 'email' | 'print';
+  // Text overflow strategy
+  textOverflow?: 'clip' | 'truncate' | 'shrinkToFit';
 }
 
 /** Represents a single page in the template */
@@ -180,11 +182,11 @@ function getDefaultElement(type: ElementType): Omit<DesignElement, 'id'> {
   const base = { type, x: 50, y: 50 };
   switch (type) {
     case 'text':
-      return { ...base, w: 200, h: 24, content: 'Text', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.4 };
+      return { ...base, w: 200, h: 24, content: 'Text', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.4, textOverflow: 'clip' };
     case 'rich-text':
-      return { ...base, w: 250, h: 60, content: 'Rich text content', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.5 };
+      return { ...base, w: 250, h: 60, content: 'Rich text content', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'left', color: '#000000', lineHeight: 1.5, textOverflow: 'clip' };
     case 'calculated':
-      return { ...base, w: 120, h: 24, content: '0.00', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'right', color: '#000000', lineHeight: 1.4, binding: '' };
+      return { ...base, w: 120, h: 24, content: '0.00', fontFamily: 'Helvetica', fontSize: 14, fontWeight: 'normal', fontStyle: 'normal', textAlign: 'right', color: '#000000', lineHeight: 1.4, textOverflow: 'clip', binding: '' };
     case 'image':
       return { ...base, w: 150, h: 100, src: '', objectFit: 'contain', opacity: 100 };
     case 'erp-image':
@@ -200,7 +202,7 @@ function getDefaultElement(type: ElementType): Omit<DesignElement, 'id'> {
     case 'qr-barcode':
       return { ...base, w: 80, h: 80, content: '', binding: '' };
     case 'watermark':
-      return { ...base, x: 100, y: 300, w: 395, h: 200, content: 'DRAFT', fontFamily: 'Helvetica', fontSize: 72, fontWeight: 'bold', fontStyle: 'normal', textAlign: 'center', color: '#00000015', opacity: 15 };
+      return { ...base, x: 100, y: 300, w: 395, h: 200, content: 'DRAFT', fontFamily: 'Helvetica', fontSize: 72, fontWeight: 'bold', fontStyle: 'normal', textAlign: 'center', color: '#00000015', opacity: 15, textOverflow: 'clip' };
     default:
       return { ...base, w: 100, h: 40 };
   }
@@ -1968,6 +1970,26 @@ export default function ErpDesigner({
                   onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
                 />
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Text Overflow - for text-like elements */}
+        {category === 'text' && (
+          <div data-testid="properties-text-overflow" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Text Overflow</label>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Overflow Strategy</span>
+              <select
+                data-testid="prop-text-overflow"
+                style={propInputStyle}
+                value={selectedElement.textOverflow || 'clip'}
+                onChange={(e) => updateElement(selectedElement.id, { textOverflow: e.target.value as DesignElement['textOverflow'] })}
+              >
+                <option value="clip">Clip (hide overflow)</option>
+                <option value="truncate">Truncate with ellipsis</option>
+                <option value="shrinkToFit">Shrink to fit</option>
+              </select>
             </div>
           </div>
         )}
