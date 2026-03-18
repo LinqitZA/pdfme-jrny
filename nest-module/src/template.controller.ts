@@ -471,16 +471,19 @@ export class TemplateController {
 
     const result = await this.templateService.acquireLock(id, jwt.sub, jwt.orgId);
     if ('error' in result) {
+      const errResult = result as { error: string; lockedBy: string; lockedAt: Date; expiresAt: Date; statusCode?: number };
+      const statusCode = errResult.statusCode || 409;
+      const errorLabel = statusCode === 404 ? 'Not Found' : statusCode === 422 ? 'Unprocessable Entity' : 'Conflict';
       throw new HttpException(
         {
-          statusCode: 409,
-          error: 'Conflict',
-          message: result.error,
-          lockedBy: result.lockedBy,
-          lockedAt: result.lockedAt,
-          expiresAt: result.expiresAt,
+          statusCode,
+          error: errorLabel,
+          message: errResult.error,
+          lockedBy: errResult.lockedBy,
+          lockedAt: errResult.lockedAt,
+          expiresAt: errResult.expiresAt,
         },
-        HttpStatus.CONFLICT,
+        statusCode,
       );
     }
     return result;
@@ -549,6 +552,22 @@ export class TemplateController {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId;
     const userId = jwt?.sub || 'unknown';
+
+    // Validate saveMode if provided (must be inPlace or newVersion)
+    const VALID_SAVE_MODES = ['inPlace', 'newVersion'];
+    if (body.saveMode !== undefined && body.saveMode !== null && body.saveMode !== '') {
+      if (!VALID_SAVE_MODES.includes(body.saveMode)) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: `Invalid saveMode: "${body.saveMode}". Must be one of: ${VALID_SAVE_MODES.join(', ')}`,
+            details: [{ field: 'saveMode', reason: `must be one of: ${VALID_SAVE_MODES.join(', ')}` }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
 
     // Check if template exists and is not archived
     const existing = await this.templateService.findById(id, orgId);

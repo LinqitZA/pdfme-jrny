@@ -45,6 +45,7 @@ export interface PaginatedResult<T> {
 export interface SaveDraftDto {
   schema?: Record<string, unknown>;
   name?: string;
+  saveMode?: string;
 }
 
 export interface TemplateExportPackage {
@@ -1097,10 +1098,20 @@ export class TemplateService {
    * If already locked by same user, refreshes (heartbeat).
    * If locked by another user and not expired, returns error.
    */
-  async acquireLock(id: string, userId: string, orgId?: string): Promise<LockResult | { error: string; lockedBy: string; lockedAt: Date; expiresAt: Date }> {
+  async acquireLock(id: string, userId: string, orgId?: string): Promise<LockResult | { error: string; lockedBy: string; lockedAt: Date; expiresAt: Date; statusCode?: number }> {
     const template = await this.findById(id, orgId);
     if (!template) {
-      return { error: 'Template not found', lockedBy: '', lockedAt: new Date(), expiresAt: new Date() };
+      return { error: 'Template not found', lockedBy: '', lockedAt: new Date(), expiresAt: new Date(), statusCode: 404 };
+    }
+
+    // Cannot lock archived templates
+    if (template.status === 'archived') {
+      return { error: 'Cannot lock an archived template. Archived templates are read-only.', lockedBy: '', lockedAt: new Date(), expiresAt: new Date(), statusCode: 422 };
+    }
+
+    // Cannot lock published templates (they should be forked or reverted to draft first)
+    if (template.status === 'published') {
+      return { error: 'Cannot lock a published template. Create a new draft version to edit.', lockedBy: '', lockedAt: new Date(), expiresAt: new Date(), statusCode: 422 };
     }
 
     const now = new Date();

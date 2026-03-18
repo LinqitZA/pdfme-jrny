@@ -56,6 +56,20 @@ export class RenderController {
         HttpStatus.BAD_REQUEST,
       );
     }
+    // Validate channel value (must be email or print)
+    const VALID_CHANNELS = ['email', 'print'];
+    if (body.channel && !VALID_CHANNELS.includes(body.channel)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Invalid channel: "${body.channel}". Must be one of: ${VALID_CHANNELS.join(', ')}`,
+          details: [{ field: 'channel', reason: `must be one of: ${VALID_CHANNELS.join(', ')}` }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     // Validate templateId format (must be non-empty string)
     if (typeof body.templateId !== 'string' || body.templateId.trim() === '') {
       throw new HttpException(
@@ -141,6 +155,22 @@ export class RenderController {
       }
     }
 
+    // Validate channel value (must be email or print)
+    {
+      const VALID_CHANNELS = ['email', 'print'];
+      if (body.channel && !VALID_CHANNELS.includes(body.channel)) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: `Invalid channel: "${body.channel}". Must be one of: ${VALID_CHANNELS.join(', ')}`,
+            details: [{ field: 'channel', reason: `must be one of: ${VALID_CHANNELS.join(', ')}` }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+    }
+
     // Validate entityIds entries are non-null, non-empty strings
     const invalidIndices: number[] = [];
     for (let i = 0; i < body.entityIds.length; i++) {
@@ -161,6 +191,32 @@ export class RenderController {
       );
     }
 
+    // Feature #272: Validate entityIds uniqueness - reject duplicates
+    const uniqueIds = new Set(body.entityIds);
+    if (uniqueIds.size < body.entityIds.length) {
+      const duplicates: string[] = [];
+      const seen = new Set<string>();
+      for (const id of body.entityIds) {
+        if (seen.has(id)) {
+          if (!duplicates.includes(id)) duplicates.push(id);
+        }
+        seen.add(id);
+      }
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'entityIds must be unique. Duplicate IDs found.',
+          details: [{
+            field: 'entityIds',
+            reason: `${duplicates.length} duplicate ID(s) found: ${duplicates.slice(0, 10).join(', ')}${duplicates.length > 10 ? '...' : ''}`,
+            duplicates: duplicates.slice(0, 20),
+          }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     if (body.entityIds.length > 2000) {
       throw new HttpException(
         {
@@ -171,6 +227,24 @@ export class RenderController {
         },
         HttpStatus.BAD_REQUEST,
       );
+    }
+
+    // Validate onFailure parameter (must be continue or abort)
+    {
+      const VALID_ON_FAILURE = ['continue', 'abort'];
+      if (body.onFailure !== undefined && body.onFailure !== null && body.onFailure !== '') {
+        if (!VALID_ON_FAILURE.includes(body.onFailure as string)) {
+          throw new HttpException(
+            {
+              statusCode: 400,
+              error: 'Bad Request',
+              message: `Invalid onFailure: "${body.onFailure}". Must be one of: ${VALID_ON_FAILURE.join(', ')}`,
+              details: [{ field: 'onFailure', reason: `must be one of: ${VALID_ON_FAILURE.join(', ')}` }],
+            },
+            HttpStatus.BAD_REQUEST,
+          );
+        }
+      }
     }
 
     const user = req.user;
@@ -697,6 +771,22 @@ export class RenderController {
         },
         HttpStatus.BAD_REQUEST,
       );
+    }
+
+    // Validate channel value (must be email or print)
+    {
+      const VALID_CHANNELS = ['email', 'print'];
+      if (body.channel && !VALID_CHANNELS.includes(body.channel)) {
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: `Invalid channel: "${body.channel}". Must be one of: ${VALID_CHANNELS.join(', ')}`,
+            details: [{ field: 'channel', reason: `must be one of: ${VALID_CHANNELS.join(', ')}` }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
     }
 
     const user = req.user;

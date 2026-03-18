@@ -75,7 +75,8 @@ function sanitizeMessage(message: string): string {
     .trim();
 
   // If sanitization removed everything meaningful, use generic message
-  if (!sanitized || sanitized.length < 3) {
+  // But preserve short data values (IDs, codes) that are not error messages
+  if (!sanitized) {
     return 'An unexpected error occurred.';
   }
 
