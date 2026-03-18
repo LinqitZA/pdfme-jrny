@@ -4215,3 +4215,53 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 71/71 tests passing across 3 features
 ### Current Status: ~298/388 features passing (76.8%)
+
+---
+
+## Session - 2026-03-18 - Features #382, #383, #384 (ColSpan, Signature Manager, MaxRowsPerPage)
+
+### Completed Features:
+- **Feature #382**: ColSpan support in line items table
+  - Footer rows support labelColSpan (2, 3, 4, 5 columns spanning)
+  - Sub-rows support colSpan with startColumnKey
+  - ColumnDefinition supports colSpan property for header spanning
+  - ColSpan exceeding column count handled gracefully (clamped)
+  - Combined footer plus sub-row colSpan rendering works
+  - Varying colSpan values (2, 3, 5) all render correctly
+  - PDF output valid with correct content type
+  - 30/30 tests passing
+
+- **Feature #383**: Signature manager HTML5 canvas drawing
+  - Created SignatureManager.tsx React component with HTML5 Canvas
+  - Mouse and touch event handling (mousedown/move/up, touchstart/move/end)
+  - Stroke tracking with strokesRef for SVG export
+  - Clear button resets canvas and stroke data
+  - Save as PNG (canvas.toDataURL) and SVG (path reconstruction)
+  - Backend API integration: POST /api/pdfme/signatures
+  - Signature page route at /signatures
+  - PNG and SVG upload both work (201)
+  - Multi-user signature isolation confirmed
+  - Validation: empty data and missing auth rejected
+  - 51/51 tests passing
+
+- **Feature #384**: maxRowsPerPage supports first/middle/last config
+  - MaxRowsPerPage type supports number or object with first/middle/last
+  - Schema storage and retrieval preserves object config
+  - Updated chunking algorithm to enforce last page limit
+  - Last page redistribution: excess rows spill into new middle chunk
+  - 30 items with first-5 middle-10 last-8 renders correctly
+  - Uniform maxRowsPerPage (number) still works
+  - Edge case: first=1 works correctly
+  - Both email and print channels work
+  - 25/25 tests passing
+
+### Key Files Created/Modified:
+- apps/designer-sandbox/components/SignatureManager.tsx - HTML5 Canvas signature component
+- apps/designer-sandbox/app/signatures/page.tsx - Signature manager page route
+- packages/erp-schemas/src/line-items-table/index.ts - Last-page redistribution logic
+- tests/test-feature-382-colspan-support.js - 30 tests
+- tests/test-feature-383-signature-manager.js - 51 tests
+- tests/test-feature-384-maxrowsperpage.js - 25 tests
+
+### Test Results: 106/106 tests passing across 3 features
+### Current Status: ~303/388 features passing (78.1%)
