@@ -14,6 +14,7 @@ import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
 import { SignatureService } from './signature.service';
 import { EventEmitter } from 'events';
+import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-items-table';
 
 export interface RenderNowDto {
   templateId: string;
@@ -71,15 +72,20 @@ export class RenderService {
 
     // 2. Build pdfme template structure from the stored schema
     const templateSchema = template.schema as Record<string, unknown>;
-    const pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+    let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
 
     // 3. Resolve inputs - use provided inputs or create empty inputs
-    const inputs = dto.inputs && dto.inputs.length > 0
+    let inputs = dto.inputs && dto.inputs.length > 0
       ? dto.inputs
       : [this.buildEmptyInputs(pdfmeTemplate)];
 
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+
+    // 3c. Resolve lineItemsTable elements - convert to standard table with footer rows
+    const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
+    inputs = resolvedLit.inputs;
 
     // 4. Generate PDF using @pdfme/generator
     let pdfBuffer: Uint8Array;
