@@ -2807,3 +2807,39 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 132/132 tests passing across 3 test suites
 ### Current Status: ~201/388 features passing (51.8%)
+
+---
+
+## Session - 2026-03-18 - Features #282, #283, #284 (UI Feedback and Download)
+
+### Completed Features:
+- **Feature #282**: Publish success shows confirmation
+  - Added templateStatus state (draft/published/archived) to ErpDesigner
+  - Status badge displayed next to template name with color coding
+  - Publish success toast and button state changes verified
+  - templateStatus updates from template load response and on publish success
+  - 30/30 tests passing
+
+- **Feature #283**: Archive success shows confirmation
+  - Added archive handler with confirmation dialog
+  - Archive button added to toolbar with amber color
+  - Sends DELETE request to soft-archive template
+  - Shows success toast, navigates back to template list after delay
+  - Archived templates excluded from default list
+  - 23/23 tests passing
+
+- **Feature #284**: Render completion shows download link
+  - Added downloadUrl to render/now API response in render.controller.ts
+  - Render overlay shows download link when complete with valid downloadUrl
+  - Download endpoint returns application/pdf with valid PDF bytes
+  - 31/31 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - templateStatus state, badge, archive handler/button
+- nest-module/src/render.controller.ts - Added downloadUrl to renderNow response
+- tests/test-feature-282-publish-success.js - 30 tests
+- tests/test-feature-283-archive-success.js - 23 tests
+- tests/test-feature-284-render-download.js - 31 tests
+
+### Test Results: 84/84 tests passing across 3 test suites
+### Current Status: ~204/388 features passing (52.6%)
