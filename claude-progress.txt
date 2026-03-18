@@ -3327,3 +3327,28 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - apps/designer-sandbox/components/ErpDesigner.tsx
 
 ### Current Status: ~238/388 features passing (61.3%)
+
+---
+
+## Session - 2026-03-18 - Features #319, #320, #321 (Accessibility and Timestamps)
+
+### Completed Features:
+- **Feature #319**: Accessible status messages - verified already implemented
+  - ARIA live regions with status-announcer (polite) and error-announcer (assertive)
+  - announceStatus for save/auto-save/publish success
+  - announceError for save/publish/auto-save/render errors
+  - All banners and toasts have proper role and aria-live attributes
+
+- **Feature #320**: Template timestamps use ISO 8601 format - verified via API
+  - createdAt and updatedAt both return ISO 8601 UTC strings
+  - Database uses timestamp with timezone and defaultNow
+  - Consistent Z suffix across all endpoints
+
+- **Feature #321**: Audit log timestamps are accurate - verified via API
+  - Audit entry timestamp within 6ms of template creation time
+  - PostgreSQL NOW() ensures server-side accuracy
+
+### Key Files:
+- tests/helpers/gen-token.js - JWT generation helper (new)
+
+### Current Status: ~240/388 features passing (61.9%)
