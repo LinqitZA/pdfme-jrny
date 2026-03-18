@@ -21,6 +21,7 @@ import { SignatureService } from './signature.service';
 import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
 import { JwtAuthGuard } from './auth.guard';
 import { RenderController } from './render.controller';
+import { RenderService } from './render.service';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
@@ -60,7 +61,8 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     TemplateService,
     AssetService,
     SignatureService,
+    RenderService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService, SignatureService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService, SignatureService, RenderService],
 })
 export class AppModule {}

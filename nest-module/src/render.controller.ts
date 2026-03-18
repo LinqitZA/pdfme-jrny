@@ -2,16 +2,7 @@
  * RenderController - REST endpoints for PDF rendering
  *
  * Endpoints:
- * - POST   /api/pdfme/render/now                  (synchronous)
- * - POST   /api/pdfme/render/queue                (async)
- * - POST   /api/pdfme/render/bulk                 (batch)
- * - GET    /api/pdfme/render/status/:jobId        (poll status)
- * - GET    /api/pdfme/render/batch/:batchId       (batch status)
- * - GET    /api/pdfme/render/batch/:batchId/progress (SSE stream)
- * - POST   /api/pdfme/render/batch/:batchId/merge (merge PDFs)
- * - GET    /api/pdfme/render/download/:documentId (stream PDF)
- * - GET    /api/pdfme/render/verify/:documentId   (integrity check)
- * - GET    /api/pdfme/render/history              (document history)
+ * - POST   /api/pdfme/render/now       (synchronous render)
  */
 
 import {
@@ -22,28 +13,69 @@ import {
   HttpException,
   HttpStatus,
 } from '@nestjs/common';
+import { RenderService, RenderNowDto } from './render.service';
 
 @Controller('api/pdfme/render')
 export class RenderController {
+  constructor(private readonly renderService: RenderService) {}
+
   @Post('now')
   async renderNow(
-    @Body() body: any,
+    @Body() body: RenderNowDto,
     @Req() req: any,
   ) {
-    // Stub: will be fully implemented by coding agents
-    // For now, validates auth is working and returns a placeholder response
-    const user = req.user;
-    if (!body.templateId) {
+    if (!body.templateId || !body.entityId || !body.channel) {
       throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'templateId is required' },
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'templateId, entityId, and channel are required',
+        },
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    return {
-      status: 'not_implemented',
-      message: 'Render endpoint is a stub. Full implementation pending.',
-      orgId: user?.orgId,
-    };
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'orgId is required in JWT claims',
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.renderService.renderNow(
+      body,
+      user.orgId,
+      user.sub,
+    );
+
+    if ('error' in result && !('document' in result)) {
+      throw new HttpException(
+        {
+          statusCode: 404,
+          error: 'Not Found',
+          message: result.error,
+        },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    if ('error' in result && 'document' in result) {
+      throw new HttpException(
+        {
+          statusCode: 500,
+          error: 'Internal Server Error',
+          message: result.error,
+          document: result.document,
+        },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    return result;
   }
 }

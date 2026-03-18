@@ -28,6 +28,11 @@ export interface UpdateTemplateDto {
   type?: string;
 }
 
+export interface SaveDraftDto {
+  schema?: Record<string, unknown>;
+  name?: string;
+}
+
 @Injectable()
 export class TemplateService {
   constructor(@Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase) {}
@@ -113,6 +118,60 @@ export class TemplateService {
       .update(templates)
       .set(updateData)
       .where(and(...conditions))
+      .returning();
+    return result || null;
+  }
+
+  /**
+   * Save draft changes to a template. Updates schema and/or name,
+   * keeps status as 'draft', and updates the updatedAt timestamp.
+   */
+  async saveDraft(id: string, dto: SaveDraftDto, orgId?: string) {
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+    if (dto.schema !== undefined) updateData.schema = dto.schema;
+    if (dto.name !== undefined) updateData.name = dto.name;
+
+    const conditions: SQL[] = [eq(templates.id, id)];
+    if (orgId) {
+      conditions.push(eq(templates.orgId, orgId));
+    }
+
+    const [result] = await this.db
+      .update(templates)
+      .set(updateData)
+      .where(and(...conditions))
+      .returning();
+    return result || null;
+  }
+
+  /**
+   * Publish a template: sets status to 'published' and publishedVer to current version.
+   * Only draft templates can be published.
+   */
+  async publish(id: string, orgId?: string) {
+    // First find the template to check its current status
+    const template = await this.findById(id, orgId);
+    if (!template) return null;
+
+    if (template.status === 'published') {
+      // Already published — return as-is (idempotent)
+      return template;
+    }
+
+    if (template.status === 'archived') {
+      return { error: 'Cannot publish an archived template' };
+    }
+
+    const [result] = await this.db
+      .update(templates)
+      .set({
+        status: 'published',
+        publishedVer: template.version,
+        updatedAt: new Date(),
+      })
+      .where(eq(templates.id, id))
       .returning();
     return result || null;
   }
