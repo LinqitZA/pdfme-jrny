@@ -2901,6 +2901,7 @@ export default function ErpDesigner({
             gap: '4px',
           }}
           title="Back to template list"
+          aria-label="Back to template list"
         >
           ← Templates
         </button>
@@ -2913,6 +2914,8 @@ export default function ErpDesigner({
           value={name}
           onChange={(e) => { if (!isReadOnly) { setName(e.target.value); setIsDirty(true); } }}
           readOnly={isReadOnly}
+          title={name}
+          aria-label="Template name"
           style={{
             border: 'none',
             fontSize: '14px',
@@ -2921,6 +2924,9 @@ export default function ErpDesigner({
             borderRadius: '4px',
             backgroundColor: isReadOnly ? '#f1f5f9' : 'transparent',
             width: '200px',
+            maxWidth: '200px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
             cursor: isReadOnly ? 'not-allowed' : 'text',
           }}
           onFocus={(e) => { if (!isReadOnly) e.target.style.backgroundColor = '#f1f5f9'; }}
@@ -2952,6 +2958,7 @@ export default function ErpDesigner({
         {/* Page Size Selector */}
         <select
           data-testid="page-size-selector"
+          aria-label="Page size"
           value={pageSize}
           onChange={(e) => { setPageSize(e.target.value); setIsDirty(true); }}
           style={{
@@ -2970,14 +2977,15 @@ export default function ErpDesigner({
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Undo / Redo */}
-        <button data-testid="btn-undo" title="Undo" style={{ ...toolbarBtnStyle, opacity: undoCount > 0 ? 1 : 0.4 }} disabled={undoCount === 0} onClick={handleUndo}>&#8617;</button>
-        <button data-testid="btn-redo" title="Redo" style={{ ...toolbarBtnStyle, opacity: redoCount > 0 ? 1 : 0.4 }} disabled={redoCount === 0} onClick={handleRedo}>&#8618;</button>
+        <button data-testid="btn-undo" title="Undo" aria-label="Undo" style={{ ...toolbarBtnStyle, opacity: undoCount > 0 ? 1 : 0.4 }} disabled={undoCount === 0} onClick={handleUndo}>&#8617;</button>
+        <button data-testid="btn-redo" title="Redo" aria-label="Redo" style={{ ...toolbarBtnStyle, opacity: redoCount > 0 ? 1 : 0.4 }} disabled={redoCount === 0} onClick={handleRedo}>&#8618;</button>
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Zoom Control */}
         <select
           data-testid="zoom-selector"
+          aria-label="Zoom level"
           value={zoom}
           onChange={(e) => setZoom(Number(e.target.value))}
           style={{
@@ -3089,11 +3097,13 @@ export default function ErpDesigner({
             fontWeight: previewMode ? 600 : undefined,
           }}
           title={previewMode ? 'Switch back to design mode (show binding placeholders)' : 'Preview with example data (resolve field bindings)'}
+          aria-label={previewMode ? 'Switch to design mode' : 'Preview with example data'}
         >
           {previewMode ? 'Design Mode' : 'Preview Data'}
         </button>
         <button
           data-testid="btn-preview"
+          aria-label="Preview PDF"
           onClick={handlePreview}
           disabled={renderStatus === 'loading' || renderStatus === 'progress'}
           style={{
@@ -3454,7 +3464,7 @@ export default function ErpDesigner({
                           }}
                         >
                           <div style={{ fontSize: '16px', marginBottom: '2px' }}>{block.icon}</div>
-                          {block.label}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{block.label}</span>
                         </div>
                       ))}
                     </div>
@@ -3502,7 +3512,8 @@ export default function ErpDesigner({
                             aria-label={`Bind field ${field.key}`}
                             draggable
                             onDragStart={(e) => handleFieldDragStart(e, field.key)}
-                            style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab' }}
+                            title={field.key}
+                            style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                             onClick={() => {
                               if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
                                 handleBindField(field.key);
@@ -4354,6 +4365,9 @@ const labelStyle: React.CSSProperties = {
   marginBottom: '6px',
   textTransform: 'uppercase',
   letterSpacing: '0.5px',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const propInputStyle: React.CSSProperties = {
