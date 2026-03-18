@@ -22,6 +22,9 @@ export interface ErpDesignerProps {
   templateId?: string;
   templateName?: string;
   orgId?: string;
+  authToken?: string;
+  apiBase?: string;
+  autoSaveInterval?: number; // ms, default 30000
   onSave?: (template: unknown) => void;
   onChange?: (template: unknown) => void;
 }
@@ -238,7 +241,12 @@ const ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200];
 const FONT_FAMILIES = ['Helvetica', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
 
 export default function ErpDesigner({
+  templateId,
   templateName = 'Untitled Template',
+  orgId,
+  authToken,
+  apiBase = '/api/pdfme',
+  autoSaveInterval = 30000,
   onSave,
 }: ErpDesignerProps) {
   const [activeTab, setActiveTab] = useState<LeftTab>('blocks');
@@ -249,6 +257,17 @@ export default function ErpDesigner({
   const [isDirty, setIsDirty] = useState(false);
   const [showBindingPicker, setShowBindingPicker] = useState(false);
   const [bindingSearch, setBindingSearch] = useState('');
+
+  // Auto-save state
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [lastAutoSave, setLastAutoSave] = useState<Date | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isDirtyRef = useRef(false);
+
+  // Keep isDirtyRef in sync with isDirty state
+  useEffect(() => {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
 
   // Multi-page state
   const [pages, setPages] = useState<TemplatePage[]>(() => [
@@ -341,6 +360,57 @@ export default function ErpDesigner({
     }
     setIsDirty(false);
   }, [name, pageSize, pages, onSave]);
+
+  // ─── Auto-save: save draft to backend every 30 seconds ───
+  const performAutoSave = useCallback(async () => {
+    if (!isDirtyRef.current || !templateId) return;
+
+    setAutoSaveStatus('saving');
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+
+      const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          name,
+          schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+        }),
+      });
+
+      if (response.ok) {
+        setAutoSaveStatus('saved');
+        setLastAutoSave(new Date());
+        setIsDirty(false);
+        isDirtyRef.current = false;
+        // Reset status back to idle after 3 seconds
+        setTimeout(() => setAutoSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
+      } else {
+        setAutoSaveStatus('error');
+        setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
+      }
+    } catch {
+      setAutoSaveStatus('error');
+      setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
+    }
+  }, [templateId, authToken, apiBase, name, pageSize, pages]);
+
+  // Set up auto-save interval
+  useEffect(() => {
+    if (!templateId || autoSaveInterval <= 0) return;
+
+    autoSaveTimerRef.current = setInterval(() => {
+      performAutoSave();
+    }, autoSaveInterval);
+
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearInterval(autoSaveTimerRef.current);
+        autoSaveTimerRef.current = null;
+      }
+    };
+  }, [templateId, autoSaveInterval, performAutoSave]);
 
   // ─── Page management ───
 
@@ -1055,6 +1125,8 @@ export default function ErpDesigner({
   };
 
   return (
+    <>
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     <div
       className="erp-designer"
       style={{
@@ -1158,6 +1230,36 @@ export default function ErpDesigner({
         </span>
 
         <div style={{ flex: 1 }} />
+
+        {/* Auto-save status indicator */}
+        {templateId && (
+          <span
+            data-testid="auto-save-indicator"
+            style={{
+              fontSize: '11px',
+              color: autoSaveStatus === 'saving' ? '#f59e0b'
+                : autoSaveStatus === 'saved' ? '#10b981'
+                : autoSaveStatus === 'error' ? '#ef4444'
+                : '#94a3b8',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+          >
+            {autoSaveStatus === 'saving' && (
+              <><span data-testid="auto-save-spinner" style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #f59e0b', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Saving...</>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <><span style={{ fontSize: '14px' }}>✓</span>Saved</>
+            )}
+            {autoSaveStatus === 'error' && (
+              <><span style={{ fontSize: '14px' }}>✗</span>Save failed</>
+            )}
+            {autoSaveStatus === 'idle' && lastAutoSave && (
+              <>Last saved {lastAutoSave.toLocaleTimeString()}</>
+            )}
+          </span>
+        )}
 
         {/* Right-side actions */}
         <button data-testid="btn-preview" style={toolbarBtnStyle}>Preview</button>
@@ -1580,6 +1682,7 @@ export default function ErpDesigner({
         </div>
       )}
     </div>
+    </>
   );
 }
 
