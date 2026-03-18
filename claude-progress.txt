@@ -1137,3 +1137,33 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-nonexistent-resource-404.js - 26 tests
 
 ### Current Status: ~80/388 features passing (20.6%)
+
+---
+
+## Session - 2026-03-18 - Features #154, #155, #156 (Field Fallbacks and Asset Handling)
+
+### Completed Features:
+- **Feature #154**: Field binding uses fallbackValue when missing
+  - resolveFieldBindings() step early in render pipeline
+  - Schema elements with fallbackValue property get that value when input missing/empty
+  - Without fallback, empty string used; provided values never overridden
+  - 20 automated tests passing
+
+- **Feature #155**: Placeholder rectangle for missing images
+  - erpImage resolver generates placeholder PNG when asset not found
+  - resolveMissingImages() handles standard image elements with empty inputs
+  - pdf-lib post-processing draws grey rectangle with diagonal cross and text
+  - 12 automated tests passing, visual verification confirmed
+
+- **Feature #156**: Configurable signature fallback behavior
+  - drawnSignature elements support fallbackBehaviour property
+  - blank (default): transparent PNG empty space
+  - placeholder: grey placeholder PNG
+  - error: throws, creates failed document record with message
+  - 14 automated tests passing
+
+### Key Files Modified:
+- nest-module/src/render.service.ts
+- packages/erp-schemas/src/erp-image/index.ts
+
+### Current Status: ~75/388 features passing (19.3%)
