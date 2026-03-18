@@ -311,7 +311,7 @@ export class TemplateService {
    * Save draft changes to a template. Updates schema and/or name,
    * keeps status as 'draft', and updates the updatedAt timestamp.
    */
-  async saveDraft(id: string, dto: SaveDraftDto, orgId?: string) {
+  async saveDraft(id: string, dto: SaveDraftDto, orgId?: string, userId?: string) {
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
       status: 'draft',
@@ -329,6 +329,19 @@ export class TemplateService {
       .set(updateData)
       .where(and(...conditions))
       .returning();
+
+    // Create a version history entry on each save
+    if (result) {
+      await this.createVersionEntry({
+        id: result.id,
+        orgId: result.orgId,
+        version: result.version,
+        status: 'draft',
+        schema: result.schema,
+        createdBy: userId || 'unknown',
+      }, dto.saveMode === 'newVersion' ? 'New version save' : 'Draft save');
+    }
+
     return result || null;
   }
 

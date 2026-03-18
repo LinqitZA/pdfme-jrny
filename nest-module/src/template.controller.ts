@@ -599,7 +599,7 @@ export class TemplateController {
       );
     }
 
-    const result = await this.templateService.saveDraft(id, body, orgId);
+    const result = await this.templateService.saveDraft(id, body, orgId, userId);
     if (!result) {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
