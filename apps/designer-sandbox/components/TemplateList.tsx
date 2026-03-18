@@ -40,12 +40,14 @@ export default function TemplateList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const archivingRef = useRef<string | null>(null);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -92,6 +94,7 @@ export default function TemplateList({
       if (orgId) params.set('orgId', orgId);
       params.set('limit', '20');
       if (typeFilter) params.set('type', typeFilter);
+      if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (appendCursor) params.set('cursor', appendCursor);
 
       const response = await fetch(`${apiBase}/templates?${params.toString()}`, {
@@ -119,7 +122,7 @@ export default function TemplateList({
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [apiBase, orgId, typeFilter, getAuthHeaders]);
+  }, [apiBase, orgId, typeFilter, searchQuery, getAuthHeaders]);
 
   // Load types on mount
   useEffect(() => {
@@ -170,6 +173,11 @@ export default function TemplateList({
 
   const handleTypeChange = (newType: string) => {
     setTypeFilter(newType);
+    setCursor(null);
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
     setCursor(null);
   };
 
@@ -233,7 +241,24 @@ export default function TemplateList({
       </div>
 
       {/* Filters */}
-      <div data-testid="template-filters" style={{ display: 'flex', gap: '12px', marginBottom: '20px', alignItems: 'center' }}>
+      <div data-testid="template-filters" style={{ display: 'flex', gap: '12px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          type="text"
+          data-testid="search-input"
+          placeholder="Search templates..."
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          style={{
+            padding: '8px 12px',
+            borderRadius: '6px',
+            border: '1px solid #d1d5db',
+            fontSize: '14px',
+            backgroundColor: '#fff',
+            color: '#1e293b',
+            minWidth: '220px',
+            outline: 'none',
+          }}
+        />
         <label htmlFor="type-filter" style={{ fontSize: '14px', fontWeight: 500, color: '#475569' }}>
           Filter by type:
         </label>
@@ -291,7 +316,7 @@ export default function TemplateList({
         <div data-testid="template-list-empty" style={{ padding: '60px', textAlign: 'center', color: '#94a3b8', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #d1d5db' }}>
           <div style={{ fontSize: '18px', fontWeight: 500 }}>No templates found</div>
           <div style={{ fontSize: '14px', marginTop: '8px' }}>
-            {typeFilter ? `No templates match the "${formatTypeName(typeFilter)}" filter.` : 'Create your first template to get started.'}
+            {searchQuery.trim() ? `No templates match "${searchQuery.trim()}".` : typeFilter ? `No templates match the "${formatTypeName(typeFilter)}" filter.` : 'Create your first template to get started.'}
           </div>
         </div>
       )}

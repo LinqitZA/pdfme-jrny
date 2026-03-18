@@ -7,7 +7,7 @@
  */
 
 import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/common';
-import { eq, and, or, ne, isNull, lt, SQL, asc, desc } from 'drizzle-orm';
+import { eq, and, or, ne, isNull, lt, SQL, asc, desc, inArray, ilike } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { templates, templateVersions } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
@@ -125,7 +125,7 @@ export class TemplateService {
    * Cursor is based on createdAt descending + id for stable ordering.
    * The cursor format is: base64(JSON({createdAt, id}))
    */
-  async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string; status?: string; sort?: 'createdAt' | 'name' | 'updatedAt' | 'type'; order?: 'asc' | 'desc' }) {
+  async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string; status?: string; sort?: 'createdAt' | 'name' | 'updatedAt' | 'type'; order?: 'asc' | 'desc'; search?: string }) {
     const limit = options?.limit ?? 100;
     const conditions: SQL[] = [ne(templates.status, 'archived')];
 
@@ -139,6 +139,15 @@ export class TemplateService {
 
     if (options?.status) {
       conditions.push(eq(templates.status, options.status));
+    }
+
+    // Search by name (case-insensitive partial match)
+    if (options?.search && options.search.trim()) {
+      // Strip null bytes which cause PostgreSQL errors
+      const sanitized = options.search.trim().replace(/\0/g, '');
+      if (sanitized) {
+        conditions.push(ilike(templates.name, `%${sanitized}%`));
+      }
     }
 
     // Determine sort column and direction
@@ -203,6 +212,9 @@ export class TemplateService {
     }
     if (options?.status) {
       countConditions.push(eq(templates.status, options.status));
+    }
+    if (options?.search && options.search.trim()) {
+      countConditions.push(ilike(templates.name, `%${options.search.trim()}%`));
     }
     const allRows = await this.db
       .select({ id: templates.id })
@@ -300,6 +312,7 @@ export class TemplateService {
   async saveDraft(id: string, dto: SaveDraftDto, orgId?: string) {
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
+      status: 'draft',
     };
     if (dto.schema !== undefined) updateData.schema = dto.schema;
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -555,7 +568,34 @@ export class TemplateService {
       savedAt: new Date(),
       changeNote: changeNote || null,
     });
+
+    // Purge old versions beyond the cap of 50
+    await this.purgeOldVersions(template.id, 50);
+
     return id;
+  }
+
+  /**
+   * Purge old version entries beyond the cap.
+   * Keeps the most recent `maxVersions` entries and deletes the rest.
+   */
+  private async purgeOldVersions(templateId: string, maxVersions: number) {
+    // Get all versions for this template ordered by savedAt desc
+    const allVersions = await this.db
+      .select({ id: templateVersions.id, savedAt: templateVersions.savedAt })
+      .from(templateVersions)
+      .where(eq(templateVersions.templateId, templateId))
+      .orderBy(desc(templateVersions.savedAt));
+
+    if (allVersions.length <= maxVersions) return;
+
+    // Delete versions beyond the cap
+    const idsToDelete = allVersions.slice(maxVersions).map(v => v.id);
+    if (idsToDelete.length > 0) {
+      await this.db
+        .delete(templateVersions)
+        .where(inArray(templateVersions.id, idsToDelete));
+    }
   }
 
   /**

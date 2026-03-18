@@ -63,6 +63,7 @@ export class TemplateController {
     @Query('status') queryStatus?: string,
     @Query('sort') querySort?: string,
     @Query('order') queryOrder?: string,
+    @Query('search') querySearch?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     // Prefer orgId from JWT, fallback to query param for dev convenience
@@ -78,6 +79,7 @@ export class TemplateController {
       status: queryStatus,
       sort: querySort as 'createdAt' | 'name' | 'updatedAt' | 'type' | undefined,
       order: queryOrder as 'asc' | 'desc' | undefined,
+      search: querySearch ? querySearch.replace(/\0/g, '') : undefined,
     });
   }
 
