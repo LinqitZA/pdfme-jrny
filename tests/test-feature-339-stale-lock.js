@@ -146,7 +146,7 @@ async function main() {
 
   // Let's use a helper script approach
   const { Client } = require('pg');
-  const dbUrl = process.env.DATABASE_URL || 'postgresql://pdfme:pdfme@localhost:5432/pdfme';
+  const dbUrl = process.env.DATABASE_URL || `postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || 'postgres'}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || '5432'}/${process.env.DB_NAME || 'pdfme_erp'}`;
   const client = new Client({ connectionString: dbUrl });
   await client.connect();
 
@@ -200,7 +200,8 @@ async function main() {
   // User B tries to acquire - should be blocked
   const blockRes = await apiPost(`/templates/${templateId3}/lock`, {}, tokenUserB);
   assert(blockRes.status === 409, `User B blocked by active lock (status ${blockRes.status})`);
-  assert(blockRes.data.error && blockRes.data.error.includes('locked'), 'Error message mentions locked');
+  const errMsg = blockRes.data.message || blockRes.data.error || '';
+  assert(errMsg.toLowerCase().includes('lock'), `Error message mentions lock: "${errMsg}"`);
 
   // --- Test 6: Lock expiry is calculated from lockedAt, not server uptime ---
   console.log('\nTest 6: Lock expiry based on lockedAt timestamp, not server uptime');
