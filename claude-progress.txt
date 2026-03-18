@@ -384,3 +384,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - nest-module/src/app.module.ts: Registered SeedService
 
 ### Current Status: ~25/388 features passing
+
+---
+
+## Session 7 - 2026-03-18 - Features #109, #110, #111 (Expression Engine)
+
+### Completed Features:
+- **Feature #109**: Expression engine arithmetic operations ✅
+  - Built on expr-eval (MIT) library with custom extensions
+  - Standard arithmetic: +, -, *, /, % with correct operator precedence
+  - Dot-notation field references: field.price * field.qty resolves nested context
+  - Parenthesized expressions: (a+b)/c
+  - Decimal precision maintained
+  - Null/undefined values coerced to 0 for arithmetic
+
+- **Feature #110**: Expression engine string functions ✅
+  - LEFT('Hello', 3) = 'Hel'
+  - RIGHT('Hello', 2) = 'lo'
+  - MID('Hello', 2, 3) = 'ell' (1-based indexing like Excel)
+  - UPPER/LOWER case conversion
+  - TRIM whitespace removal
+  - CONCAT with variable args
+  - LEN string length
+
+- **Feature #111**: Expression engine conditional functions ✅
+  - IF(condition, trueVal, falseVal) with nesting support
+  - AND(...args) logical AND
+  - OR(...args) logical OR
+  - NOT(value) logical NOT
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/expression-engine/index.ts - Full ExpressionEngine class
+- nest-module/src/expression.controller.ts - POST /api/pdfme/expressions/evaluate endpoint
+- nest-module/src/app.module.ts - Registered ExpressionController
+- tests/test-expression-engine.js - 33 automated tests covering all three features
+
+### API Endpoints Added:
+- POST /api/pdfme/expressions/evaluate - Evaluate expression with context (requires JWT)
+
+### Notes:
+- Another agent added date, numeric, and locale-aware functions to the same file
+- ExpressionEngine supports options: locale and currency for locale-aware formatting
+- No mock data patterns in codebase
+
+### Current Status: ~34/388 features passing
