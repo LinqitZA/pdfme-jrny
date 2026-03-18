@@ -5159,3 +5159,22 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 47/47 tests passing
 ### Current Status: 364/389 features passing
+
+---
+
+## Session - 2026-03-18 - Features #82, #87, #88 (Render Queue and Assets)
+
+### Completed Features:
+- **Feature #82**: Render queue returns job ID async - POST /render/queue returns 202 with jobId, poll via GET /render/status/:jobId - 20/20 tests passing
+- **Feature #87**: Asset list paginated - GET /assets with cursor pagination (cursor, limit, hasMore, nextCursor) - 34/34 tests passing
+- **Feature #88**: Asset download streams binary - GET /assets/:id returns binary with correct Content-Type - 14/14 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.controller.ts - POST /render/queue endpoint
+- nest-module/src/asset.controller.ts - Cursor pagination on GET /assets
+- nest-module/src/asset.service.ts - listAssetsWithMetadata() method
+- tests/test-feature-82-render-queue-job-id.js
+- tests/test-feature-87-asset-list-paginated.js
+- tests/test-feature-88-asset-download-binary.js
+
+### Test Results: 68/68 tests passing across 3 features
