@@ -1,5 +1,5 @@
 /**
- * SeedService - Seeds system templates on application startup.
+ * SeedService - Seeds system templates and ERP test data on application startup.
  * Idempotent: uses upsert (ON CONFLICT DO UPDATE) so re-running is safe.
  */
 
@@ -7,6 +7,8 @@ import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { templates } from '../db/schema';
 import { systemTemplates } from './templates/system-templates';
+import { runSeedData, getSeedDataForType, getAllSeedData } from './data/seed-runner';
+import { getSeedSummary, getSeedInputsForTemplate } from './data/seed-data';
 import type { PdfmeDatabase } from '../db/connection';
 
 @Injectable()
@@ -17,6 +19,8 @@ export class SeedService implements OnModuleInit {
 
   async onModuleInit() {
     await this.seedSystemTemplates();
+    // Also seed sample data into system templates
+    await this.seedSampleData();
   }
 
   async seedSystemTemplates() {
@@ -61,5 +65,40 @@ export class SeedService implements OnModuleInit {
     }
 
     this.logger.log(`System templates seeded: ${created} created, ${updated} updated`);
+  }
+
+  /**
+   * Seed sample data into system templates for preview purposes.
+   */
+  async seedSampleData() {
+    try {
+      const result = await runSeedData(this.db);
+      this.logger.log(`Sample data seeded: ${JSON.stringify(result.summary)}`);
+      return result;
+    } catch (error) {
+      this.logger.warn(`Sample data seeding failed (non-fatal): ${error}`);
+      return { success: false, summary: getSeedSummary(), sampleInputsByType: {} };
+    }
+  }
+
+  /**
+   * Get seed inputs for a specific template type.
+   */
+  getSeedInputsForType(templateType: string): Record<string, string> {
+    return getSeedInputsForTemplate(templateType);
+  }
+
+  /**
+   * Get all raw seed datasets.
+   */
+  getAllSeedData() {
+    return getAllSeedData();
+  }
+
+  /**
+   * Get summary of available seed data.
+   */
+  getSeedSummary() {
+    return getSeedSummary();
   }
 }

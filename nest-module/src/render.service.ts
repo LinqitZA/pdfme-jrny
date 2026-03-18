@@ -603,6 +603,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      if (err instanceof Error && err.stack) {
+        this.logger.error(`PDF generation failed: ${err.stack}`);
+      }
       // Create a failed document record
       const docId = createId();
       const [failedDoc] = await this.db
@@ -1404,7 +1407,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    * image/drawnSignature/erpImage contain binary data, not text expressions.
    */
   private static readonly EXPRESSION_SKIP_TYPES = new Set([
-    'calculatedField', 'image', 'drawnSignature', 'erpImage',
+    'calculatedField', 'image', 'drawnSignature', 'erpImage', 'table',
   ]);
 
   /**
