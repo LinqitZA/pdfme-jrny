@@ -56,8 +56,16 @@ export interface ErpDesignerProps {
   apiBase?: string;
   autoSaveInterval?: number; // ms, default 30000
   onSave?: (template: unknown) => void;
+  /** Callback fired when the Save Draft toolbar button is clicked. Receives the current template state. */
+  onSaveDraft?: (template: unknown) => void;
+  /** Callback fired when the Publish toolbar button is clicked. */
+  onPublish?: (template: unknown) => void;
   onChange?: (template: unknown) => void;
   onAssetUpload?: (asset: AssetInfo) => void;
+  /** Whether the Publish button is enabled. Defaults to true. */
+  canPublish?: boolean;
+  /** Whether the Export JSON button is enabled. Defaults to true. */
+  canExportJson?: boolean;
   /** External field schema - host app can update this to change available data fields */
   fieldSchema?: FieldSchemaEntry[];
   /** Brand configuration - host app can update colors/fonts without remounting */
@@ -339,7 +347,11 @@ export default function ErpDesigner({
   apiBase = '/api/pdfme',
   autoSaveInterval = 30000,
   onSave,
+  onSaveDraft,
+  onPublish,
   onAssetUpload,
+  canPublish = true,
+  canExportJson = true,
   fieldSchema,
   brandConfig,
 }: ErpDesignerProps) {
@@ -1088,9 +1100,13 @@ export default function ErpDesigner({
     // Capture save generation - if changes occur during save, this will differ
     const saveGen = saveGenerationRef.current;
 
-    // Call external callback if provided
+    // Call external callbacks if provided
+    const templateData = { name, pageSize, pages, schemas: [] };
     if (onSave) {
-      onSave({ name, pageSize, pages, schemas: [] });
+      onSave(templateData);
+    }
+    if (onSaveDraft) {
+      onSaveDraft(templateData);
     }
 
     // If we have a templateId and apiBase, persist to backend
@@ -1154,16 +1170,22 @@ export default function ErpDesigner({
       setIsDirty(false);
       isSavingRef.current = false;
     }
-  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase, addToast, announceStatus, announceError]);
+  }, [name, pageSize, pages, onSave, onSaveDraft, templateId, authToken, apiBase, addToast, announceStatus, announceError]);
 
   // ─── Publish: publish template to backend ───
   const isPublishingRef = useRef(false);
   const handlePublish = useCallback(async () => {
     if (isPublishingRef.current) return; // Prevent double-click
+    if (!canPublish) return; // Respect canPublish permission
     if (!templateId) {
       setPublishStatus('error');
       setPublishError('Cannot publish: no template ID');
       return;
+    }
+
+    // Call external onPublish callback if provided
+    if (onPublish) {
+      onPublish({ name, pageSize, pages, schemas: [] });
     }
 
     isPublishingRef.current = true;
@@ -1238,7 +1260,35 @@ export default function ErpDesigner({
     } finally {
       isPublishingRef.current = false;
     }
-  }, [templateId, authToken, apiBase, pages, addToast, announceStatus, announceError]);
+  }, [templateId, authToken, apiBase, pages, canPublish, onPublish, name, pageSize, addToast, announceStatus, announceError]);
+
+  // ─── Export JSON: download current template as JSON file ───
+  const handleExportJson = useCallback(() => {
+    if (!canExportJson) return;
+
+    const templateData = {
+      name,
+      pageSize,
+      pages,
+      schemas: [],
+      basePdf: 'BLANK_PDF',
+      exportedAt: new Date().toISOString(),
+    };
+
+    const jsonStr = JSON.stringify(templateData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    addToast('success', 'Template JSON exported', 3000);
+    announceStatus('Template JSON exported successfully');
+  }, [name, pageSize, pages, canExportJson, addToast, announceStatus]);
 
   // ─── Navigate to validation error element ───
   const handleValidationErrorClick = useCallback((err: { field: string; elementId?: string; pageIndex?: number }) => {
@@ -2228,9 +2278,10 @@ export default function ErpDesigner({
       top: `${el.y * scale}px`,
       width: `${el.w * scale}px`,
       height: `${el.h * scale}px`,
-      border: isSelected ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+      border: isSelected && !previewMode ? '2px solid #3b82f6' : '1px solid #cbd5e1',
       borderRadius: '2px',
-      cursor: 'pointer',
+      cursor: previewMode ? 'default' : 'pointer',
+      pointerEvents: previewMode ? 'none' : 'auto',
       boxSizing: 'border-box',
       overflow: 'hidden',
       backgroundColor: category === 'image' ? '#f8fafc' : 'transparent',
@@ -4070,17 +4121,35 @@ export default function ErpDesigner({
           data-testid="btn-publish"
           aria-label="Publish template"
           onClick={handlePublish}
-          disabled={publishStatus === 'publishing' || isReadOnly}
+          disabled={publishStatus === 'publishing' || isReadOnly || !canPublish}
           style={{
             ...toolbarBtnStyle,
-            backgroundColor: publishStatus === 'error' ? '#ef4444' : publishStatus === 'published' ? '#059669' : '#10b981',
+            backgroundColor: !canPublish ? '#94a3b8' : publishStatus === 'error' ? '#ef4444' : publishStatus === 'published' ? '#059669' : '#10b981',
             color: '#fff',
             fontWeight: 600,
-            opacity: publishStatus === 'publishing' ? 0.7 : 1,
-            cursor: publishStatus === 'publishing' ? 'not-allowed' : 'pointer',
+            opacity: (publishStatus === 'publishing' || !canPublish) ? 0.7 : 1,
+            cursor: (publishStatus === 'publishing' || !canPublish) ? 'not-allowed' : 'pointer',
           }}
+          title={!canPublish ? 'Publishing is not permitted' : 'Publish template'}
         >
           {publishStatus === 'publishing' ? 'Publishing…' : publishStatus === 'published' ? '✓ Published' : publishStatus === 'error' ? 'Retry Publish' : 'Publish'}
+        </button>
+        <button
+          data-testid="btn-export-json"
+          aria-label="Export template JSON"
+          onClick={handleExportJson}
+          disabled={!canExportJson}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: !canExportJson ? '#94a3b8' : '#7c3aed',
+            color: '#fff',
+            fontWeight: 600,
+            opacity: !canExportJson ? 0.7 : 1,
+            cursor: !canExportJson ? 'not-allowed' : 'pointer',
+          }}
+          title={!canExportJson ? 'Export is not permitted' : 'Export template as JSON'}
+        >
+          Export JSON
         </button>
         <button
           data-testid="btn-keyboard-shortcuts"
@@ -4309,6 +4378,7 @@ export default function ErpDesigner({
       <div
         className="erp-designer-panels"
         data-testid="designer-panels"
+        data-preview-mode={previewMode ? 'true' : 'false'}
         style={{
           display: 'flex',
           flex: 1,
@@ -5090,9 +5160,14 @@ export default function ErpDesigner({
           </div>
           <div
             data-testid="properties-scroll-container"
-            style={{ flex: 1, overflow: 'auto', padding: '16px', overscrollBehavior: 'contain' }}
+            data-disabled={previewMode ? 'true' : 'false'}
+            style={{ flex: 1, overflow: 'auto', padding: '16px', overscrollBehavior: 'contain', opacity: previewMode ? 0.5 : 1, pointerEvents: previewMode ? 'none' : 'auto' }}
           >
-            {renderPropertiesPanel()}
+            {previewMode ? (
+              <div data-testid="properties-preview-disabled" style={{ textAlign: 'center', color: '#64748b', fontSize: '13px', padding: '40px 20px' }}>
+                Edit controls disabled in preview mode
+              </div>
+            ) : renderPropertiesPanel()}
           </div>
         </div>
       </div>
