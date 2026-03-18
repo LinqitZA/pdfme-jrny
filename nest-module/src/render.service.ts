@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import { templates, generatedDocuments } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
+import { SignatureService } from './signature.service';
 
 export interface RenderNowDto {
   templateId: string;
@@ -26,6 +27,7 @@ export class RenderService {
   constructor(
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
+    private readonly signatureService: SignatureService,
   ) {}
 
   /**
@@ -56,6 +58,9 @@ export class RenderService {
       ? dto.inputs
       : [this.buildEmptyInputs(pdfmeTemplate)];
 
+    // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
+    await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+
     // 4. Generate PDF using @pdfme/generator
     let pdfBuffer: Uint8Array;
     try {
@@ -79,6 +84,9 @@ export class RenderService {
         radioGroup: schemas.radioGroup,
         checkbox: schemas.checkbox,
         ...schemas.barcodes,
+        // ERP custom: drawnSignature uses image plugin for PDF rendering
+        // (signature data resolved to base64 in step 3b above)
+        drawnSignature: schemas.image,
       };
 
       pdfBuffer = await generate({
@@ -185,5 +193,67 @@ export class RenderService {
       }
     }
     return inputs;
+  }
+
+  /**
+   * Resolve drawnSignature fields in the template.
+   * Scans template schemas for drawnSignature type fields, fetches the user's
+   * signature PNG from storage, and replaces input values with base64 data URIs.
+   * Also converts the schema type to 'image' for pdfme compatibility.
+   */
+  private async resolveDrawnSignatures(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    inputs: Record<string, string>[],
+    orgId: string,
+    userId: string,
+  ): Promise<void> {
+    // Find all drawnSignature fields in the template
+    const signatureFieldNames: string[] = [];
+
+    if (Array.isArray(pdfmeTemplate.schemas)) {
+      for (const page of pdfmeTemplate.schemas) {
+        if (Array.isArray(page)) {
+          for (const field of page) {
+            if (
+              field &&
+              typeof field === 'object' &&
+              'type' in field &&
+              (field as { type: string }).type === 'drawnSignature' &&
+              'name' in field
+            ) {
+              signatureFieldNames.push((field as { name: string }).name);
+              // Convert type to 'image' for pdfme compatibility
+              (field as { type: string }).type = 'image';
+            }
+          }
+        }
+      }
+    }
+
+    if (signatureFieldNames.length === 0) return;
+
+    // Fetch the user's current signature
+    let signatureDataUri = '';
+    try {
+      const signature = await this.signatureService.getMySignature(orgId, userId);
+      if (signature) {
+        const fileExists = await this.signatureService.signatureFileExists(signature.filePath);
+        if (fileExists) {
+          const pngBuffer = await this.signatureService.readSignatureFile(signature.filePath);
+          if (pngBuffer && pngBuffer.length > 0) {
+            signatureDataUri = `data:image/png;base64,${pngBuffer.toString('base64')}`;
+          }
+        }
+      }
+    } catch {
+      // Signature not found - use fallback (empty)
+    }
+
+    // Set the signature data in all input records
+    for (const inputRecord of inputs) {
+      for (const fieldName of signatureFieldNames) {
+        inputRecord[fieldName] = signatureDataUri;
+      }
+    }
   }
 }
