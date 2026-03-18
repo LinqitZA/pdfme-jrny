@@ -2,7 +2,7 @@
  * AuditController - Query audit log entries
  *
  * GET /api/pdfme/audit - Returns paginated audit log entries
- * Supports filtering by entityType, entityId, action.
+ * Supports filtering by entityType, entityId, action, and date range (from/to).
  * Results in reverse chronological order.
  */
 
@@ -21,6 +21,8 @@ export class AuditController {
     @Query('action') action?: string,
     @Query('limit') limitStr?: string,
     @Query('cursor') cursor?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     const orgId = req.user.orgId;
     const limit = limitStr ? parseInt(limitStr, 10) : 20;
@@ -32,6 +34,8 @@ export class AuditController {
       action,
       limit: isNaN(limit) ? 20 : limit,
       cursor,
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
     });
   }
 }

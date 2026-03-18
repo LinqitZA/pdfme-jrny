@@ -7,7 +7,7 @@
  */
 
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, and, desc, lt } from 'drizzle-orm';
+import { eq, and, desc, lt, gte, lte } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import type { PdfmeDatabase } from './db/connection';
 import * as schema from './db/schema';
@@ -28,6 +28,8 @@ export interface AuditQueryParams {
   action?: string;
   limit?: number;
   cursor?: string;
+  from?: Date;
+  to?: Date;
 }
 
 @Injectable()
@@ -68,6 +70,12 @@ export class AuditService {
     }
     if (params.action) {
       conditions.push(eq(schema.auditLogs.action, params.action));
+    }
+    if (params.from && !isNaN(params.from.getTime())) {
+      conditions.push(gte(schema.auditLogs.createdAt, params.from));
+    }
+    if (params.to && !isNaN(params.to.getTime())) {
+      conditions.push(lte(schema.auditLogs.createdAt, params.to));
     }
 
     // Cursor-based pagination: cursor is the ID of the last item from previous page
