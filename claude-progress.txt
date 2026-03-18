@@ -4411,3 +4411,42 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 126/126 tests passing across 3 features
 ### Current Status: ~310/388 features passing (79.9%)
+
+---
+
+## Session - 2026-03-18 - Features #10, #11, #12 (RBAC Permission Enforcement)
+
+### Completed Features:
+- **Feature #10**: RBAC enforces template:view permission ✅
+  - Added RequirePermissions decorator and PermissionsGuard to auth.guard.ts
+  - Registered PermissionsGuard as global APP_GUARD in app.module.ts
+  - @RequirePermissions('template:view') on list, getById, types, versions endpoints
+  - Users with template:view get 200, users without get 403
+  - Error message includes "Insufficient permissions: requires template:view"
+  - 17/17 tests passing
+
+- **Feature #11**: RBAC enforces template:edit permission ✅
+  - @RequirePermissions('template:edit') on saveDraft endpoint
+  - Users with template:edit can save drafts (200)
+  - Users with only template:view get 403
+  - Error clearly mentions missing template:edit permission
+  - 10/10 tests passing
+
+- **Feature #12**: RBAC enforces template:publish permission ✅
+  - @RequirePermissions('template:publish') on publish endpoint
+  - Users with template:publish can publish (200/201)
+  - Users with only template:edit get 403
+  - Template status unchanged after rejected publish attempt
+  - 12/12 tests passing
+
+### Key Files Modified:
+- nest-module/src/auth.guard.ts - RequirePermissions decorator, PermissionsGuard class
+- nest-module/src/app.module.ts - Registered PermissionsGuard as global guard
+- nest-module/src/template.controller.ts - Applied @RequirePermissions decorators to endpoints
+- tests/test-feature-10-rbac-template-view.js - 17 tests
+- tests/test-feature-11-rbac-template-edit.js - 10 tests
+- tests/test-feature-12-rbac-template-publish.js - 12 tests
+- tests/helpers/gen-rbac-tokens.js - JWT token generator with configurable roles
+
+### Test Results: 39/39 tests passing across 3 features
+### Current Status: ~320/388 features passing (82.5%)
