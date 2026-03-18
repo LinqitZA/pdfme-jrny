@@ -2370,3 +2370,44 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 127/127 tests passing across 3 test suites
 ### Current Status: ~168/388 features passing (43.3%)
+
+---
+
+## Session - 2026-03-18 - Features #255, #256, #257 (Render History Filter, Search Edge Cases)
+
+### Completed Features:
+- **Feature #255**: Render history filter by status ✅
+  - Added `status` query parameter to GET /api/pdfme/render/documents/:templateId
+  - Validates status against allowed values: queued, generating, done, failed
+  - Returns 400 for invalid status values
+  - Filter info included in response when active
+  - Empty status treated as no filter
+  - Sum of filtered results equals total unfiltered count
+  - 38/38 tests passing
+
+- **Feature #256**: Template search whitespace-only returns all ✅
+  - Existing implementation already handles this correctly
+  - search.trim() returns empty string for whitespace-only input
+  - Falsy check prevents ILIKE filter from being applied
+  - Spaces, tabs, newlines, mixed whitespace all treated as empty search
+  - Leading/trailing spaces in real searches trimmed correctly
+  - 25/25 tests passing
+
+- **Feature #257**: Search with very long string doesn't crash ✅
+  - 1000, 5000, 10000 character searches all handled gracefully (return 200)
+  - Long special characters (%, ') handled without SQL errors
+  - Long unicode strings (emoji) handled correctly
+  - Long SQL injection patterns handled safely
+  - Application remains functional after all long search tests
+  - Health check passes after stress testing
+  - 22/22 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.controller.ts - Added Query import, status param to listDocumentsByTemplate, validation
+- nest-module/src/render.service.ts - Added optional status param to listDocumentsByTemplate with conditional filter
+- tests/test-render-history-filter-255.js - 38 tests
+- tests/test-search-whitespace-256.js - 25 tests
+- tests/test-search-long-string-257.js - 22 tests
+
+### Test Results: 85/85 tests passing across 3 test suites
+### Current Status: ~176/388 features passing (45.4%)
