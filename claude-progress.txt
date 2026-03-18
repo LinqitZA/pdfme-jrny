@@ -428,3 +428,46 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - No mock data patterns in codebase
 
 ### Current Status: ~34/388 features passing
+
+---
+
+## Session 7 - 2026-03-18 - Features #99, #100, #101 (Config, Field Schema, Audit)
+
+### Completed Features:
+- **Feature #99**: Config endpoint returns configuration ✅
+  - GET /api/pdfme/config returns fonts (3 fonts), locale (en-ZA with currency/date/number), feature flags (6 flags)
+  - Requires JWT authentication
+
+- **Feature #100**: Field schema endpoint returns definitions ✅
+  - GET /api/pdfme/field-schema/:templateType returns field groups with key, label, type on each field
+  - Pre-registered schemas: invoice (5 groups, 22 fields), statement (3 groups), purchase_order (3 groups)
+  - Returns 404 for unregistered template types
+  - FieldSchemaRegistry injectable via FIELD_SCHEMA_REGISTRY token
+
+- **Feature #101**: Audit log query paginated ✅
+  - GET /api/pdfme/audit returns paginated audit entries in reverse chronological order
+  - Cursor-based pagination with limit parameter
+  - Filtering by entityType, entityId, action query params
+  - AuditService.log() wired into TemplateService for create, publish, archive actions
+  - Append-only: no UPDATE or DELETE on audit records
+  - Data persists across server restart (verified)
+
+### Key Files Created/Modified:
+- nest-module/src/config.controller.ts - GET /api/pdfme/config endpoint
+- nest-module/src/field-schema.controller.ts - GET /api/pdfme/field-schema/:templateType endpoint
+- nest-module/src/audit.controller.ts - GET /api/pdfme/audit endpoint
+- nest-module/src/audit.service.ts - Full AuditService with log() and query() methods
+- nest-module/src/app.module.ts - Registered ConfigController, FieldSchemaController, AuditController, AuditService, FIELD_SCHEMA_REGISTRY
+- nest-module/src/template.service.ts - Added AuditService injection and audit logging
+
+### API Endpoints Added:
+- GET  /api/pdfme/config                    - Frontend configuration (fonts, locale, features)
+- GET  /api/pdfme/field-schema/:templateType - Field schema for designer Fields tab
+- GET  /api/pdfme/audit                     - Paginated audit log query
+
+### Notes:
+- ExpressionController was added by another agent, initially had a bug (missing methods in ExpressionEngine) which was also fixed by that agent
+- FIELD_SCHEMA_REGISTRY is a factory provider that pre-registers invoice, statement, purchase_order schemas
+- AuditService uses @Optional() injection in TemplateService so it doesn't break if audit isn't registered
+
+### Current Status: ~31/388 features passing (sessions 1-7 combined)
