@@ -29,6 +29,25 @@ export interface AssetInfo {
   uploadedAt: string;
 }
 
+/** Field schema definition for data binding fields */
+export interface FieldSchemaEntry {
+  key: string;
+  label: string;
+  type?: 'string' | 'number' | 'date' | 'currency' | 'boolean';
+  example?: string;
+  group?: string;
+}
+
+/** Brand configuration for designer theming */
+export interface BrandConfig {
+  primaryColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  fontFamily?: string;
+  logoUrl?: string;
+  companyName?: string;
+}
+
 export interface ErpDesignerProps {
   templateId?: string;
   templateName?: string;
@@ -39,6 +58,10 @@ export interface ErpDesignerProps {
   onSave?: (template: unknown) => void;
   onChange?: (template: unknown) => void;
   onAssetUpload?: (asset: AssetInfo) => void;
+  /** External field schema - host app can update this to change available data fields */
+  fieldSchema?: FieldSchemaEntry[];
+  /** Brand configuration - host app can update colors/fonts without remounting */
+  brandConfig?: BrandConfig;
 }
 
 type LeftTab = 'blocks' | 'fields' | 'assets' | 'pages';
@@ -302,6 +325,8 @@ export default function ErpDesigner({
   autoSaveInterval = 30000,
   onSave,
   onAssetUpload,
+  fieldSchema,
+  brandConfig,
 }: ErpDesignerProps) {
   const [activeTab, setActiveTab] = useState<LeftTab>('blocks');
   const [zoom, setZoom] = useState(100);
@@ -386,6 +411,10 @@ export default function ErpDesigner({
   // Preview mode state - substitutes binding placeholders with example values
   const [previewMode, setPreviewMode] = useState(false);
 
+  // Page simulator state - simulates 1/2/3 page documents for pageScope testing
+  // When active, elements with pageScope are shown/hidden based on simulated page count
+  const [pageSimulatorCount, setPageSimulatorCount] = useState<1 | 2 | 3 | null>(null);
+
   // Asset management state
   const [assets, setAssets] = useState<AssetInfo[]>([]);
   const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
@@ -422,6 +451,14 @@ export default function ErpDesigner({
   const saveGenerationRef = useRef(0); // Tracks changes during save to prevent late responses overwriting
   const MAX_RECONNECT_RETRIES = 5;
 
+  // ─── External prop state (fieldSchema & brandConfig) ───
+  // These are managed as internal state derived from props so that concurrent
+  // updates from the host app don't cause render tearing or crashes.
+  const [activeFieldSchema, setActiveFieldSchema] = useState<FieldSchemaEntry[]>(fieldSchema || []);
+  const [activeBrandConfig, setActiveBrandConfig] = useState<BrandConfig>(brandConfig || {});
+  const fieldSchemaUpdateCount = useRef(0);
+  const brandConfigUpdateCount = useRef(0);
+
   // ─── Responsive viewport state ───
   const NARROW_BREAKPOINT = 768;
   const [isNarrowViewport, setIsNarrowViewport] = useState(
@@ -435,6 +472,66 @@ export default function ErpDesigner({
   const shortcutsDialogRef = useRef<HTMLDivElement>(null);
   const renderDialogRef = useRef<HTMLDivElement>(null);
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+
+  // ─── Concurrent prop update handlers (fieldSchema & brandConfig) ───
+  // These useEffects safely absorb rapid prop changes from the host app
+  // without causing render errors or crashes. Updates are batched by React.
+  useEffect(() => {
+    if (fieldSchema !== undefined) {
+      fieldSchemaUpdateCount.current += 1;
+      try {
+        setActiveFieldSchema(Array.isArray(fieldSchema) ? fieldSchema : []);
+      } catch {
+        // Gracefully handle invalid fieldSchema prop updates
+        console.warn('[ErpDesigner] Invalid fieldSchema prop received, ignoring update');
+      }
+    }
+  }, [fieldSchema]);
+
+  useEffect(() => {
+    if (brandConfig !== undefined) {
+      brandConfigUpdateCount.current += 1;
+      try {
+        setActiveBrandConfig(
+          brandConfig && typeof brandConfig === 'object' ? brandConfig : {}
+        );
+      } catch {
+        // Gracefully handle invalid brandConfig prop updates
+        console.warn('[ErpDesigner] Invalid brandConfig prop received, ignoring update');
+      }
+    }
+  }, [brandConfig]);
+
+  // Derive brand-themed CSS custom properties for the designer canvas
+  const brandStyles = useMemo(() => {
+    const styles: Record<string, string> = {};
+    if (activeBrandConfig.primaryColor) styles['--brand-primary'] = activeBrandConfig.primaryColor;
+    if (activeBrandConfig.secondaryColor) styles['--brand-secondary'] = activeBrandConfig.secondaryColor;
+    if (activeBrandConfig.accentColor) styles['--brand-accent'] = activeBrandConfig.accentColor;
+    if (activeBrandConfig.fontFamily) styles['--brand-font'] = activeBrandConfig.fontFamily;
+    return styles;
+  }, [activeBrandConfig]);
+
+  // Merge external fieldSchema with built-in DATA_FIELDS for the binding picker
+  const mergedDataFields = useMemo(() => {
+    if (!activeFieldSchema || activeFieldSchema.length === 0) return DATA_FIELDS;
+    // Group external fields by their group property
+    const externalGroups: Record<string, Array<{ key: string; label: string; example: string }>> = {};
+    for (const field of activeFieldSchema) {
+      const group = field.group || 'Custom Fields';
+      if (!externalGroups[group]) externalGroups[group] = [];
+      externalGroups[group].push({
+        key: field.key,
+        label: field.label,
+        example: field.example || '',
+      });
+    }
+    const externalGroupEntries = Object.entries(externalGroups).map(([group, fields]) => ({
+      group,
+      fields,
+    }));
+    return [...DATA_FIELDS, ...externalGroupEntries];
+  }, [activeFieldSchema]);
 
   // ─── Focus trap effect for shortcuts dialog ───
   useEffect(() => {
@@ -798,6 +895,41 @@ export default function ErpDesigner({
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const currentPage = pages[currentPageIndex];
+
+  /**
+   * Determine if an element is visible given the page simulator settings.
+   * When pageSimulatorCount is null (off), all elements are shown.
+   * When active, elements are filtered based on their pageScope property:
+   *   - 'all' or undefined: always visible
+   *   - 'first': visible only when viewing page 1 of simulated document
+   *   - 'last': visible only when viewing the last page of simulated document
+   *   - 'notFirst': visible on pages 2+ of simulated document
+   */
+  const isElementVisibleInSimulation = useCallback((el: DesignElement): boolean => {
+    if (pageSimulatorCount === null) return true; // Simulator off
+    const scope = el.pageScope || 'all';
+    if (scope === 'all') return true;
+    // Determine which "simulated page" the current page index represents
+    // For simplicity: page 0 is always "first", last page of simulated count is "last"
+    const isFirstPage = currentPageIndex === 0;
+    const isLastPage = currentPageIndex === (pageSimulatorCount - 1) || currentPageIndex >= (pageSimulatorCount - 1);
+    switch (scope) {
+      case 'first': return isFirstPage;
+      case 'last': return isLastPage;
+      case 'notFirst': return !isFirstPage;
+      default: return true;
+    }
+  }, [pageSimulatorCount, currentPageIndex]);
+
+  /** Elements from current page filtered by page simulator visibility */
+  const simulatedElements = useMemo(() => {
+    if (!currentPage) return [];
+    if (pageSimulatorCount === null) return currentPage.elements;
+    return currentPage.elements.map((el) => ({
+      ...el,
+      _simHidden: !isElementVisibleInSimulation(el),
+    }));
+  }, [currentPage, pageSimulatorCount, isElementVisibleInSimulation]);
 
   // Find selected element from current page
   const selectedElement = useMemo(() => {
@@ -3506,18 +3638,29 @@ export default function ErpDesigner({
     <div
       className="erp-designer"
       data-testid="erp-designer-root"
+      data-page-simulator={pageSimulatorCount !== null ? String(pageSimulatorCount) : 'off'}
       data-font-cache-loaded={fontCacheLoaded ? 'true' : 'false'}
       data-font-cache-entries={String(fontCacheEntries)}
       data-font-cache-available={isCacheApiAvailable() ? 'true' : 'false'}
       data-font-cache-from-cache={fontCacheFromCache.join(',')}
       data-font-cache-from-network={fontCacheFromNetwork.join(',')}
+      data-field-schema-count={String(activeFieldSchema.length)}
+      data-field-schema-updates={String(fieldSchemaUpdateCount.current)}
+      data-brand-config-updates={String(brandConfigUpdateCount.current)}
+      data-brand-primary={activeBrandConfig.primaryColor || ''}
+      data-brand-secondary={activeBrandConfig.secondaryColor || ''}
+      data-brand-accent={activeBrandConfig.accentColor || ''}
+      data-brand-font={activeBrandConfig.fontFamily || ''}
+      data-brand-company={activeBrandConfig.companyName || ''}
+      data-merged-field-groups={String(mergedDataFields.length)}
       style={{
+        ...brandStyles,
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
         maxWidth: '100vw',
         overflow: 'hidden',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: activeBrandConfig.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         color: '#1a1a2e',
         backgroundColor: '#f8f9fa',
       }}
@@ -3707,6 +3850,54 @@ export default function ErpDesigner({
         >
           Page {currentPageIndex + 1} / {pages.length}
         </span>
+
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
+
+        {/* Page Simulator - toggles 1/2/3 page count for pageScope testing */}
+        <div
+          data-testid="page-simulator"
+          style={{ display: 'flex', alignItems: 'center', gap: '2px' }}
+        >
+          <span style={{ fontSize: '11px', color: '#64748b', marginRight: '4px' }}>Sim:</span>
+          {([1, 2, 3] as const).map((count) => (
+            <button
+              key={count}
+              data-testid={`page-sim-${count}`}
+              title={`Simulate ${count}-page document`}
+              aria-label={`Simulate ${count}-page document`}
+              aria-pressed={pageSimulatorCount === count}
+              onClick={() => setPageSimulatorCount(pageSimulatorCount === count ? null : count as 1 | 2 | 3)}
+              style={{
+                ...toolbarBtnStyle,
+                minWidth: '28px',
+                fontSize: '12px',
+                fontWeight: pageSimulatorCount === count ? 700 : 500,
+                backgroundColor: pageSimulatorCount === count ? '#4f46e5' : '#fff',
+                color: pageSimulatorCount === count ? '#fff' : '#374151',
+                border: `1px solid ${pageSimulatorCount === count ? '#4f46e5' : '#e2e8f0'}`,
+                borderRadius: '4px',
+              }}
+            >
+              {count}p
+            </button>
+          ))}
+          {pageSimulatorCount !== null && (
+            <button
+              data-testid="page-sim-clear"
+              title="Clear page simulation"
+              aria-label="Clear page simulation"
+              onClick={() => setPageSimulatorCount(null)}
+              style={{
+                ...toolbarBtnStyle,
+                fontSize: '11px',
+                color: '#64748b',
+                minWidth: '20px',
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
 
         <div style={{ flex: 1 }} />
 
@@ -4744,8 +4935,24 @@ export default function ErpDesigner({
               </div>
             )}
 
-            {/* Render elements on canvas */}
-            {currentPage && currentPage.elements.map((el) => renderCanvasElement(el))}
+            {/* Render elements on canvas - with page simulator visibility */}
+            {currentPage && currentPage.elements.map((el) => {
+              const simHidden = pageSimulatorCount !== null && !isElementVisibleInSimulation(el);
+              return (
+                <div
+                  key={`sim-wrap-${el.id}`}
+                  data-sim-hidden={simHidden ? 'true' : 'false'}
+                  data-page-scope={el.pageScope || 'all'}
+                  style={{
+                    opacity: simHidden ? 0.15 : 1,
+                    pointerEvents: simHidden ? 'none' : 'auto',
+                    transition: 'opacity 0.2s ease',
+                  }}
+                >
+                  {renderCanvasElement(el)}
+                </div>
+              );
+            })}
 
             {/* Placeholder content showing it's a template canvas */}
             {currentPage && currentPage.elements.length === 0 && (
