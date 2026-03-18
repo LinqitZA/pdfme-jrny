@@ -388,6 +388,7 @@ export default function ErpDesigner({
   // Network connectivity / session recovery state
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pendingRetrySave, setPendingRetrySave] = useState(false);
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const reconnectRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveRetryCountRef = useRef(0);
   const MAX_RECONNECT_RETRIES = 5;
@@ -1670,12 +1671,27 @@ export default function ErpDesigner({
     };
   }, []);
 
-  // ─── Keyboard shortcuts for undo/redo ───
+  // ─── Keyboard shortcuts (undo/redo/delete/save/help) ───
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Skip if user is typing in an input/textarea
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
+
+      // Escape always works - close shortcuts help dialog
+      if (e.key === 'Escape') {
+        setShowShortcutsHelp(false);
+        return;
+      }
+
+      // Ctrl+S always works (save) - even in inputs
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+
+      // All other shortcuts require not being in an input
+      if (isInput) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -1686,12 +1702,34 @@ export default function ErpDesigner({
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
         e.preventDefault();
         handleRedo();
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedElementId) {
+          e.preventDefault();
+          setPagesWithHistory((prev: TemplatePage[]) => prev.map((p: TemplatePage, idx: number) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem: DesignElement) => elem.id !== selectedElementId) }));
+          setSelectedElementId(null);
+          setIsDirty(true);
+        }
+      } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        // Arrow keys nudge selected element: 1px default, 10px with Shift
+        if (selectedElementId) {
+          e.preventDefault();
+          const step = e.shiftKey ? 10 : 1;
+          const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+          const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+          updateElement(selectedElementId, {
+            x: Math.max(0, (selectedElement?.x ?? 0) + dx),
+            y: Math.max(0, (selectedElement?.y ?? 0) + dy),
+          });
+        }
+      } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+        e.preventDefault();
+        setShowShortcutsHelp((prev: boolean) => !prev);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, handleSave, selectedElementId, selectedElement, currentPageIndex, setPagesWithHistory, setSelectedElementId, setIsDirty, updateElement]);
 
   // ─── Page management ───
 
@@ -1887,7 +1925,7 @@ export default function ErpDesigner({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: '#94a3b8',
+            color: '#64748b',
             fontSize: `${12 * scale}px`,
             userSelect: 'none',
           }}
@@ -1919,14 +1957,14 @@ export default function ErpDesigner({
               ))}
             </div>
           )}
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: `${10 * scale}px` }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: `${10 * scale}px` }}>
             {getElementTypeLabel(el.type)}
           </div>
         </div>
       );
     } else {
       content = (
-        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: `${10 * scale}px`, userSelect: 'none' }}>
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: `${10 * scale}px`, userSelect: 'none' }}>
           {previewMode && el.binding ? resolveBindingToExample(el.binding, el.binding) : (el.binding ? `{{${el.binding}}}` : getElementTypeLabel(el.type))}
         </div>
       );
@@ -1979,9 +2017,11 @@ export default function ErpDesigner({
       return (
         <div
           data-testid="properties-empty"
+          role="status"
+          aria-label="No element selected"
           style={{
             textAlign: 'center',
-            color: '#94a3b8',
+            color: '#64748b',
             fontSize: '13px',
             padding: '40px 20px',
           }}
@@ -1994,10 +2034,12 @@ export default function ErpDesigner({
     const category = getElementCategory(selectedElement.type);
 
     return (
-      <div data-testid="properties-content" data-element-type={selectedElement.type}>
+      <div data-testid="properties-content" data-element-type={selectedElement.type} role="region" aria-label={`${getElementTypeLabel(selectedElement.type)} element properties`}>
         {/* Element type header */}
         <div
           data-testid="properties-type-label"
+          role="heading"
+          aria-level={2}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -2008,7 +2050,7 @@ export default function ErpDesigner({
             borderRadius: '6px',
           }}
         >
-          <span style={{ fontSize: '11px', fontWeight: 600, color: '#3b82f6', textTransform: 'uppercase' }}>
+          <span style={{ fontSize: '11px', fontWeight: 600, color: '#2563eb', textTransform: 'uppercase' }}>
             {getElementTypeLabel(selectedElement.type)}
           </span>
         </div>
@@ -2018,40 +2060,44 @@ export default function ErpDesigner({
           <label style={labelStyle}>Position &amp; Size</label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>X</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>X</span>
               <input
                 data-testid="prop-x"
                 type="number"
+                aria-label="X position"
                 style={propInputStyle}
                 value={selectedElement.x}
                 onChange={(e) => updateElement(selectedElement.id, { x: Number(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Y</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Y</span>
               <input
                 data-testid="prop-y"
                 type="number"
+                aria-label="Y position"
                 style={propInputStyle}
                 value={selectedElement.y}
                 onChange={(e) => updateElement(selectedElement.id, { y: Number(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>W</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>W</span>
               <input
                 data-testid="prop-w"
                 type="number"
+                aria-label="Width"
                 style={propInputStyle}
                 value={selectedElement.w}
                 onChange={(e) => updateElement(selectedElement.id, { w: Number(e.target.value) || 1 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>H</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>H</span>
               <input
                 data-testid="prop-h"
                 type="number"
+                aria-label="Height"
                 style={propInputStyle}
                 value={selectedElement.h}
                 onChange={(e) => updateElement(selectedElement.id, { h: Number(e.target.value) || 1 })}
@@ -2066,9 +2112,10 @@ export default function ErpDesigner({
             <label style={labelStyle}>Typography</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Family</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Font Family</span>
                 <select
                   data-testid="prop-font-family"
+                  aria-label="Font family"
                   style={propInputStyle}
                   value={selectedElement.fontFamily || 'Helvetica'}
                   onChange={(e) => updateElement(selectedElement.id, { fontFamily: e.target.value })}
@@ -2080,20 +2127,22 @@ export default function ErpDesigner({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Size</span>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>Font Size</span>
                   <input
                     data-testid="prop-font-size"
                     type="number"
+                    aria-label="Font size"
                     style={propInputStyle}
                     value={selectedElement.fontSize || 14}
                     onChange={(e) => updateElement(selectedElement.id, { fontSize: Number(e.target.value) || 14 })}
                   />
                 </div>
                 <div>
-                  <span style={{ fontSize: '11px', color: '#94a3b8' }}>Line Height</span>
+                  <span style={{ fontSize: '11px', color: '#64748b' }}>Line Height</span>
                   <input
                     data-testid="prop-line-height"
                     type="number"
+                    aria-label="Line height"
                     step="0.1"
                     style={propInputStyle}
                     value={selectedElement.lineHeight || 1.4}
@@ -2104,11 +2153,12 @@ export default function ErpDesigner({
               <div style={{ display: 'flex', gap: '4px' }}>
                 <button
                   data-testid="prop-bold"
+                  aria-label="Toggle bold"
                   style={{
                     ...toolbarBtnStyle,
                     fontWeight: 700,
                     backgroundColor: selectedElement.fontWeight === 'bold' ? '#e0e7ff' : '#f8fafc',
-                    color: selectedElement.fontWeight === 'bold' ? '#3b82f6' : '#334155',
+                    color: selectedElement.fontWeight === 'bold' ? '#2563eb' : '#334155',
                     flex: 1,
                   }}
                   onClick={() => updateElement(selectedElement.id, { fontWeight: selectedElement.fontWeight === 'bold' ? 'normal' : 'bold' })}
@@ -2117,11 +2167,12 @@ export default function ErpDesigner({
                 </button>
                 <button
                   data-testid="prop-italic"
+                  aria-label="Toggle italic"
                   style={{
                     ...toolbarBtnStyle,
                     fontStyle: 'italic',
                     backgroundColor: selectedElement.fontStyle === 'italic' ? '#e0e7ff' : '#f8fafc',
-                    color: selectedElement.fontStyle === 'italic' ? '#3b82f6' : '#334155',
+                    color: selectedElement.fontStyle === 'italic' ? '#2563eb' : '#334155',
                     flex: 1,
                   }}
                   onClick={() => updateElement(selectedElement.id, { fontStyle: selectedElement.fontStyle === 'italic' ? 'normal' : 'italic' })}
@@ -2132,10 +2183,11 @@ export default function ErpDesigner({
                   <button
                     key={align}
                     data-testid={`prop-align-${align}`}
+                    aria-label={`Align ${align}`}
                     style={{
                       ...toolbarBtnStyle,
                       backgroundColor: selectedElement.textAlign === align ? '#e0e7ff' : '#f8fafc',
-                      color: selectedElement.textAlign === align ? '#3b82f6' : '#334155',
+                      color: selectedElement.textAlign === align ? '#2563eb' : '#334155',
                       flex: 1,
                       fontSize: '11px',
                     }}
@@ -2146,11 +2198,12 @@ export default function ErpDesigner({
                 ))}
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Color</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Color</span>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     data-testid="prop-color"
                     type="color"
+                    aria-label="Text color picker"
                     style={{ width: '32px', height: '28px', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
                     value={selectedElement.color || '#000000'}
                     onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
@@ -2158,6 +2211,7 @@ export default function ErpDesigner({
                   <input
                     data-testid="prop-color-hex"
                     type="text"
+                    aria-label="Text color hex value"
                     style={{ ...propInputStyle, flex: 1 }}
                     value={selectedElement.color || '#000000'}
                     onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
@@ -2165,9 +2219,10 @@ export default function ErpDesigner({
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Content</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Content</span>
                 <textarea
                   data-testid="prop-content"
+                  aria-label="Element content"
                   style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical' }}
                   value={selectedElement.content || ''}
                   onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
@@ -2182,9 +2237,10 @@ export default function ErpDesigner({
           <div data-testid="properties-text-overflow" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Text Overflow</label>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Overflow Strategy</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Overflow Strategy</span>
               <select
                 data-testid="prop-text-overflow"
+                aria-label="Text overflow strategy"
                 style={propInputStyle}
                 value={selectedElement.textOverflow || 'clip'}
                 onChange={(e) => updateElement(selectedElement.id, { textOverflow: e.target.value as DesignElement['textOverflow'] })}
@@ -2203,10 +2259,11 @@ export default function ErpDesigner({
             <label style={labelStyle}>Image Options</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Source URL</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Source URL</span>
                 <input
                   data-testid="prop-src"
                   type="text"
+                  aria-label="Image source URL"
                   style={propInputStyle}
                   placeholder="Image URL or asset reference"
                   value={selectedElement.src || ''}
@@ -2214,9 +2271,10 @@ export default function ErpDesigner({
                 />
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Object Fit</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Object Fit</span>
                 <select
                   data-testid="prop-object-fit"
+                  aria-label="Object fit"
                   style={propInputStyle}
                   value={selectedElement.objectFit || 'contain'}
                   onChange={(e) => updateElement(selectedElement.id, { objectFit: e.target.value as 'contain' | 'cover' | 'fill' })}
@@ -2227,10 +2285,11 @@ export default function ErpDesigner({
                 </select>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Opacity (%)</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Opacity (%)</span>
                 <input
                   data-testid="prop-opacity"
                   type="number"
+                  aria-label="Opacity percentage"
                   min="0"
                   max="100"
                   style={propInputStyle}
@@ -2251,15 +2310,17 @@ export default function ErpDesigner({
                 <input
                   data-testid="prop-show-header"
                   type="checkbox"
+                  aria-label="Show header row"
                   checked={selectedElement.showHeader ?? true}
                   onChange={(e) => updateElement(selectedElement.id, { showHeader: e.target.checked })}
                 />
                 <span style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</span>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Border Style</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Border Style</span>
                 <select
                   data-testid="prop-border-style"
+                  aria-label="Border style"
                   style={propInputStyle}
                   value={selectedElement.borderStyle || 'solid'}
                   onChange={(e) => updateElement(selectedElement.id, { borderStyle: e.target.value as 'solid' | 'dashed' | 'none' })}
@@ -2270,7 +2331,7 @@ export default function ErpDesigner({
                 </select>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Columns</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Columns</span>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
                   {(selectedElement.columns || []).map((col, colIdx) => (
                     <div
@@ -2287,6 +2348,7 @@ export default function ErpDesigner({
                       <input
                         data-testid={`prop-col-key-${colIdx}`}
                         type="text"
+                        aria-label={`Column ${colIdx + 1} key`}
                         style={{ ...propInputStyle, flex: 1 }}
                         value={col.key}
                         placeholder="Key"
@@ -2299,6 +2361,7 @@ export default function ErpDesigner({
                       <input
                         data-testid={`prop-col-header-${colIdx}`}
                         type="text"
+                        aria-label={`Column ${colIdx + 1} header`}
                         style={{ ...propInputStyle, flex: 1 }}
                         value={col.header}
                         placeholder="Header"
@@ -2311,6 +2374,7 @@ export default function ErpDesigner({
                       <input
                         data-testid={`prop-col-width-${colIdx}`}
                         type="number"
+                        aria-label={`Column ${colIdx + 1} width`}
                         style={{ ...propInputStyle, width: '50px' }}
                         value={col.width}
                         onChange={(e) => {
@@ -2324,6 +2388,7 @@ export default function ErpDesigner({
                 </div>
                 <button
                   data-testid="prop-add-column"
+                  aria-label="Add table column"
                   style={{ ...toolbarBtnStyle, width: '100%', marginTop: '4px', fontSize: '11px' }}
                   onClick={() => {
                     const newCols = [...(selectedElement.columns || []), { key: `col${(selectedElement.columns?.length || 0) + 1}`, header: `Column ${(selectedElement.columns?.length || 0) + 1}`, width: 80 }];
@@ -2343,11 +2408,12 @@ export default function ErpDesigner({
             <label style={labelStyle}>Data Binding</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Bound Field</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Bound Field</span>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
                     data-testid="prop-binding"
                     type="text"
+                    aria-label="Data binding field"
                     style={{ ...propInputStyle, flex: 1 }}
                     placeholder="e.g. {{customer.name}}"
                     value={selectedElement.binding || ''}
@@ -2355,6 +2421,7 @@ export default function ErpDesigner({
                   />
                   <button
                     data-testid="btn-open-binding-picker"
+                    aria-label="Open binding picker"
                     style={{ ...toolbarBtnStyle, padding: '4px 8px', fontSize: '11px' }}
                     onClick={() => setShowBindingPicker(!showBindingPicker)}
                   >
@@ -2408,7 +2475,7 @@ export default function ErpDesigner({
                           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                         >
                           <span style={{ color: '#334155' }}>{field.label}</span>
-                          <span data-testid={`binding-preview-${field.key}`} style={{ color: '#94a3b8', fontSize: '11px' }}>{field.example}</span>
+                          <span data-testid={`binding-preview-${field.key}`} style={{ color: '#64748b', fontSize: '11px' }}>{field.example}</span>
                         </div>
                       ))}
                     </div>
@@ -2420,7 +2487,7 @@ export default function ErpDesigner({
               {selectedElement.binding && (
                 <div data-testid="binding-preview-value" style={{ padding: '6px 8px', backgroundColor: '#f0fdf4', borderRadius: '4px', fontSize: '12px' }}>
                   <span style={{ color: '#64748b' }}>Preview: </span>
-                  <span style={{ color: '#16a34a', fontWeight: 500 }}>
+                  <span style={{ color: '#15803d', fontWeight: 500 }}>
                     {(() => {
                       const match = selectedElement.binding.match(/^\{\{(.+)\}\}$/);
                       if (!match) return selectedElement.binding;
@@ -2443,9 +2510,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Page Visibility</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Page Scope</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Page Scope</span>
               <select
                 data-testid="prop-page-scope"
+                aria-label="Page scope"
                 style={propInputStyle}
                 value={selectedElement.pageScope || 'all'}
                 onChange={(e) => updateElement(selectedElement.id, { pageScope: e.target.value as DesignElement['pageScope'] })}
@@ -2466,7 +2534,7 @@ export default function ErpDesigner({
                   padding: '2px 8px',
                   borderRadius: '12px',
                   backgroundColor: '#dbeafe',
-                  color: '#2563eb',
+                  color: '#1e40af',
                   fontSize: '11px',
                   fontWeight: 500,
                   width: 'fit-content',
@@ -2485,9 +2553,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Output Channel</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Channel</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Channel</span>
               <select
                 data-testid="prop-output-channel"
+                aria-label="Output channel"
                 style={propInputStyle}
                 value={selectedElement.outputChannel || 'both'}
                 onChange={(e) => updateElement(selectedElement.id, { outputChannel: e.target.value as DesignElement['outputChannel'] })}
@@ -2507,7 +2576,7 @@ export default function ErpDesigner({
                   padding: '2px 8px',
                   borderRadius: '12px',
                   backgroundColor: '#fef3c7',
-                  color: '#d97706',
+                  color: '#92400e',
                   fontSize: '11px',
                   fontWeight: 500,
                   width: 'fit-content',
@@ -2525,9 +2594,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Conditional Visibility</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Visibility</span>
+              <span style={{ fontSize: '11px', color: '#64748b' }}>Visibility</span>
               <select
                 data-testid="prop-conditional-visibility"
+                aria-label="Conditional visibility"
                 style={propInputStyle}
                 value={selectedElement.conditionalVisibility || 'always'}
                 onChange={(e) => updateElement(selectedElement.id, { conditionalVisibility: e.target.value as DesignElement['conditionalVisibility'], visibilityCondition: e.target.value === 'always' ? '' : selectedElement.visibilityCondition })}
@@ -2538,10 +2608,11 @@ export default function ErpDesigner({
             </div>
             {selectedElement.conditionalVisibility === 'conditional' && (
               <div>
-                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Condition Expression</span>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Condition Expression</span>
                 <input
                   data-testid="prop-visibility-condition"
                   type="text"
+                  aria-label="Visibility condition expression"
                   style={propInputStyle}
                   value={selectedElement.visibilityCondition || ''}
                   onChange={(e) => updateElement(selectedElement.id, { visibilityCondition: e.target.value })}
@@ -2575,10 +2646,11 @@ export default function ErpDesigner({
         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
           <button
             data-testid="btn-delete-element"
+            aria-label="Delete element"
             style={{
               ...toolbarBtnStyle,
               width: '100%',
-              color: '#ef4444',
+              color: '#dc2626',
               borderColor: '#fecaca',
               backgroundColor: '#fef2f2',
             }}
@@ -2641,7 +2713,7 @@ export default function ErpDesigner({
           justifyContent: 'center',
           height: '100vh',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-          color: '#ef4444',
+          color: '#dc2626',
           backgroundColor: '#f8f9fa',
           gap: '16px',
         }}
@@ -2977,8 +3049,8 @@ export default function ErpDesigner({
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Undo / Redo */}
-        <button data-testid="btn-undo" title="Undo" aria-label="Undo" style={{ ...toolbarBtnStyle, opacity: undoCount > 0 ? 1 : 0.4 }} disabled={undoCount === 0} onClick={handleUndo}>&#8617;</button>
-        <button data-testid="btn-redo" title="Redo" aria-label="Redo" style={{ ...toolbarBtnStyle, opacity: redoCount > 0 ? 1 : 0.4 }} disabled={redoCount === 0} onClick={handleRedo}>&#8618;</button>
+        <button data-testid="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo (Ctrl+Z)" aria-keyshortcuts="Control+Z" style={{ ...toolbarBtnStyle, opacity: undoCount > 0 ? 1 : 0.4 }} disabled={undoCount === 0} onClick={handleUndo}>&#8617;</button>
+        <button data-testid="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo (Ctrl+Shift+Z)" aria-keyshortcuts="Control+Shift+Z" style={{ ...toolbarBtnStyle, opacity: redoCount > 0 ? 1 : 0.4 }} disabled={redoCount === 0} onClick={handleRedo}>&#8618;</button>
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
@@ -3021,7 +3093,7 @@ export default function ErpDesigner({
             data-testid="connection-status"
             style={{
               fontSize: '11px',
-              color: '#ef4444',
+              color: '#dc2626',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
@@ -3040,7 +3112,7 @@ export default function ErpDesigner({
             data-testid="connection-status-reconnecting"
             style={{
               fontSize: '11px',
-              color: '#f59e0b',
+              color: '#b45309',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
@@ -3061,10 +3133,10 @@ export default function ErpDesigner({
             data-testid="auto-save-indicator"
             style={{
               fontSize: '11px',
-              color: autoSaveStatus === 'saving' ? '#f59e0b'
-                : autoSaveStatus === 'saved' ? '#10b981'
-                : autoSaveStatus === 'error' ? '#ef4444'
-                : '#94a3b8',
+              color: autoSaveStatus === 'saving' ? '#b45309'
+                : autoSaveStatus === 'saved' ? '#15803d'
+                : autoSaveStatus === 'error' ? '#dc2626'
+                : '#64748b',
               display: 'flex',
               alignItems: 'center',
               gap: '4px',
@@ -3116,6 +3188,7 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-render"
+          aria-label="Generate PDF"
           onClick={() => handleRenderNow()}
           disabled={renderStatus === 'loading' || renderStatus === 'progress'}
           style={{
@@ -3131,6 +3204,7 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-async-render"
+          aria-label="Async render PDF"
           onClick={() => handleAsyncRender()}
           disabled={renderStatus === 'loading' || renderStatus === 'progress'}
           style={{
@@ -3146,11 +3220,12 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-save"
+          aria-label="Save draft (Ctrl+S)" aria-keyshortcuts="Control+S"
           onClick={handleSave}
           disabled={saveStatus === 'saving' || isReadOnly}
           style={{
             ...toolbarBtnStyle,
-            backgroundColor: saveStatus === 'error' ? '#ef4444' : isDirty ? '#3b82f6' : '#94a3b8',
+            backgroundColor: saveStatus === 'error' ? '#dc2626' : isDirty ? '#2563eb' : '#475569',
             color: '#fff',
             fontWeight: 600,
             opacity: saveStatus === 'saving' ? 0.7 : 1,
@@ -3161,6 +3236,7 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-publish"
+          aria-label="Publish template"
           onClick={handlePublish}
           disabled={publishStatus === 'publishing' || isReadOnly}
           style={{
@@ -3175,7 +3251,22 @@ export default function ErpDesigner({
           {publishStatus === 'publishing' ? 'Publishing…' : publishStatus === 'published' ? '✓ Published' : publishStatus === 'error' ? 'Retry Publish' : 'Publish'}
         </button>
         <button
+          data-testid="btn-keyboard-shortcuts"
+          aria-label="Keyboard shortcuts (?)"
+          aria-keyshortcuts="Shift+/"
+          onClick={() => setShowShortcutsHelp((prev) => !prev)}
+          title="Keyboard shortcuts (?)"
+          style={{
+            ...toolbarBtnStyle,
+            fontSize: '14px',
+            minWidth: '32px',
+          }}
+        >
+          &#x2328;
+        </button>
+        <button
           data-testid="btn-archive"
+          aria-label="Archive template"
           onClick={handleArchive}
           disabled={archiveStatus === 'archiving' || archiveStatus === 'archived'}
           style={{
@@ -3213,6 +3304,7 @@ export default function ErpDesigner({
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               data-testid="save-error-retry"
+              aria-label="Retry save"
               onClick={handleSave}
               style={{
                 padding: '4px 12px',
@@ -3229,6 +3321,7 @@ export default function ErpDesigner({
             </button>
             <button
               data-testid="save-error-dismiss"
+              aria-label="Dismiss error"
               onClick={() => { setSaveStatus('idle'); setSaveError(null); }}
               style={{
                 padding: '4px 8px',
@@ -3288,6 +3381,7 @@ export default function ErpDesigner({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 data-testid="publish-error-retry"
+                aria-label="Retry publish"
                 onClick={handlePublish}
                 style={{
                   padding: '4px 12px',
@@ -3304,6 +3398,7 @@ export default function ErpDesigner({
               </button>
               <button
                 data-testid="publish-error-dismiss"
+                aria-label="Dismiss publish error"
                 onClick={() => { setPublishStatus('idle'); setPublishError(null); setPublishErrors([]); }}
                 style={{
                   padding: '4px 8px',
@@ -3407,13 +3502,14 @@ export default function ErpDesigner({
               <button
                 key={tab}
                 data-testid={`tab-${tab}`}
+                aria-label={`${tab} tab`}
                 onClick={() => setActiveTab(tab)}
                 style={{
                   flex: 1,
                   padding: '10px 4px',
                   fontSize: '12px',
                   fontWeight: activeTab === tab ? 600 : 400,
-                  color: activeTab === tab ? '#3b82f6' : '#64748b',
+                  color: activeTab === tab ? '#2563eb' : '#64748b',
                   backgroundColor: 'transparent',
                   border: 'none',
                   borderBottom: activeTab === tab ? '2px solid #3b82f6' : '2px solid transparent',
@@ -3432,7 +3528,7 @@ export default function ErpDesigner({
               <div data-testid="blocks-content">
                 {BLOCK_CATEGORIES.map((cat) => (
                   <div key={cat.name} style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
                       {cat.name}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
@@ -3493,7 +3589,7 @@ export default function ErpDesigner({
                     <div data-testid="fields-empty-state" style={{
                       textAlign: 'center',
                       padding: '24px 12px',
-                      color: '#94a3b8',
+                      color: '#64748b',
                     }}>
                       <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔍</div>
                       <div style={{ fontWeight: 500, marginBottom: '4px', color: '#64748b' }}>No matching fields</div>
@@ -3550,6 +3646,7 @@ export default function ErpDesigner({
                 />
                 <button
                   data-testid="asset-upload-btn"
+                  aria-label="Upload asset"
                   style={{
                     ...toolbarBtnStyle,
                     width: '100%',
@@ -3584,7 +3681,7 @@ export default function ErpDesigner({
                         }}
                       />
                     </div>
-                    <div data-testid="asset-upload-progress-text" style={{ fontSize: '11px', color: assetUploadStatus === 'success' ? '#10b981' : '#64748b', textAlign: 'center' }}>
+                    <div data-testid="asset-upload-progress-text" style={{ fontSize: '11px', color: assetUploadStatus === 'success' ? '#15803d' : '#64748b', textAlign: 'center' }}>
                       {assetUploadStatus === 'success' ? 'Upload complete — asset added to library' : `Uploading… ${assetUploadProgress}%`}
                     </div>
                   </div>
@@ -3594,7 +3691,7 @@ export default function ErpDesigner({
                     data-testid="asset-upload-error"
                     style={{
                       fontSize: '12px',
-                      color: '#ef4444',
+                      color: '#dc2626',
                       backgroundColor: '#fef2f2',
                       padding: '8px',
                       borderRadius: '4px',
@@ -3605,7 +3702,7 @@ export default function ErpDesigner({
                   </div>
                 )}
                 {assets.length === 0 ? (
-                  <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ fontSize: '13px', color: '#64748b', textAlign: 'center', padding: '20px 0' }}>
                     No assets uploaded yet
                   </div>
                 ) : (
@@ -3763,6 +3860,7 @@ export default function ErpDesigner({
                 {/* Add Page button */}
                 <button
                   data-testid="btn-add-page"
+                  aria-label="Add page"
                   onClick={addPage}
                   style={{
                     ...toolbarBtnStyle,
@@ -3824,6 +3922,7 @@ export default function ErpDesigner({
             <>
               <button
                 data-testid="btn-toggle-left-panel"
+                aria-label="Toggle blocks and fields panel"
                 onClick={(e) => {
                   e.stopPropagation();
                   setMobilePanelOpen(mobilePanelOpen === 'left' ? null : 'left');
@@ -3849,6 +3948,7 @@ export default function ErpDesigner({
               </button>
               <button
                 data-testid="btn-toggle-right-panel"
+                aria-label="Toggle properties panel"
                 onClick={(e) => {
                   e.stopPropagation();
                   setMobilePanelOpen(mobilePanelOpen === 'right' ? null : 'right');
@@ -3900,7 +4000,7 @@ export default function ErpDesigner({
                 top: '8px',
                 left: '8px',
                 fontSize: `${10 * (zoom / 100)}px`,
-                color: '#94a3b8',
+                color: '#64748b',
                 userSelect: 'none',
                 zIndex: 1,
               }}
@@ -3958,6 +4058,8 @@ export default function ErpDesigner({
         <div
           className={`erp-designer-right-panel${isNarrowViewport && mobilePanelOpen !== 'right' ? ' panel-hidden' : ''}`}
           data-testid="right-panel"
+          role="complementary"
+          aria-label="Element properties panel"
           style={{
             width: '280px',
             backgroundColor: '#ffffff',
@@ -4035,14 +4137,14 @@ export default function ErpDesigner({
 
             {/* Complete icon */}
             {renderStatus === 'complete' && (
-              <div data-testid="render-complete-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#10b981' }}>
+              <div data-testid="render-complete-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#15803d' }}>
                 ✓
               </div>
             )}
 
             {/* Error icon */}
             {renderStatus === 'error' && (
-              <div data-testid="render-error-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#ef4444' }}>
+              <div data-testid="render-error-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#dc2626' }}>
                 ✗
               </div>
             )}
@@ -4053,7 +4155,7 @@ export default function ErpDesigner({
               style={{
                 fontSize: '16px',
                 fontWeight: 600,
-                color: renderStatus === 'error' ? '#ef4444' : renderStatus === 'complete' ? '#10b981' : '#334155',
+                color: renderStatus === 'error' ? '#dc2626' : renderStatus === 'complete' ? '#15803d' : '#334155',
                 marginBottom: '12px',
               }}
             >
@@ -4085,7 +4187,7 @@ export default function ErpDesigner({
                             color: isFailed && isActive ? '#dc2626'
                               : isPast ? '#059669'
                               : isActive ? '#2563eb'
-                              : '#94a3b8',
+                              : '#64748b',
                             border: `1px solid ${
                               isFailed && isActive ? '#fca5a5'
                               : isPast ? '#a7f3d0'
@@ -4137,7 +4239,7 @@ export default function ErpDesigner({
                   <span>
                     {renderProgress.completed + renderProgress.failed} / {renderProgress.total} complete
                     {renderProgress.failed > 0 && (
-                      <span style={{ color: '#ef4444', marginLeft: '8px' }}>({renderProgress.failed} failed)</span>
+                      <span style={{ color: '#dc2626', marginLeft: '8px' }}>({renderProgress.failed} failed)</span>
                     )}
                   </span>
                   <span data-testid="render-progress-percentage" style={{ fontWeight: 600, color: '#334155' }}>
@@ -4175,6 +4277,7 @@ export default function ErpDesigner({
               <div>
                 <button
                   data-testid="render-dismiss"
+                  aria-label="Dismiss render overlay"
                   onClick={dismissRenderOverlay}
                   style={{
                     padding: '8px 24px',
@@ -4215,6 +4318,7 @@ export default function ErpDesigner({
         >
           <button
             data-testid="ctx-duplicate-page"
+            aria-label="Duplicate page"
             onClick={() => duplicatePage(contextMenu.pageIndex)}
             style={contextMenuItemStyle}
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f5f9')}
@@ -4225,11 +4329,12 @@ export default function ErpDesigner({
           <div style={{ height: '1px', backgroundColor: '#e2e8f0', margin: '4px 0' }} />
           <button
             data-testid="ctx-delete-page"
+            aria-label="Delete page"
             onClick={() => deletePage(contextMenu.pageIndex)}
             disabled={pages.length <= 1}
             style={{
               ...contextMenuItemStyle,
-              color: pages.length <= 1 ? '#cbd5e1' : '#ef4444',
+              color: pages.length <= 1 ? '#cbd5e1' : '#dc2626',
               cursor: pages.length <= 1 ? 'not-allowed' : 'pointer',
             }}
             onMouseEnter={(e) => {
@@ -4238,7 +4343,7 @@ export default function ErpDesigner({
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
           >
             Delete Page
-            {pages.length <= 1 && <span style={{ fontSize: '11px', marginLeft: 'auto', color: '#94a3b8' }}>(last page)</span>}
+            {pages.length <= 1 && <span style={{ fontSize: '11px', marginLeft: 'auto', color: '#64748b' }}>(last page)</span>}
           </button>
         </div>
       )}
@@ -4279,6 +4384,99 @@ export default function ErpDesigner({
         </div>
       </div>
     )}
+
+
+      {/* ─── Keyboard Shortcuts Help Dialog ─── */}
+      {showShortcutsHelp && (
+        <div
+          data-testid="keyboard-shortcuts-dialog"
+          role="dialog"
+          aria-label="Keyboard shortcuts"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            zIndex: 10002,
+          }}
+          onClick={() => setShowShortcutsHelp(false)}
+        >
+          <div
+            data-testid="keyboard-shortcuts-panel"
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: '12px',
+              padding: '24px',
+              minWidth: '360px',
+              maxWidth: 'min(480px, calc(100vw - 48px))',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#1e293b', margin: 0 }}>Keyboard Shortcuts</h2>
+              <button
+                data-testid="shortcuts-close-btn"
+                aria-label="Close shortcuts dialog"
+                onClick={() => setShowShortcutsHelp(false)}
+                style={{ background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#64748b', padding: '4px' }}
+              >
+                &times;
+              </button>
+            </div>
+            <table data-testid="shortcuts-table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                  <th style={{ textAlign: 'left', padding: '8px 12px', color: '#64748b', fontWeight: 600 }}>Action</th>
+                  <th style={{ textAlign: 'right', padding: '8px 12px', color: '#64748b', fontWeight: 600 }}>Shortcut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ['Undo', 'Ctrl + Z'],
+                  ['Redo', 'Ctrl + Shift + Z'],
+                  ['Redo (alt)', 'Ctrl + Y'],
+                  ['Save draft', 'Ctrl + S'],
+                  ['Delete element', 'Delete / Backspace'],
+                  ['Move element (1px)', 'Arrow Keys'],
+                  ['Move element (10px)', 'Shift + Arrow Keys'],
+                  ['Select element', 'Enter / Space'],
+                  ['Show shortcuts', '?'],
+                  ['Close dialog', 'Escape'],
+                ].map(([action, shortcut], i) => (
+                  <tr key={i} data-testid={`shortcut-row-${i}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '8px 12px', color: '#334155' }}>{action}</td>
+                    <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                      <kbd style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        backgroundColor: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontFamily: 'monospace',
+                        color: '#475569',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                      }}>{shortcut}</kbd>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p style={{ marginTop: '12px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
+              Shortcuts are disabled while typing in input fields. Screen readers can navigate all controls via Tab.
+            </p>
+          </div>
+        </div>
+      )}
 
     {/* ─── Toast Notification Container (#287) ─── */}
     {toasts.length > 0 && (
@@ -4323,6 +4521,8 @@ export default function ErpDesigner({
               <span data-testid="toast-message" style={{ flex: 1 }}>{toast.message}</span>
               <button
                 data-testid="toast-dismiss"
+                className="toast-close-btn"
+                aria-label="Dismiss notification"
                 onClick={() => dismissToast(toast.id)}
                 style={{
                   background: 'none',
