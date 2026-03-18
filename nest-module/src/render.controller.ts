@@ -99,6 +99,21 @@ export class RenderController {
       );
     }
 
+    // Rate limit: 60 req/min per tenant
+    const rateCheck = this.rateLimiterService.checkAndRecord('render:now', user.orgId);
+    if (!rateCheck.allowed) {
+      const retryAfterSeconds = Math.ceil(rateCheck.retryAfterMs / 1000);
+      throw new HttpException(
+        {
+          statusCode: 429,
+          error: 'Too Many Requests',
+          message: `Rate limit exceeded: ${rateCheck.limit} requests per ${Math.round(rateCheck.windowMs / 1000)} seconds`,
+          retryAfter: retryAfterSeconds,
+        },
+        429,
+      );
+    }
+
     const result = await this.renderService.renderNow(
       body,
       user.orgId,
@@ -107,13 +122,24 @@ export class RenderController {
 
     if ('error' in result && !('document' in result)) {
       const code = (result as any).statusCode || 404;
-      const errorLabel = code === 422 ? 'Unprocessable Entity' : code === 400 ? 'Bad Request' : 'Not Found';
+      const errorLabels: Record<number, string> = {
+        400: 'Bad Request',
+        404: 'Not Found',
+        413: 'Payload Too Large',
+        422: 'Unprocessable Entity',
+      };
+      const errorLabel = errorLabels[code] || 'Error';
       throw new HttpException(
         {
           statusCode: code,
           error: errorLabel,
           message: result.error,
           ...((result as any).templateStatus ? { templateStatus: (result as any).templateStatus } : {}),
+          ...((result as any).quotaExceeded ? {
+            quotaExceeded: true,
+            currentUsageBytes: (result as any).currentUsageBytes,
+            quotaBytes: (result as any).quotaBytes,
+          } : {}),
         },
         code,
       );
@@ -281,6 +307,21 @@ export class RenderController {
           message: 'orgId is required in JWT claims',
         },
         HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Rate limit: 5 req/hour per tenant
+    const bulkRateCheck = this.rateLimiterService.checkAndRecord('render:bulk', user.orgId);
+    if (!bulkRateCheck.allowed) {
+      const retryAfterSeconds = Math.ceil(bulkRateCheck.retryAfterMs / 1000);
+      throw new HttpException(
+        {
+          statusCode: 429,
+          error: 'Too Many Requests',
+          message: `Rate limit exceeded: ${bulkRateCheck.limit} requests per ${Math.round(bulkRateCheck.windowMs / 1000)} seconds`,
+          retryAfter: retryAfterSeconds,
+        },
+        429,
       );
     }
 
@@ -1001,5 +1042,47 @@ export class RenderController {
     }
 
     return result;
+  }
+
+  /**
+   * Reset rate limits for a tenant (testing utility)
+   */
+  @Post('rate-limit/reset')
+  resetRateLimit(
+    @Body() body: { endpoint?: string; orgId?: string },
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    const orgId = body.orgId || user?.orgId;
+
+    if (body.endpoint && orgId) {
+      this.rateLimiterService.reset(body.endpoint, orgId);
+      return { reset: true, endpoint: body.endpoint, orgId };
+    }
+
+    // Reset all
+    this.rateLimiterService.resetAll();
+    return { reset: true, all: true };
+  }
+
+  /**
+   * Get rate limit status for current tenant
+   */
+  @Get('rate-limit/status')
+  getRateLimitStatus(
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return {
+      renderNow: this.rateLimiterService.getUsage('render:now', user.orgId),
+      renderBulk: this.rateLimiterService.getUsage('render:bulk', user.orgId),
+    };
   }
 }

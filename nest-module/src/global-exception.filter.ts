@@ -222,6 +222,11 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     errorResponse.timestamp = new Date().toISOString();
     errorResponse.path = request.url;
 
+    // Set Retry-After header for rate limit responses
+    if (status === 429 && errorResponse.retryAfter) {
+      response.setHeader('Retry-After', String(errorResponse.retryAfter));
+    }
+
     response.status(status).json(errorResponse);
   }
 
