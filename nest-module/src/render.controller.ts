@@ -37,6 +37,7 @@ export class RenderController {
   ) {}
 
   @Post('now')
+  @RequirePermissions('render:trigger')
   async renderNow(
     @Body() body: RenderNowDto,
     @Req() req: any,
