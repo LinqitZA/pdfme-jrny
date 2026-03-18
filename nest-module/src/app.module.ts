@@ -32,12 +32,14 @@ import { ExpressionController } from './expression.controller';
 import { GroupedTableController } from './grouped-table.controller';
 import { WatermarkController } from './watermark.controller';
 import { PdfaProcessor } from './pdfa-processor';
+import { DataSourceRegistry } from './datasource.registry';
+import { DataSourceController } from './datasource.controller';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -195,7 +197,8 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     AuditService,
     SeedService,
     PdfaProcessor,
+    DataSourceRegistry,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry],
 })
 export class AppModule {}
