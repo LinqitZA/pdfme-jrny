@@ -1665,3 +1665,101 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-text-overflow-truncate-192.js - 27 tests for truncate overflow
 
 ### Current Status: ~110/388 features passing (28.4%)
+
+---
+
+## Session - 2026-03-18 - Features #199, #200, #201 (Session Recovery, Unsaved Warning, Undo/Redo)
+
+### Completed Features:
+- **Feature #199**: Session recovery after disconnect ✅
+  - Added online/offline event listeners for network connectivity detection
+  - isOnline state tracks current connection status
+  - pendingRetrySave flag triggers auto-save retry on reconnection
+  - Exponential backoff retry (500ms, 1s, 2s, 4s, 8s, 16s) up to 5 retries
+  - Auto-save and manual save flag pendingRetrySave when navigator.onLine is false
+  - Successful reconnect save clears pending state, retry counter, and manual save errors
+  - Offline indicator shows in toolbar with red dot and message
+  - Reconnecting indicator shows saving progress
+  - Event listeners cleaned up on unmount
+  - 25/25 tests passing
+
+- **Feature #200**: Unsaved changes warning on close ✅
+  - beforeunload event handler warns and triggers auto-save attempt
+  - Back-to-templates button shows window.confirm when isDirty
+  - isDirty preserved on failed saves, cleared on successful saves
+  - isDirtyRef kept in sync for event handler access
+  - visibilitychange triggers auto-save on tab switch
+  - 24/24 tests passing
+
+- **Feature #201**: Designer undo history persists during session ✅
+  - undoStackRef and redoStackRef maintain TemplatePage[][] snapshots
+  - MAX_UNDO_HISTORY = 50, oldest entry removed when exceeded
+  - pushUndoState creates deep JSON copies before mutations
+  - setPagesWithHistory wraps setPages for user actions (updateElement, addElement, delete, page ops)
+  - handleUndo pops undo stack, pushes current to redo
+  - handleRedo pops redo stack, pushes current to undo
+  - isUndoRedoRef prevents recursive history pushes
+  - New user actions clear redo stack
+  - Keyboard shortcuts: Ctrl+Z (undo), Ctrl+Shift+Z/Ctrl+Y (redo)
+  - Shortcuts skip when typing in input/textarea/select
+  - Undo/redo buttons enabled/disabled reactively via undoCount/redoCount
+  - clearUndoHistory called on new template load
+  - Template loading uses raw setPages (not tracked in history)
+  - 30/30 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx
+  - Network connectivity detection (online/offline events)
+  - Reconnection auto-save retry with exponential backoff
+  - Connection status indicators (offline/reconnecting)
+  - Full undo/redo stack with setPagesWithHistory wrapper
+  - Keyboard shortcuts for undo/redo
+  - clearUndoHistory on template load
+- tests/test-session-recovery-199.js - 25 tests
+- tests/test-unsaved-warning-200.js - 24 tests
+- tests/test-undo-redo-201.js - 30 tests
+
+### Test Results: 79/79 tests passing across 3 test suites
+### Current Status: ~122/388 features passing (31.4%)
+
+---
+
+## Session - 2026-03-18 - Features #205, #206, #207 (JWT Security, Param Validation, Archived Access)
+
+### Completed Features:
+- **Feature #205**: API rejects tampered JWT claims ✅
+  - Added HMAC-SHA256 JWT signature verification to JwtAuthGuard
+  - Uses JWT_SECRET env var (default: pdfme-dev-secret for dev mode)
+  - verifyJwtSignature() with constant-time comparison (timing attack prevention)
+  - Tampered orgId, roles, sub claims all detected → 401
+  - Corrupted signatures and wrong-secret tokens rejected
+  - Created shared tests/create-signed-token.js helper for properly signed test tokens
+  - Updated tests/gen-token.js to use signed tokens
+  - 16/16 tests passing
+
+- **Feature #206**: API handles malformed URL parameters ✅
+  - Verified all endpoints return 400/404 for malformed IDs (not 500)
+  - String IDs, special characters, negative numbers, very long IDs all handled
+  - SQL injection attempts properly rejected
+  - Render download endpoint returns 410 for non-existent preview IDs
+  - 14/14 tests passing
+
+- **Feature #207**: Direct access to archived template returns appropriate status ✅
+  - Archived templates accessible by direct GET /api/pdfme/templates/:id
+  - Status field shows "archived" on direct access
+  - Template name, type, schema all preserved after archiving
+  - Archived templates excluded from GET /api/pdfme/templates list
+  - Archived templates excluded from type-filtered lists
+  - Multiple archived templates all independently accessible
+  - 21/21 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/auth.guard.ts - JWT signature verification with HMAC-SHA256
+- tests/create-signed-token.js - Shared signed JWT helper for all tests
+- tests/gen-token.js - Updated to use signed tokens
+- tests/test-jwt-tamper-205.js - 16 tests
+- tests/test-malformed-params-206.js - 14 tests
+- tests/test-archived-access-207.js - 21 tests
+
+### Test Results: 51/51 tests passing across 3 test suites
+### Current Status: ~127/388 features passing (32.7%)
