@@ -3684,3 +3684,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 139/139 tests passing across 3 features
 ### Current Status: ~265/388 features passing (68.3%)
+
+---
+
+## Session - 2026-03-18 - Features #346, #347, #348 (Backup Import and Round-Trip)
+
+### Completed Features:
+- **Feature #346**: Backup import to clean org works ✅
+  - Created POST /api/pdfme/templates/backup/import endpoint
+  - Added importBackup method to TemplateService
+  - Imports all templates as drafts with name deduplication
+  - Restores assets (images, fonts) remapped to target org paths
+  - Restores signatures with file data and DB records
+  - Locale config optionally restored via expressions endpoint
+  - Verified: export from org-A, import to empty org-B, all templates created and usable
+  - 29/29 tests passing
+
+- **Feature #347**: Backup import handles conflicts gracefully ✅
+  - Import to org with existing data doesn't corrupt existing templates
+  - Name deduplication: existing "Invoice" stays, imported becomes "Invoice (Import)"
+  - Double import creates "Invoice (Import 2)" etc - no duplicate names
+  - Existing template schemas and data completely untouched
+  - All imported templates created as drafts regardless of source status
+  - Unique IDs generated for all imported templates
+  - 26/26 tests passing
+
+- **Feature #348**: Export/import round-trip preserves data ✅
+  - Complex template with multi-page schema, data bindings, output config
+  - Export, delete original, import - schema identical
+  - All element properties preserved: position, size, content, styling
+  - Special characters in content preserved (& < > " ' \ / newlines tabs)
+  - Data bindings and output config survive round-trip
+  - Re-export and re-import stable (idempotent)
+  - Imported template immediately editable
+  - 49/49 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - importBackup method
+- nest-module/src/template.controller.ts - POST backup/import endpoint
+- tests/test-feature-346-backup-import-clean.js - 29 tests
+- tests/test-feature-347-backup-import-conflicts.js - 26 tests
+- tests/test-feature-348-export-import-roundtrip.js - 49 tests
+
+### Test Results: 104/104 tests passing across 3 features
+### Current Status: ~269/388 features passing (69.3%)
