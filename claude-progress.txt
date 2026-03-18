@@ -1055,3 +1055,43 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 39/39 tests passing across 3 test suites
 ### Current Status: Features #151, #152, #153 marked passing (~72/388)
+
+---
+
+## Session - 2026-03-18 - Features #160, #161, #162 (API Error Responses)
+
+### Completed Features:
+- **Feature #160**: API returns 409 on edit lock conflict ✅
+  - Added checkLockConflict() method to TemplateService
+  - PUT /api/pdfme/templates/:id/draft checks lock before saving
+  - PUT /api/pdfme/templates/:id also checks lock before updating
+  - 409 response includes lockedBy, lockedAt, expiresAt fields
+  - Lock holder can still save (no self-conflict)
+  - After lock release, other users can save normally
+  - 16/16 tests passing
+
+- **Feature #161**: API returns 422 for validation failures ✅
+  - Added validateTemplateForPublish() method to TemplateService
+  - Validates: empty bindings {{}}, invalid binding expressions, missing pages, negative positions, missing element types
+  - POST /api/pdfme/templates/:id/publish returns 422 with details array
+  - Each error has field and message properties
+  - Multiple errors returned at once (not just first one)
+  - Valid templates still publish successfully
+  - 19/19 tests passing
+
+- **Feature #162**: API returns 413 on payload too large ✅
+  - Font upload returns 413 for files >10MB (was 400, changed to 413)
+  - Asset upload returns 413 for files >10MB
+  - Response includes error: "Payload Too Large", message mentioning size limit
+  - Files under 10MB upload normally
+  - Added global body parser limit (50MB for JSON payloads)
+  - 7/7 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - Added checkLockConflict(), validateTemplateForPublish()
+- nest-module/src/template.controller.ts - Lock check in saveDraft/update, 422 in publish
+- nest-module/src/font.controller.ts - Changed size error from 400 to 413
+- nest-module/src/asset.controller.ts - Added 413 for oversized uploads
+- nest-module/src/main.ts - Added body parser limit
+
+### Current Status: ~80/388 features passing (20.6%)
