@@ -8,6 +8,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { runMigrations } from './db/migrate';
+import { GlobalExceptionFilter } from './global-exception.filter';
 
 async function bootstrap() {
   const port = parseInt(process.env.PORT || '3000', 10);
@@ -26,6 +27,9 @@ async function bootstrap() {
 
   // Set global body size limit (50MB for JSON payloads like template import)
   app.useBodyParser('json', { limit: '50mb' });
+
+  // Register global exception filter to sanitize error responses
+  app.useGlobalFilters(new GlobalExceptionFilter());
 
   await app.listen(port);
   console.log(`[pdfme-erp] Server running on http://localhost:${port}`);

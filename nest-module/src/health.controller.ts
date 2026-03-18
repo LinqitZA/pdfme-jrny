@@ -5,7 +5,7 @@
  * POST /api/pdfme/health/test-db-retry - Tests database retry on transient failures
  */
 
-import { Controller, Get, Post, Body, Inject } from '@nestjs/common';
+import { Controller, Get, Post, Body, Inject, HttpException, HttpStatus, Query } from '@nestjs/common';
 import { Pool } from 'pg';
 import { Public } from './auth.guard';
 import { withDbRetry, isTransientError } from './db/db-retry';
@@ -144,5 +144,75 @@ export class HealthController {
       code: body?.code || null,
       message: body?.message || null,
     };
+  }
+
+  /**
+   * Test error sanitization by triggering various error types.
+   *
+   * Query param "type":
+   *  - "unhandled"    - Throws raw Error with stack trace
+   *  - "internal-path" - Error message contains internal file paths
+   *  - "http-400"     - HttpException with details
+   *  - "http-500"     - HttpException 500
+   *  - "db-error"     - Simulated database error
+   *  - "stack-in-message" - Error message contains stack trace text
+   */
+  @Get('health/test-error')
+  async testError(@Query('type') errorType?: string) {
+    switch (errorType) {
+      case 'unhandled':
+        // Raw unhandled error - should NOT leak stack trace
+        throw new Error('Something went wrong in the render pipeline');
+
+      case 'internal-path':
+        // Error with internal file paths
+        throw new Error(
+          'Failed to read file at /home/linqadmin/repo/pdfme-jrny/nest-module/src/render.service.ts:142:15',
+        );
+
+      case 'http-400':
+        // Standard HttpException with details
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: 'Template name is required',
+            details: [{ field: 'name', reason: 'must not be empty' }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+
+      case 'http-500':
+        throw new HttpException('Internal processing error', HttpStatus.INTERNAL_SERVER_ERROR);
+
+      case 'db-error':
+        // Simulated database error with connection details
+        const dbErr: any = new Error(
+          'connect ECONNREFUSED 127.0.0.1:5432 at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1300:16)',
+        );
+        dbErr.code = 'ECONNREFUSED';
+        throw dbErr;
+
+      case 'stack-in-message': {
+        // Error where the message itself contains stack-trace-like text
+        const err = new Error(
+          'TypeError: Cannot read properties of undefined\n' +
+          '    at RenderService.generatePdf (/home/linqadmin/repo/pdfme-jrny/nest-module/src/render.service.ts:245:18)\n' +
+          '    at processTicksAndRejections (node:internal/process/task_queues:95:5)',
+        );
+        throw err;
+      }
+
+      case 'node-modules':
+        throw new Error(
+          'Module parse failed: node_modules/@pdfme/generator/dist/index.js unexpected token',
+        );
+
+      case 'duplicate-key':
+        throw new Error('duplicate key value violates unique constraint "templates_pkey"');
+
+      default:
+        throw new HttpException('Unknown error type. Use ?type=unhandled|internal-path|http-400|http-500|db-error|stack-in-message|node-modules|duplicate-key', HttpStatus.BAD_REQUEST);
+    }
   }
 }
