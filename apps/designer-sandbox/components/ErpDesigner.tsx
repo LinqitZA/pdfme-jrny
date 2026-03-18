@@ -125,6 +125,36 @@ const DATA_FIELDS = [
   },
 ];
 
+/** Build a flat map of field key -> example value for preview mode */
+const FIELD_EXAMPLES: Record<string, string> = {};
+DATA_FIELDS.forEach((group) => {
+  group.fields.forEach((field) => {
+    FIELD_EXAMPLES[field.key] = field.example;
+  });
+});
+
+/**
+ * Resolve binding expressions to example values for preview mode.
+ * Handles both raw binding keys (e.g., "customer.name") and
+ * mustache-style templates (e.g., "{{customer.name}}").
+ */
+function resolveBindingToExample(text: string, binding?: string): string {
+  // If there's a specific binding field, look it up
+  if (binding && FIELD_EXAMPLES[binding]) {
+    return FIELD_EXAMPLES[binding];
+  }
+
+  // Replace all {{key}} patterns in text with example values
+  if (text && text.includes('{{')) {
+    return text.replace(/\{\{([^}]+)\}\}/g, (_match, key) => {
+      const trimmedKey = key.trim();
+      return FIELD_EXAMPLES[trimmedKey] || `{{${trimmedKey}}}`;
+    });
+  }
+
+  return text;
+}
+
 let pageIdCounter = 0;
 function createPage(label: string): TemplatePage {
   pageIdCounter += 1;
@@ -290,6 +320,9 @@ export default function ErpDesigner({
   // Template loading state
   const [isLoading, setIsLoading] = useState(!!templateId);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Preview mode state - substitutes binding placeholders with example values
+  const [previewMode, setPreviewMode] = useState(false);
 
   // Asset management state
   const [assets, setAssets] = useState<AssetInfo[]>([]);
@@ -1043,7 +1076,14 @@ export default function ErpDesigner({
 
     let content: React.ReactNode = null;
     if (category === 'text') {
-      const displayText = el.binding || el.content || el.type;
+      let displayText: string;
+      if (previewMode) {
+        // In preview mode, resolve bindings to example values
+        const rawText = el.content || el.binding || el.type;
+        displayText = resolveBindingToExample(rawText, el.binding);
+      } else {
+        displayText = el.binding ? `{{${el.binding}}}` : (el.content || el.type);
+      }
       content = (
         <div
           style={{
@@ -1115,7 +1155,7 @@ export default function ErpDesigner({
     } else {
       content = (
         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: `${10 * scale}px`, userSelect: 'none' }}>
-          {el.binding || getElementTypeLabel(el.type)}
+          {previewMode && el.binding ? resolveBindingToExample(el.binding, el.binding) : (el.binding ? `{{${el.binding}}}` : getElementTypeLabel(el.type))}
         </div>
       );
     }
@@ -1143,7 +1183,7 @@ export default function ErpDesigner({
         )}
       </div>
     );
-  }, [zoom, selectedElementId]);
+  }, [zoom, selectedElementId, previewMode]);
 
   // ─── Properties Panel Rendering ───
 
@@ -1825,6 +1865,20 @@ export default function ErpDesigner({
 
         {/* Right-side actions */}
         <button
+          data-testid="btn-preview-data"
+          onClick={() => setPreviewMode((prev) => !prev)}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: previewMode ? '#dbeafe' : undefined,
+            borderColor: previewMode ? '#3b82f6' : undefined,
+            color: previewMode ? '#1d4ed8' : undefined,
+            fontWeight: previewMode ? 600 : undefined,
+          }}
+          title={previewMode ? 'Switch back to design mode (show binding placeholders)' : 'Preview with example data (resolve field bindings)'}
+        >
+          {previewMode ? 'Design Mode' : 'Preview Data'}
+        </button>
+        <button
           data-testid="btn-preview"
           onClick={handlePreview}
           disabled={renderStatus === 'loading' || renderStatus === 'progress'}
@@ -2316,6 +2370,28 @@ export default function ErpDesigner({
             >
               {currentPage?.label}
             </div>
+
+            {/* Preview mode indicator */}
+            {previewMode && (
+              <div
+                data-testid="preview-mode-badge"
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  fontSize: `${10 * (zoom / 100)}px`,
+                  color: '#1d4ed8',
+                  backgroundColor: '#dbeafe',
+                  padding: `${2 * (zoom / 100)}px ${6 * (zoom / 100)}px`,
+                  borderRadius: '4px',
+                  fontWeight: 600,
+                  userSelect: 'none',
+                  zIndex: 1,
+                }}
+              >
+                PREVIEW
+              </div>
+            )}
 
             {/* Render elements on canvas */}
             {currentPage && currentPage.elements.map((el) => renderCanvasElement(el))}
