@@ -971,10 +971,10 @@ export class TemplateService {
   }
 
   /**
-   * Validate font data: checks for valid TTF/OTF/WOFF2 magic bytes.
-   * Returns true if the font appears valid, false otherwise.
+   * Validate font data: checks for valid TTF/OTF/WOFF2 magic bytes and fsType license compliance.
+   * Returns true if the font appears valid and is licensed for embedding, false otherwise.
    */
-  private validateFontData(buffer: Buffer, mimeType: string): { valid: boolean; error?: string } {
+  private validateFontData(buffer: Buffer, mimeType: string): { valid: boolean; error?: string; fsType?: number | null; restricted?: boolean } {
     if (buffer.length < 4) {
       return { valid: false, error: 'Font file too small (< 4 bytes)' };
     }
@@ -1010,7 +1010,85 @@ export class TemplateService {
       return { valid: false, error: 'Unrecognized font format: invalid magic bytes' };
     }
 
-    return { valid: true };
+    // Check fsType embedding permission (TTF/OTF only — WOFF2 doesn't expose OS/2 table directly)
+    if (isTtf || isOtf) {
+      const fsType = this.readFsTypeFromFont(buffer);
+      if (fsType !== null) {
+        const check = this.checkFsType(fsType);
+        if (!check.allowed) {
+          return {
+            valid: false,
+            error: `Font embedding restricted: ${check.description}. fsType=0x${fsType.toString(16).padStart(4, '0')}. This font cannot be used for PDF generation.`,
+            fsType,
+            restricted: true,
+          };
+        }
+        return { valid: true, fsType };
+      }
+    }
+
+    return { valid: true, fsType: null };
+  }
+
+  /**
+   * Read fsType from a TTF/OTF font's OS/2 table.
+   * Returns the fsType value, or null if not found.
+   */
+  private readFsTypeFromFont(buffer: Buffer): number | null {
+    if (buffer.length < 12) return null;
+
+    const numTables = buffer.readUInt16BE(4);
+    const tableOffset = 12;
+
+    for (let i = 0; i < numTables; i++) {
+      const entryOffset = tableOffset + i * 16;
+      if (entryOffset + 16 > buffer.length) break;
+
+      const tag = buffer.toString('ascii', entryOffset, entryOffset + 4);
+
+      if (tag === 'OS/2') {
+        const os2Offset = buffer.readUInt32BE(entryOffset + 8);
+        // fsType is at offset 8 within the OS/2 table
+        const fsTypeOffset = os2Offset + 8;
+        if (fsTypeOffset + 2 > buffer.length) return null;
+        return buffer.readUInt16BE(fsTypeOffset);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check fsType embedding permission bits.
+   * Returns whether embedding is allowed and a description.
+   */
+  private checkFsType(fsType: number): { allowed: boolean; description: string } {
+    // Installable embedding (most permissive)
+    if (fsType === 0x0000) {
+      return { allowed: true, description: 'Installable embedding (no restrictions)' };
+    }
+
+    const restricted = (fsType & 0x0002) !== 0;
+    const previewPrint = (fsType & 0x0004) !== 0;
+    const editable = (fsType & 0x0008) !== 0;
+
+    // Restricted license embedding - font cannot be embedded
+    if (restricted && !previewPrint && !editable) {
+      return { allowed: false, description: 'Restricted License embedding — font cannot be embedded in documents' };
+    }
+
+    // Preview & Print is OK for PDF generation
+    if (previewPrint) {
+      return { allowed: true, description: 'Preview & Print embedding allowed' };
+    }
+
+    // Editable embedding is also fine
+    if (editable) {
+      return { allowed: true, description: 'Editable embedding allowed' };
+    }
+
+    // Default: allow
+    return { allowed: true, description: `fsType=0x${fsType.toString(16).padStart(4, '0')}` };
   }
 
   /**
@@ -1314,8 +1392,13 @@ export class TemplateService {
     assetsRestored: { images: number; fonts: number };
     signaturesRestored: number;
     templates: Array<{ id: string; name: string; type: string; status: string }>;
+    fontValidation?: { total: number; accepted: number; rejected: number; errors: string[] };
   }> {
     const createdTemplates: Array<{ id: string; name: string; type: string; status: string }> = [];
+    const fontValidationErrors: string[] = [];
+    let acceptedFonts = 0;
+    let rejectedFonts = 0;
+    const rejectedFontPaths = new Set<string>();
 
     // 1. Import all templates as drafts
     for (const tpl of backup.templates) {
@@ -1354,7 +1437,7 @@ export class TemplateService {
       createdTemplates.push({ id: result.id, name: result.name, type: result.type, status: result.status });
     }
 
-    // 2. Restore assets (images + fonts)
+    // 2. Restore assets (images + fonts with license validation)
     let restoredImages = 0;
     let restoredFonts = 0;
 
@@ -1376,6 +1459,20 @@ export class TemplateService {
       for (const font of (backup.assets?.fonts || [])) {
         try {
           const buffer = Buffer.from(font.data, 'base64');
+
+          // Validate font format and fsType license compliance
+          const validation = this.validateFontData(buffer, font.mimeType);
+          if (!validation.valid) {
+            rejectedFonts++;
+            const errorMsg = validation.restricted
+              ? `${font.path}: Font rejected — ${validation.error}`
+              : `${font.path}: ${validation.error}`;
+            fontValidationErrors.push(errorMsg);
+            rejectedFontPaths.add(font.path);
+            continue; // Skip restricted/invalid fonts
+          }
+
+          acceptedFonts++;
           const pathParts = font.path.split('/');
           const newPath = pathParts.length > 1
             ? `${targetOrgId}/${pathParts.slice(1).join('/')}`
@@ -1383,7 +1480,8 @@ export class TemplateService {
           await this.storage.write(newPath, buffer);
           restoredFonts++;
         } catch {
-          // Skip failed fonts
+          rejectedFonts++;
+          fontValidationErrors.push(`${font.path}: Failed to process font data`);
         }
       }
     }
@@ -1418,11 +1516,18 @@ export class TemplateService {
       }
     }
 
+    const totalFonts = (backup.assets?.fonts || []).length;
     return {
       templatesCreated: createdTemplates.length,
       assetsRestored: { images: restoredImages, fonts: restoredFonts },
       signaturesRestored,
       templates: createdTemplates,
+      fontValidation: totalFonts > 0 ? {
+        total: totalFonts,
+        accepted: acceptedFonts,
+        rejected: rejectedFonts,
+        errors: fontValidationErrors,
+      } : undefined,
     };
   }
 
