@@ -2780,13 +2780,14 @@ export default function ErpDesigner({
         style={{
           display: 'flex',
           alignItems: 'center',
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
           gap: '8px 12px',
           padding: '8px 16px',
           backgroundColor: '#ffffff',
           borderBottom: '1px solid #e2e8f0',
           minHeight: '48px',
           flexShrink: 0,
+          overflow: 'hidden',
         }}
       >
         {/* Back to Templates */}
