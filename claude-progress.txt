@@ -1397,3 +1397,15 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 68/68 tests passing, persistence verified across server restart
 ### Current Status: 99/388 features passing (25.5%)
+
+---
+
+## Session - 2026-03-18 - Features #175, #176, #177 (Designer API Integration and Preview)
+
+### Completed Features:
+- Feature #175: Designer loads template schema from API - 48/48 tests
+- Feature #176: Designer asset upload calls API - 31/31 tests
+- Feature #177: Designer field binding resolves in preview - 31/31 tests
+
+### Key Changes: apps/designer-sandbox/components/ErpDesigner.tsx
+### Current Status: 104/388 features passing (26.8%)
