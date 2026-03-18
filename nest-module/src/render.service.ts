@@ -18,6 +18,7 @@ import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-item
 import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
 import { resolveRichText, applyRichText, RichTextRenderInfo } from '../../packages/erp-schemas/src/rich-text';
 import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
+import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 
 export interface RenderNowDto {
@@ -85,6 +86,16 @@ export class RenderService {
 
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+
+    // 3b2. Resolve erpImage elements - fetch from FileStorageService and convert to base64
+    const erpImageResult = await resolveErpImages(pdfmeTemplate, inputs, {
+      readFile: (p: string) => this.fileStorage.read(p),
+      fileExists: (p: string) => this.fileStorage.exists(p),
+      listFiles: (p: string) => this.fileStorage.list(p),
+      orgId,
+    });
+    pdfmeTemplate = erpImageResult.template as typeof pdfmeTemplate;
+    inputs = erpImageResult.inputs;
 
     // 3c. Resolve lineItemsTable elements - convert to standard table with footer rows
     const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
@@ -232,7 +243,7 @@ export class RenderService {
         status: 'done',
         outputChannel: dto.channel,
         triggeredBy: userId,
-        inputSnapshot: dto.inputs || null,
+        inputSnapshot: inputs || dto.inputs || null,
       })
       .returning();
 
