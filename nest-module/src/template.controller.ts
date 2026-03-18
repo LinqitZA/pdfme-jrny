@@ -271,6 +271,7 @@ export class TemplateController {
   }
 
   @Post('import')
+  @RequirePermissions('template:import')
   @HttpCode(HttpStatus.CREATED)
   async importTemplate(
     @Body() body: any,
