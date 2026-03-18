@@ -654,6 +654,41 @@ export class TemplateController {
     return result;
   }
 
+  @Post(':id/restore')
+  @RequirePermissions('template:edit')
+  async restoreVersion(
+    @Param('id') id: string,
+    @Body() body: { version: number },
+    @Headers('authorization') authHeader?: string,
+    @Req() req?: any,
+  ) {
+    const user = req?.user || decodeJwt(authHeader);
+    const orgId = user?.orgId;
+    const userId = user?.sub || 'unknown';
+
+    if (!body?.version || typeof body.version !== 'number' || body.version < 1) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'version must be a positive integer' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.templateService.restoreVersion(id, body.version, orgId, userId);
+    if (!result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if ((result as any).error === 'version_not_found') {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Version ${body.version} of template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
+  }
+
   @Get(':id/export')
   async exportTemplate(
     @Param('id') id: string,

@@ -460,6 +460,7 @@ export default function ErpDesigner({
   // Page simulator state - simulates 1/2/3 page documents for pageScope testing
   // When active, elements with pageScope are shown/hidden based on simulated page count
   const [pageSimulatorCount, setPageSimulatorCount] = useState<1 | 2 | 3 | null>(null);
+  const [channelFilter, setChannelFilter] = useState<'all' | 'email' | 'print'>('all');
 
   // Asset management state
   const [assets, setAssets] = useState<AssetInfo[]>([]);
@@ -4172,6 +4173,37 @@ export default function ErpDesigner({
           )}
         </div>
 
+        {/* Channel Preview Filter (Feature #69) */}
+        <div
+          data-testid="channel-filter"
+          style={{ display: 'flex', alignItems: 'center', gap: '2px' }}
+        >
+          <span style={{ fontSize: '11px', color: '#64748b', marginRight: '4px' }}>Channel:</span>
+          {(['all', 'email', 'print'] as const).map((ch) => (
+            <button
+              key={ch}
+              data-testid={`channel-filter-${ch}`}
+              title={`Show ${ch === 'all' ? 'all channels' : `${ch} channel only`}`}
+              aria-label={`Show ${ch === 'all' ? 'all channels' : `${ch} channel only`}`}
+              aria-pressed={channelFilter === ch}
+              onClick={() => setChannelFilter(ch)}
+              style={{
+                ...toolbarBtnStyle,
+                minWidth: '40px',
+                fontSize: '11px',
+                fontWeight: channelFilter === ch ? 700 : 500,
+                backgroundColor: channelFilter === ch ? (ch === 'email' ? '#2563eb' : ch === 'print' ? '#16a34a' : '#4f46e5') : '#fff',
+                color: channelFilter === ch ? '#fff' : '#374151',
+                border: `1px solid ${channelFilter === ch ? (ch === 'email' ? '#2563eb' : ch === 'print' ? '#16a34a' : '#4f46e5') : '#e2e8f0'}`,
+                borderRadius: '4px',
+                textTransform: 'capitalize',
+              }}
+            >
+              {ch === 'all' ? 'All' : ch === 'email' ? '📧 Email' : '🖨️ Print'}
+            </button>
+          ))}
+        </div>
+
         <div style={{ flex: 1 }} />
 
         {/* Connection status indicator */}
@@ -5329,23 +5361,30 @@ export default function ErpDesigner({
               </div>
             )}
 
-            {/* Render elements on canvas - with page simulator visibility */}
+            {/* Render elements on canvas - with page simulator and channel filter visibility */}
             {currentPage && currentPage.elements.map((el) => {
               const simHidden = pageSimulatorCount !== null && !isElementVisibleInSimulation(el);
               const scope = el.pageScope || 'all';
               const isOutOfScope = simHidden;
               const scopeLabels: Record<string, string> = { first: 'First only', last: 'Last only', notFirst: 'Not first' };
+              // Channel filter visibility (Feature #69)
+              const elChannel = el.outputChannel || 'both';
+              const channelHidden = channelFilter !== 'all' && elChannel !== 'both' && elChannel !== channelFilter;
+              const isHiddenByFilter = isOutOfScope || channelHidden;
               return (
                 <div
                   key={`sim-wrap-${el.id}`}
                   data-sim-hidden={simHidden ? 'true' : 'false'}
                   data-page-scope={scope}
                   data-out-of-scope={isOutOfScope ? 'true' : 'false'}
+                  data-channel={elChannel}
+                  data-channel-hidden={channelHidden ? 'true' : 'false'}
                   style={{
                     position: 'relative',
-                    opacity: isOutOfScope ? 0.5 : 1,
-                    pointerEvents: isOutOfScope ? 'none' : 'auto',
+                    opacity: isHiddenByFilter ? 0.3 : 1,
+                    pointerEvents: isHiddenByFilter ? 'none' : 'auto',
                     transition: 'opacity 0.2s ease',
+                    display: channelHidden ? 'none' : undefined,
                   }}
                 >
                   {renderCanvasElement(el)}

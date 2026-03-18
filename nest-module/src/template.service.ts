@@ -950,6 +950,64 @@ export class TemplateService {
     return rows.length > 0 ? rows[0] : null;
   }
 
+  /**
+   * Restore a template to a historical version.
+   * Creates a new draft with the schema from the specified version.
+   * Does not affect the published version.
+   */
+  async restoreVersion(templateId: string, versionNumber: number, orgId: string, userId: string) {
+    // 1. Verify template exists and belongs to org
+    const [template] = await this.db
+      .select()
+      .from(templates)
+      .where(and(eq(templates.id, templateId), eq(templates.orgId, orgId)))
+      .limit(1);
+
+    if (!template) return null;
+
+    // 2. Get the historical version
+    const historicalVersion = await this.getVersionByNumber(templateId, versionNumber, orgId);
+    if (!historicalVersion) return { error: 'version_not_found', versionNumber };
+
+    // 3. Update the template with the historical schema, set to draft
+    const now = new Date();
+    const [result] = await this.db
+      .update(templates)
+      .set({
+        schema: historicalVersion.schema,
+        status: 'draft',
+        updatedAt: now,
+      })
+      .where(eq(templates.id, templateId))
+      .returning();
+
+    // 4. Create a version entry for the restore action
+    if (result) {
+      await this.createVersionEntry({
+        id: result.id,
+        orgId: result.orgId || '',
+        version: result.version,
+        status: result.status,
+        schema: result.schema as Record<string, unknown>,
+        createdBy: userId,
+      }, `Restored from version ${versionNumber}`);
+    }
+
+    // 5. Audit log
+    if (this.auditService && result) {
+      await this.auditService.log({
+        orgId: result.orgId || '',
+        entityType: 'template',
+        entityId: result.id,
+        action: 'template.restored',
+        userId,
+        metadata: { restoredVersion: versionNumber, name: result.name },
+      });
+    }
+
+    return result;
+  }
+
   // ─── Template Export / Import ────────────────────────────────────────
 
   /**
