@@ -7,6 +7,7 @@
  * - GET    /api/pdfme/templates/:id          (get by ID)
  * - PUT    /api/pdfme/templates/:id          (update)
  * - PUT    /api/pdfme/templates/:id/draft   (save draft changes)
+ * - POST   /api/pdfme/templates/:id/preview  (generate preview PDF)
  * - DELETE /api/pdfme/templates/:id          (soft delete / archive)
  */
 
@@ -24,7 +25,8 @@ import {
   HttpStatus,
   HttpCode,
 } from '@nestjs/common';
-import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto } from './template.service';
+import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto, TemplateExportPackage } from './template.service';
+import { RenderService } from './render.service';
 
 /**
  * Extract orgId and userId from JWT token (simple decode for now).
@@ -47,7 +49,10 @@ function decodeJwt(authHeader?: string): { sub: string; orgId: string; roles: st
 
 @Controller('api/pdfme/templates')
 export class TemplateController {
-  constructor(private readonly templateService: TemplateService) {}
+  constructor(
+    private readonly templateService: TemplateService,
+    private readonly renderService: RenderService,
+  ) {}
 
   @Get()
   async list(
@@ -99,6 +104,39 @@ export class TemplateController {
     };
   }
 
+  @Post('import')
+  @HttpCode(HttpStatus.CREATED)
+  async importTemplate(
+    @Body() body: TemplateExportPackage,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    if (!body || !body.template || !body.version) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'Invalid export package format' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Validate package structure
+    if (!body.template?.name || !body.template?.type || !body.template?.schema) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'Export package must contain template with name, type, and schema' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.templateService.importTemplate(body, jwt.orgId, jwt.sub);
+    return result;
+  }
+
   @Get('system')
   async listSystem() {
     const data = await this.templateService.findSystemTemplates();
@@ -115,6 +153,90 @@ export class TemplateController {
       );
     }
     return result;
+  }
+
+  @Get(':id/export')
+  async exportTemplate(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const pkg = await this.templateService.exportTemplate(id, orgId);
+    if (!pkg) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return pkg;
+  }
+
+  @Post(':id/lock')
+  @HttpCode(HttpStatus.OK)
+  async acquireLock(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const result = await this.templateService.acquireLock(id, jwt.sub, jwt.orgId);
+    if ('error' in result) {
+      throw new HttpException(
+        {
+          statusCode: 409,
+          error: 'Conflict',
+          message: result.error,
+          lockedBy: result.lockedBy,
+          lockedAt: result.lockedAt,
+          expiresAt: result.expiresAt,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+    return result;
+  }
+
+  @Delete(':id/lock')
+  async releaseLock(
+    @Param('id') id: string,
+    @Query('force') force?: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const result = await this.templateService.releaseLock(id, jwt.sub, force === 'true', jwt.orgId);
+    if (!result.released) {
+      throw new HttpException(
+        { statusCode: 403, error: 'Forbidden', message: result.error },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+    return result;
+  }
+
+  @Get(':id/lock')
+  async getLockStatus(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    return this.templateService.getLockStatus(id, orgId);
   }
 
   @Get(':id')
@@ -177,6 +299,57 @@ export class TemplateController {
       );
     }
     return result;
+  }
+
+  @Post(':id/preview')
+  async generatePreview(
+    @Param('id') id: string,
+    @Body() body: { sampleRowCount?: number; channel?: string },
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Fetch template (any status - previews work on drafts too)
+    const template = await this.templateService.findById(id, jwt.orgId);
+    if (!template) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const sampleRowCount = body.sampleRowCount || 5;
+    if (![5, 15, 30].includes(sampleRowCount)) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'sampleRowCount must be 5, 15, or 30' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const channel = body.channel || 'email';
+
+    try {
+      const result = await this.renderService.generatePreview(
+        template,
+        jwt.orgId,
+        jwt.sub,
+        channel,
+        sampleRowCount,
+      );
+      return result;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new HttpException(
+        { statusCode: 500, error: 'Internal Server Error', message: `Preview generation failed: ${message}` },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   @Put(':id')
