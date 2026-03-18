@@ -1002,10 +1002,11 @@ export default function ErpDesigner({
         try {
           const data = JSON.parse(event.data);
 
-          if (data.type === 'job_complete' || data.type === 'job_failed') {
+          if (data.type === 'job_complete' || data.type === 'job_completed' || data.type === 'job_failed') {
+            const isComplete = data.type === 'job_complete' || data.type === 'job_completed';
             setRenderProgress((prev) => ({
               ...prev,
-              completed: data.type === 'job_complete' ? prev.completed + 1 : prev.completed,
+              completed: isComplete ? prev.completed + 1 : prev.completed,
               failed: data.type === 'job_failed' ? prev.failed + 1 : prev.failed,
             }));
             const done = (data.completedJobs || 0) + (data.failedJobs || 0);
