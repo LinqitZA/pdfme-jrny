@@ -337,7 +337,35 @@ export default function ErpDesigner({
   // Publish state
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [publishErrors, setPublishErrors] = useState<Array<{ field: string; message: string }>>([]);
+  const [publishErrors, setPublishErrors] = useState<Array<{ field: string; message: string; elementId?: string; pageIndex?: number }>>([]);
+
+  // ─── Toast notification system with auto-dismiss ───
+  interface ToastNotification {
+    id: string;
+    type: 'success' | 'error' | 'warning' | 'info';
+    message: string;
+    duration: number; // ms, 0 = no auto-dismiss
+    createdAt: number;
+  }
+  const [toasts, setToasts] = useState<ToastNotification[]>([]);
+  const toastIdCounter = useRef(0);
+
+  const addToast = useCallback((type: ToastNotification['type'], message: string, duration?: number) => {
+    const defaultDuration = type === 'error' ? 8000 : type === 'warning' ? 6000 : 4000;
+    const id = `toast-${++toastIdCounter.current}`;
+    const toast: ToastNotification = { id, type, message, duration: duration ?? defaultDuration, createdAt: Date.now() };
+    setToasts((prev) => [...prev, toast]);
+    if (toast.duration > 0) {
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, toast.duration);
+    }
+    return id;
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   // Preview mode state - substitutes binding placeholders with example values
   const [previewMode, setPreviewMode] = useState(false);
@@ -799,6 +827,7 @@ export default function ErpDesigner({
           setSaveStatus('saved');
           setIsDirty(false);
           isDirtyRef.current = false;
+          addToast('success', 'Draft saved successfully', 3000);
           // Replace current history entry to prevent re-submit on back button
           if (typeof window !== 'undefined') {
             window.history.replaceState({ saved: true, templateId }, '', window.location.href);
@@ -809,6 +838,7 @@ export default function ErpDesigner({
           const errorMsg = errBody.message || `Save failed with status ${response.status}`;
           setSaveStatus('error');
           setSaveError(errorMsg);
+          addToast('error', errorMsg, 8000);
           // DO NOT clear isDirty - unsaved changes preserved for retry
         }
       } catch (err: unknown) {
@@ -819,6 +849,7 @@ export default function ErpDesigner({
           : 'An unexpected error occurred while saving';
         setSaveStatus('error');
         setSaveError(errorMsg);
+        addToast('error', errorMsg, 8000);
         // DO NOT clear isDirty - unsaved changes preserved for retry
         // Flag for auto-retry on reconnection
         if (!navigator.onLine) setPendingRetrySave(true);
@@ -830,7 +861,7 @@ export default function ErpDesigner({
       setIsDirty(false);
       isSavingRef.current = false;
     }
-  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase]);
+  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase, addToast]);
 
   // ─── Publish: publish template to backend ───
   const isPublishingRef = useRef(false);
@@ -859,22 +890,43 @@ export default function ErpDesigner({
       if (response.ok) {
         setPublishStatus('published');
         setTemplateStatus('published');
+        addToast('success', 'Template published successfully', 4000);
         setTimeout(() => setPublishStatus((prev) => prev === 'published' ? 'idle' : prev), 5000);
       } else {
         const errBody = await response.json().catch(() => ({ message: `Publish failed with status ${response.status}` }));
 
         if (response.status === 422 && errBody.details && Array.isArray(errBody.details)) {
-          // Validation errors
+          // Validation errors - enrich with elementId and pageIndex for clickable navigation
+          const enrichedErrors = errBody.details.map((err: { field: string; message: string }) => {
+            const enriched: { field: string; message: string; elementId?: string; pageIndex?: number } = { ...err };
+            // Parse field path like "schema.pages[0].elements[1].content" to extract page and element
+            const pageMatch = err.field.match(/pages\[(\d+)\]/);
+            const elementMatch = err.field.match(/elements\[(\d+)\]/);
+            if (pageMatch) {
+              enriched.pageIndex = parseInt(pageMatch[1], 10);
+            }
+            if (elementMatch && enriched.pageIndex !== undefined) {
+              const elIdx = parseInt(elementMatch[1], 10);
+              const page = pages[enriched.pageIndex];
+              if (page && page.elements[elIdx]) {
+                enriched.elementId = page.elements[elIdx].id;
+              }
+            }
+            return enriched;
+          });
           setPublishStatus('error');
           setPublishError('Template validation failed');
-          setPublishErrors(errBody.details);
+          setPublishErrors(enrichedErrors);
+          addToast('error', `Publish failed: ${enrichedErrors.length} validation error(s)`, 8000);
         } else if (response.status === 409) {
           setPublishStatus('error');
           setPublishError(errBody.message || 'Template is locked by another user');
+          addToast('error', errBody.message || 'Template is locked by another user', 8000);
         } else {
           const errorMsg = errBody.message || `Publish failed with status ${response.status}`;
           setPublishStatus('error');
           setPublishError(errorMsg);
+          addToast('error', errorMsg, 8000);
         }
       }
     } catch (err: unknown) {
@@ -888,7 +940,63 @@ export default function ErpDesigner({
     } finally {
       isPublishingRef.current = false;
     }
-  }, [templateId, authToken, apiBase]);
+  }, [templateId, authToken, apiBase, pages, addToast]);
+
+  // ─── Navigate to validation error element ───
+  const handleValidationErrorClick = useCallback((err: { field: string; elementId?: string; pageIndex?: number }) => {
+    if (err.pageIndex !== undefined) {
+      setCurrentPageIndex(err.pageIndex);
+    }
+    if (err.elementId) {
+      setSelectedElementId(err.elementId);
+    }
+  }, []);
+
+  // ─── Archive: soft-delete template and navigate back to list ───
+  const [archiveStatus, setArchiveStatus] = useState<'idle' | 'archiving' | 'archived' | 'error'>('idle');
+  const handleArchive = useCallback(async () => {
+    if (!templateId) return;
+
+    const confirmed = window.confirm('Are you sure you want to archive this template? This action can be undone by an administrator.');
+    if (!confirmed) return;
+
+    setArchiveStatus('archiving');
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+
+      const response = await fetch(`${apiBase}/templates/${templateId}`, {
+        method: 'DELETE',
+        headers,
+      });
+
+      if (response.ok) {
+        setArchiveStatus('archived');
+        setTemplateStatus('archived');
+        addToast('success', 'Template archived successfully', 4000);
+
+        // Navigate back to template list after a short delay
+        setTimeout(() => {
+          const params = new URLSearchParams(window.location.search);
+          const navParams = new URLSearchParams();
+          if (params.get('orgId')) navParams.set('orgId', params.get('orgId')!);
+          if (params.get('authToken')) navParams.set('authToken', params.get('authToken')!);
+          const url = `/templates${navParams.toString() ? `?${navParams.toString()}` : ''}`;
+          window.location.href = url;
+        }, 1500);
+      } else {
+        const errBody = await response.json().catch(() => ({ message: `Archive failed with status ${response.status}` }));
+        const errorMsg = errBody.message || `Archive failed with status ${response.status}`;
+        setArchiveStatus('error');
+        addToast('error', errorMsg, 8000);
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'An unexpected error occurred while archiving';
+      setArchiveStatus('error');
+      addToast('error', errorMsg, 8000);
+    }
+  }, [templateId, authToken, apiBase, addToast]);
 
   // ─── Auto-save: save draft to backend every 30 seconds ───
   const performAutoSave = useCallback(async () => {
@@ -2837,6 +2945,21 @@ export default function ErpDesigner({
         >
           {publishStatus === 'publishing' ? 'Publishing…' : publishStatus === 'published' ? '✓ Published' : publishStatus === 'error' ? 'Retry Publish' : 'Publish'}
         </button>
+        <button
+          data-testid="btn-archive"
+          onClick={handleArchive}
+          disabled={archiveStatus === 'archiving' || archiveStatus === 'archived'}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: archiveStatus === 'archived' ? '#6b7280' : '#f59e0b',
+            color: '#fff',
+            fontWeight: 600,
+            opacity: archiveStatus === 'archiving' ? 0.7 : 1,
+            cursor: archiveStatus === 'archiving' ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {archiveStatus === 'archiving' ? 'Archiving…' : archiveStatus === 'archived' ? '✓ Archived' : 'Archive'}
+        </button>
       </div>
 
       {/* ─── Save Error Banner ─── */}
@@ -2969,8 +3092,25 @@ export default function ErpDesigner({
           {publishErrors.length > 0 && (
             <ul data-testid="publish-validation-errors" style={{ margin: '4px 0 0 24px', padding: 0, listStyle: 'disc' }}>
               {publishErrors.map((err, i) => (
-                <li key={i} data-testid={`publish-validation-error-${i}`} style={{ fontSize: '12px', marginTop: '2px' }}>
+                <li
+                  key={i}
+                  data-testid={`publish-validation-error-${i}`}
+                  data-element-id={err.elementId || ''}
+                  data-page-index={err.pageIndex !== undefined ? err.pageIndex : ''}
+                  onClick={err.elementId ? () => handleValidationErrorClick(err) : undefined}
+                  style={{
+                    fontSize: '12px',
+                    marginTop: '2px',
+                    cursor: err.elementId ? 'pointer' : 'default',
+                    textDecoration: err.elementId ? 'underline' : 'none',
+                    padding: '2px 4px',
+                    borderRadius: '2px',
+                  }}
+                  onMouseEnter={(e) => { if (err.elementId) (e.currentTarget as HTMLElement).style.backgroundColor = '#fecaca'; }}
+                  onMouseLeave={(e) => { if (err.elementId) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
+                >
                   <strong>{err.field}</strong>: {err.message}
+                  {err.elementId && <span style={{ marginLeft: '4px', fontSize: '10px', color: '#6b7280' }}>(click to select)</span>}
                 </li>
               ))}
             </ul>
@@ -3622,11 +3762,16 @@ export default function ErpDesigner({
                     }}
                   />
                 </div>
-                <div data-testid="render-progress-text" style={{ fontSize: '13px', color: '#64748b' }}>
-                  {renderProgress.completed + renderProgress.failed} / {renderProgress.total} complete
-                  {renderProgress.failed > 0 && (
-                    <span style={{ color: '#ef4444', marginLeft: '8px' }}>({renderProgress.failed} failed)</span>
-                  )}
+                <div data-testid="render-progress-text" style={{ fontSize: '13px', color: '#64748b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span>
+                    {renderProgress.completed + renderProgress.failed} / {renderProgress.total} complete
+                    {renderProgress.failed > 0 && (
+                      <span style={{ color: '#ef4444', marginLeft: '8px' }}>({renderProgress.failed} failed)</span>
+                    )}
+                  </span>
+                  <span data-testid="render-progress-percentage" style={{ fontWeight: 600, color: '#334155' }}>
+                    {renderProgress.total > 0 ? Math.round(((renderProgress.completed + renderProgress.failed) / renderProgress.total) * 100) : 0}%
+                  </span>
                 </div>
               </div>
             )}
@@ -3727,6 +3872,106 @@ export default function ErpDesigner({
         </div>
       )}
     </div>
+
+    {/* ─── Loading Overlay for Save/Publish operations (#286) ─── */}
+    {(saveStatus === 'saving' || publishStatus === 'publishing') && (
+      <div
+        data-testid="operation-loading-overlay"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(255,255,255,0.6)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          gap: '12px',
+        }}
+      >
+        <div
+          data-testid="operation-spinner"
+          style={{
+            width: '36px',
+            height: '36px',
+            border: '3px solid #e5e7eb',
+            borderTopColor: saveStatus === 'saving' ? '#3b82f6' : '#10b981',
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }}
+        />
+        <div data-testid="operation-loading-text" style={{ fontSize: '14px', fontWeight: 500, color: '#6b7280' }}>
+          {saveStatus === 'saving' ? 'Saving draft...' : 'Publishing template...'}
+        </div>
+      </div>
+    )}
+
+    {/* ─── Toast Notification Container (#287) ─── */}
+    {toasts.length > 0 && (
+      <div
+        data-testid="toast-container"
+        style={{
+          position: 'fixed',
+          top: '16px',
+          right: '16px',
+          zIndex: 10001,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          maxWidth: '400px',
+        }}
+      >
+        {toasts.map((toast) => {
+          const bgColors: Record<string, string> = { success: '#ecfdf5', error: '#fef2f2', warning: '#fffbeb', info: '#eff6ff' };
+          const borderColors: Record<string, string> = { success: '#a7f3d0', error: '#fecaca', warning: '#fde68a', info: '#bfdbfe' };
+          const textColors: Record<string, string> = { success: '#065f46', error: '#991b1b', warning: '#854d0e', info: '#1e40af' };
+          const icons: Record<string, string> = { success: '✓', error: '✕', warning: '⚠', info: 'ℹ' };
+          return (
+            <div
+              key={toast.id}
+              data-testid={`toast-${toast.type}`}
+              data-toast-id={toast.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 14px',
+                backgroundColor: bgColors[toast.type] || bgColors.info,
+                border: `1px solid ${borderColors[toast.type] || borderColors.info}`,
+                borderRadius: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                fontSize: '13px',
+                color: textColors[toast.type] || textColors.info,
+                animation: 'toast-slide-in 0.3s ease-out',
+              }}
+            >
+              <span style={{ fontSize: '16px', flexShrink: 0 }}>{icons[toast.type]}</span>
+              <span data-testid="toast-message" style={{ flex: 1 }}>{toast.message}</span>
+              <button
+                data-testid="toast-dismiss"
+                onClick={() => dismissToast(toast.id)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: textColors[toast.type] || textColors.info,
+                  padding: '0 2px',
+                  flexShrink: 0,
+                  opacity: 0.7,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    )}
+    <style>{`@keyframes toast-slide-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }`}</style>
     </>
   );
 }

@@ -127,6 +127,14 @@ export class RenderController {
       );
     }
 
+    // Add downloadUrl for the client to use
+    if ('document' in result && result.document?.id) {
+      return {
+        ...result,
+        downloadUrl: `/api/pdfme/render/document/${result.document.id}`,
+      };
+    }
+
     return result;
   }
 
