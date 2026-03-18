@@ -870,4 +870,52 @@ export class RenderService {
     const value = context[trimmed] ?? '';
     return value !== '' && value !== '0' && value !== 'false';
   }
+
+  /**
+   * Resolve output channels: filter elements based on their outputChannel property
+   * and the requested render channel.
+   *
+   * outputChannel values on elements: 'both' (default), 'email', 'print'
+   * - 'both': element appears in all channels
+   * - 'email': element only appears when rendering for email channel
+   * - 'print': element only appears when rendering for print channel
+   *
+   * Elements tagged as email-only are excluded when channel='print' and vice versa.
+   * This supports pre-printed stationery: suppress email-only elements (company logo,
+   * header graphics) when printing on pre-printed paper.
+   *
+   * Mutates the template schemas in place, also strips the outputChannel property
+   * since pdfme doesn't understand it.
+   */
+  private resolveOutputChannels(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    channel: string,
+  ): void {
+    if (!Array.isArray(pdfmeTemplate.schemas)) return;
+
+    pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
+      if (!Array.isArray(page)) return page;
+
+      return page.filter((field: unknown) => {
+        if (!field || typeof field !== 'object') return true;
+        const f = field as Record<string, unknown>;
+        const elementChannel = (f.outputChannel as string) || 'both';
+
+        // 'both' always passes through
+        if (elementChannel === 'both') return true;
+
+        // Element channel must match the requested render channel
+        return elementChannel === channel;
+      }).map((field: unknown) => {
+        // Remove outputChannel from the element since pdfme doesn't understand it
+        if (!field || typeof field !== 'object') return field;
+        const f = field as Record<string, unknown>;
+        if ('outputChannel' in f) {
+          const { outputChannel: _removed, ...rest } = f;
+          return rest;
+        }
+        return field;
+      });
+    });
+  }
 }
