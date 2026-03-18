@@ -418,10 +418,96 @@ export function resolveLineItemsTableData(
  * @param inputs - The input data records
  * @returns Modified template and inputs with lineItemsTable resolved to table
  */
+/**
+ * Build a pdfme table schema object from a lineItemsTable schema and column definitions.
+ */
+function buildTableSchema(
+  litSchema: LineItemsTableSchema,
+  columns: ColumnDefinition[],
+  footerStartIndex: number,
+): Record<string, unknown> {
+  const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) || litSchema.width;
+  const headWidthPercentages = columns.map((c) => (c.width / totalWidth) * 100);
+
+  const columnAlignment: { [colIndex: number]: 'left' | 'center' | 'right' } = {};
+  columns.forEach((col, idx) => {
+    if (col.align) {
+      columnAlignment[idx] = col.align;
+    }
+  });
+
+  const footerRows = litSchema.footerRows || [];
+
+  return {
+    type: 'table',
+    position: litSchema.position,
+    width: litSchema.width,
+    height: litSchema.height,
+    showHead: litSchema.showHeader !== false,
+    head: columns.map((c) => c.header),
+    headWidthPercentages,
+    repeatHead: litSchema.repeatHeader !== false,
+    tableStyles: {
+      borderColor: '#000000',
+      borderWidth: 0.5,
+    },
+    headStyles: {
+      fontName: undefined,
+      alignment: 'left' as const,
+      verticalAlignment: 'middle' as const,
+      fontSize: litSchema.headerStyle?.fontSize || 9,
+      lineHeight: 1.2,
+      characterSpacing: 0,
+      fontColor: '#ffffff',
+      backgroundColor: litSchema.headerStyle?.backgroundColor || '#2d3748',
+      borderColor: '#000000',
+      borderWidth: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
+      padding: { top: 4, right: 4, bottom: 4, left: 4 },
+    },
+    bodyStyles: {
+      fontName: undefined,
+      alignment: 'left' as const,
+      verticalAlignment: 'middle' as const,
+      fontSize: litSchema.bodyStyle?.fontSize || 8,
+      lineHeight: 1.2,
+      characterSpacing: 0,
+      fontColor: '#000000',
+      backgroundColor: '#ffffff',
+      borderColor: '#cccccc',
+      borderWidth: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25 },
+      padding: { top: 3, right: 4, bottom: 3, left: 4 },
+      alternateBackgroundColor: litSchema.alternateRowShading ? (litSchema.alternateRowColor || '#f7fafc') : '',
+    },
+    columnStyles: {
+      alignment: columnAlignment,
+    },
+    __footerStartIndex: footerStartIndex,
+    __footerCount: footerRows.length,
+  };
+}
+
+/**
+ * Get the max rows for a given page index from MaxRowsPerPage config.
+ */
+function getMaxRowsForPage(
+  config: MaxRowsPerPage,
+  pageIndex: number,
+  totalPages: number,
+): number {
+  if (typeof config === 'number') return config;
+  if (pageIndex === 0) return config.first;
+  if (pageIndex === totalPages - 1) return config.last;
+  return config.middle;
+}
+
 export function resolveLineItemsTables(
   pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
   inputs: Record<string, string>[],
 ): { template: { basePdf: unknown; schemas: unknown[] }; inputs: Record<string, string>[] } {
+  // Collect extra pages created by maxRowsPerPage splitting
+  const extraPages: unknown[][] = [];
+  const extraInputKeys: { fieldName: string; pageIndex: number; body: string }[] = [];
+
   const newSchemas = pdfmeTemplate.schemas.map((page) => {
     if (!Array.isArray(page)) return page;
 
@@ -445,87 +531,97 @@ export function resolveLineItemsTables(
         }
       }
 
-      // Resolve the table data
+      // Resolve the table data (body rows + footer rows)
       const resolved = resolveLineItemsTableData(lineItems, litSchema);
+      const columns = resolved.columns;
 
-      // Build the body string for pdfme table input: JSON array of arrays
+      // Check for maxRowsPerPage: split data across multiple pages if needed
+      if (litSchema.maxRowsPerPage && resolved.body.length > 0) {
+        const maxRows = litSchema.maxRowsPerPage;
+        // Only split the data rows (before footer), keep footer on last page
+        const dataRows = resolved.body.slice(0, resolved.footerStartIndex);
+        const footerRowsData = resolved.body.slice(resolved.footerStartIndex);
+
+        // Calculate number of pages needed
+        const firstPageMax = typeof maxRows === 'number' ? maxRows : maxRows.first;
+        const middlePageMax = typeof maxRows === 'number' ? maxRows : maxRows.middle;
+
+        // Chunk the data rows
+        const chunks: string[][][] = [];
+        let remaining = dataRows;
+        let pageIdx = 0;
+
+        while (remaining.length > 0) {
+          const limit = pageIdx === 0 ? firstPageMax : middlePageMax;
+          chunks.push(remaining.slice(0, limit));
+          remaining = remaining.slice(limit);
+          pageIdx++;
+        }
+
+        // If we have footer rows, append them to the last chunk
+        if (footerRowsData.length > 0 && chunks.length > 0) {
+          chunks[chunks.length - 1].push(...footerRowsData);
+        }
+
+        if (chunks.length <= 1) {
+          // No splitting needed — single page
+          const tableBody = JSON.stringify(resolved.body);
+          for (const input of inputs) {
+            input[fieldName] = tableBody;
+          }
+          return { name: fieldName, ...buildTableSchema(litSchema, columns, resolved.footerStartIndex) };
+        }
+
+        // Multiple pages: first chunk goes on current page
+        const firstChunkBody = JSON.stringify(chunks[0]);
+        for (const input of inputs) {
+          input[fieldName] = firstChunkBody;
+        }
+
+        // Additional chunks: create extra pages
+        for (let ci = 1; ci < chunks.length; ci++) {
+          const chunkFieldName = `${fieldName}__page${ci + 1}`;
+          const isLastChunk = ci === chunks.length - 1;
+          const footerStart = isLastChunk ? chunks[ci].length - footerRowsData.length : chunks[ci].length;
+
+          const pageTableSchema = {
+            name: chunkFieldName,
+            ...buildTableSchema(litSchema, columns, footerStart),
+          };
+
+          extraPages.push([pageTableSchema]);
+          extraInputKeys.push({
+            fieldName: chunkFieldName,
+            pageIndex: ci,
+            body: JSON.stringify(chunks[ci]),
+          });
+        }
+
+        return { name: fieldName, ...buildTableSchema(litSchema, columns, chunks[0].length) };
+      }
+
+      // No maxRowsPerPage — single table with all data
       const tableBody = JSON.stringify(resolved.body);
-
-      // Set the resolved value in inputs
       for (const input of inputs) {
         input[fieldName] = tableBody;
       }
 
-      // Convert to pdfme table schema
-      const columns = resolved.columns;
-      const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) || litSchema.width;
-      const headWidthPercentages = columns.map((c) => (c.width / totalWidth) * 100);
-
-      // Build column alignment map
-      const columnAlignment: { [colIndex: number]: 'left' | 'center' | 'right' } = {};
-      columns.forEach((col, idx) => {
-        if (col.align) {
-          columnAlignment[idx] = col.align;
-        }
-      });
-
-      // Footer row styles - apply bold font and top border to footer rows
-      const footerRows = litSchema.footerRows || [];
-      const footerStartIndex = resolved.footerStartIndex;
-
-      return {
-        name: fieldName,
-        type: 'table',
-        position: litSchema.position,
-        width: litSchema.width,
-        height: litSchema.height,
-        showHead: litSchema.showHeader !== false,
-        head: columns.map((c) => c.header),
-        headWidthPercentages,
-        repeatHead: litSchema.repeatHeader !== false,
-        tableStyles: {
-          borderColor: '#000000',
-          borderWidth: 0.5,
-        },
-        headStyles: {
-          fontName: litSchema.headerStyle?.fontWeight === 'bold' ? undefined : undefined,
-          alignment: 'left' as const,
-          verticalAlignment: 'middle' as const,
-          fontSize: litSchema.headerStyle?.fontSize || 9,
-          lineHeight: 1.2,
-          characterSpacing: 0,
-          fontColor: '#ffffff',
-          backgroundColor: litSchema.headerStyle?.backgroundColor || '#2d3748',
-          borderColor: '#000000',
-          borderWidth: { top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 },
-          padding: { top: 4, right: 4, bottom: 4, left: 4 },
-        },
-        bodyStyles: {
-          fontName: undefined,
-          alignment: 'left' as const,
-          verticalAlignment: 'middle' as const,
-          fontSize: litSchema.bodyStyle?.fontSize || 8,
-          lineHeight: 1.2,
-          characterSpacing: 0,
-          fontColor: '#000000',
-          backgroundColor: '#ffffff',
-          borderColor: '#cccccc',
-          borderWidth: { top: 0.25, right: 0.25, bottom: 0.25, left: 0.25 },
-          padding: { top: 3, right: 4, bottom: 3, left: 4 },
-          alternateBackgroundColor: litSchema.alternateRowShading ? (litSchema.alternateRowColor || '#f7fafc') : '',
-        },
-        columnStyles: {
-          alignment: columnAlignment,
-        },
-        // Store footer metadata for potential post-processing
-        __footerStartIndex: footerStartIndex,
-        __footerCount: footerRows.length,
-      };
+      return { name: fieldName, ...buildTableSchema(litSchema, columns, resolved.footerStartIndex) };
     });
   });
 
+  // Add extra page inputs
+  for (const extra of extraInputKeys) {
+    for (const input of inputs) {
+      input[extra.fieldName] = extra.body;
+    }
+  }
+
+  // Combine original pages with extra pages from maxRowsPerPage splitting
+  const allSchemas = [...newSchemas, ...extraPages];
+
   return {
-    template: { basePdf: pdfmeTemplate.basePdf, schemas: newSchemas },
+    template: { basePdf: pdfmeTemplate.basePdf, schemas: allSchemas },
     inputs,
   };
 }

@@ -20,6 +20,19 @@ export interface ExpressionEngineOptions {
   currency?: string;
 }
 
+/**
+ * Sentinel value representing a null/undefined/missing field.
+ * - valueOf() returns 0, so arithmetic treats it as 0 (e.g., null + 5 = 5)
+ * - String functions detect it via instanceof and treat it as '' (e.g., CONCAT(missing, 'text') = 'text')
+ */
+class NullSentinel {
+  valueOf(): number { return 0; }
+  toString(): string { return ''; }
+}
+
+/** Singleton instance for all null/undefined/missing values */
+const NULL_VALUE = new NullSentinel();
+
 export class ExpressionEngine {
   private parser: Parser;
   private locale: string;
@@ -68,6 +81,18 @@ export class ExpressionEngine {
 
     try {
       const parsed = this.parser.parse(processedExpr);
+
+      // Fill in any undefined variables with NULL_VALUE sentinel
+      // This prevents "undefined variable" errors and provides correct coercion:
+      // - arithmetic uses valueOf() → 0
+      // - string functions detect NullSentinel → ''
+      const exprVars = parsed.variables({ withMembers: false });
+      for (const v of exprVars) {
+        if (!(v in flatContext)) {
+          flatContext[v] = NULL_VALUE;
+        }
+      }
+
       return parsed.evaluate(flatContext);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -122,12 +147,13 @@ export class ExpressionEngine {
       }
     }
 
-    // Type coercion: null/undefined → 0 for numeric contexts
+    // Type coercion: null/undefined → NullSentinel for context-aware coercion
+    // NullSentinel.valueOf() = 0 for arithmetic, detected as '' in string functions
     // Preserve Date objects as epoch ms timestamps for date functions
     for (const key of Object.keys(flatContext)) {
       const val = flatContext[key];
       if (val === null || val === undefined) {
-        flatContext[key] = 0;
+        flatContext[key] = NULL_VALUE;
       } else if (val instanceof Date) {
         flatContext[key] = val.getTime();
       }
@@ -139,53 +165,59 @@ export class ExpressionEngine {
   /**
    * Register string manipulation functions.
    */
+  /**
+   * Convert a value to string, treating NullSentinel as empty string.
+   * Regular values (including 0) are converted normally via String().
+   */
+  private static toStr(val: unknown): string {
+    if (val instanceof NullSentinel || val === null || val === undefined) return '';
+    return String(val);
+  }
+
   private registerStringFunctions(): void {
+    const toStr = ExpressionEngine.toStr;
+
     // LEFT(str, n) - returns first n characters
-    this.parser.functions.LEFT = (str: string, n: number): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.substring(0, n);
+    this.parser.functions.LEFT = (str: unknown, n: number): string => {
+      return toStr(str).substring(0, n);
     };
 
     // RIGHT(str, n) - returns last n characters
-    this.parser.functions.RIGHT = (str: string, n: number): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.substring(Math.max(0, str.length - n));
+    this.parser.functions.RIGHT = (str: unknown, n: number): string => {
+      const s = toStr(str);
+      return s.substring(Math.max(0, s.length - n));
     };
 
     // MID(str, start, length) - returns substring from start position (1-based)
-    this.parser.functions.MID = (str: string, start: number, length: number): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
+    this.parser.functions.MID = (str: unknown, start: number, length: number): string => {
+      const s = toStr(str);
       // 1-based indexing (like Excel)
-      return str.substring(start - 1, start - 1 + length);
+      return s.substring(start - 1, start - 1 + length);
     };
 
     // UPPER(str) - converts to uppercase
-    this.parser.functions.UPPER = (str: string): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.toUpperCase();
+    this.parser.functions.UPPER = (str: unknown): string => {
+      return toStr(str).toUpperCase();
     };
 
     // LOWER(str) - converts to lowercase
-    this.parser.functions.LOWER = (str: string): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.toLowerCase();
+    this.parser.functions.LOWER = (str: unknown): string => {
+      return toStr(str).toLowerCase();
     };
 
     // TRIM(str) - removes leading/trailing whitespace
-    this.parser.functions.TRIM = (str: string): string => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.trim();
+    this.parser.functions.TRIM = (str: unknown): string => {
+      return toStr(str).trim();
     };
 
     // CONCAT(a, b, ...) - concatenates strings
     this.parser.functions.CONCAT = (...args: unknown[]): string => {
-      return args.map((a) => String(a ?? '')).join('');
+      return args.map((a) => toStr(a)).join('');
     };
 
     // LEN(str) - returns length of string
-    this.parser.functions.LEN = (str: string): number => {
-      if (typeof str !== 'string') str = String(str ?? '');
-      return str.length;
+    this.parser.functions.LEN = (str: unknown): number => {
+      return toStr(str).length;
     };
   }
 

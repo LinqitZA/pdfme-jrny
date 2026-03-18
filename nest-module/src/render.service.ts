@@ -15,6 +15,7 @@ import { FileStorageService } from './file-storage.service';
 import { SignatureService } from './signature.service';
 import { EventEmitter } from 'events';
 import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-items-table';
+import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
 
 export interface RenderNowDto {
   templateId: string;
@@ -87,6 +88,22 @@ export class RenderService {
     pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
     inputs = resolvedLit.inputs;
 
+    // 3d. Extract watermark config (if any watermark element exists in template)
+    const watermarkConfig = extractWatermarkFromTemplate(pdfmeTemplate.schemas, inputs);
+
+    // 3e. Remove watermark elements from schemas (pdfme doesn't know about them)
+    if (watermarkConfig) {
+      pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
+        if (!Array.isArray(page)) return page;
+        return page.filter((field: unknown) => {
+          if (field && typeof field === 'object' && 'type' in field) {
+            return (field as { type: string }).type !== 'watermark';
+          }
+          return true;
+        });
+      });
+    }
+
     // 4. Generate PDF using @pdfme/generator
     let pdfBuffer: Uint8Array;
     try {
@@ -143,6 +160,16 @@ export class RenderService {
         })
         .returning();
       return { error: errorMessage, document: failedDoc };
+    }
+
+    // 4b. Apply watermark overlay if configured
+    if (watermarkConfig) {
+      try {
+        pdfBuffer = await applyWatermark(pdfBuffer, watermarkConfig);
+      } catch (err: unknown) {
+        console.error('Watermark application failed:', err);
+        // Continue without watermark rather than failing the entire render
+      }
     }
 
     // 5. Compute SHA-256 hash
@@ -497,17 +524,34 @@ export class RenderService {
     basePdf: unknown;
     schemas: unknown[];
   } {
-    if (schema.basePdf && schema.schemas) {
-      return schema as { basePdf: unknown; schemas: unknown[] };
-    }
+    const basePdf = schema.basePdf || { width: 210, height: 297, padding: [10, 10, 10, 10] };
+    const rawSchemas = (schema.schemas as unknown[]) || [[]];
 
-    // Wrap in a minimal A4 blank template
-    return {
-      basePdf: { width: 210, height: 297, padding: [10, 10, 10, 10] },
-      schemas: schema.schemas
-        ? (schema.schemas as unknown[])
-        : [[]],
-    };
+    // Convert legacy keyed format to flat pdfme format:
+    // Legacy: [[{fieldName: {type, position, ...}}, ...]]
+    // pdfme:  [[{name: fieldName, type, position, ...}, ...]]
+    const schemas = rawSchemas.map((page: unknown) => {
+      if (!Array.isArray(page)) return page;
+      const flatPage: unknown[] = [];
+      for (const item of page) {
+        if (!item || typeof item !== 'object') { flatPage.push(item); continue; }
+        const obj = item as Record<string, unknown>;
+        // If the object already has 'name' and 'type' at top level, it's already flat
+        if ('name' in obj && 'type' in obj) {
+          flatPage.push(obj);
+        } else {
+          // Keyed format: {fieldName: {type, position, ...}} — flatten each key
+          for (const [key, value] of Object.entries(obj)) {
+            if (value && typeof value === 'object') {
+              flatPage.push({ ...(value as Record<string, unknown>), name: key });
+            }
+          }
+        }
+      }
+      return flatPage;
+    });
+
+    return { basePdf, schemas };
   }
 
   /**
