@@ -283,16 +283,13 @@ const BLOCK_CATEGORIES = [
     blocks: [
       { id: 'text' as ElementType, label: 'Text', icon: 'T' },
       { id: 'rich-text' as ElementType, label: 'Rich Text', icon: 'Rt' },
-      { id: 'calculated' as ElementType, label: 'Calculated Field', icon: 'fx' },
     ],
   },
   {
     name: 'Media',
     blocks: [
       { id: 'image' as ElementType, label: 'Image', icon: 'Img' },
-      { id: 'erp-image' as ElementType, label: 'ERP Image', icon: 'EI' },
-      { id: 'signature' as ElementType, label: 'Signature Block', icon: 'Sig' },
-      { id: 'drawn-signature' as ElementType, label: 'Drawn Signature', icon: 'DS' },
+      { id: 'qr-barcode' as ElementType, label: 'QR/Barcode', icon: 'QR' },
     ],
   },
   {
@@ -300,7 +297,7 @@ const BLOCK_CATEGORIES = [
     blocks: [
       { id: 'line-items' as ElementType, label: 'Line Items Table', icon: 'LI' },
       { id: 'grouped-table' as ElementType, label: 'Grouped Table', icon: 'GT' },
-      { id: 'qr-barcode' as ElementType, label: 'QR/Barcode', icon: 'QR' },
+      { id: 'calculated' as ElementType, label: 'Calculated Field', icon: 'fx' },
     ],
   },
   {
@@ -309,9 +306,27 @@ const BLOCK_CATEGORIES = [
       { id: 'watermark' as ElementType, label: 'Watermark', icon: 'Wm' },
     ],
   },
+  {
+    name: 'ERP',
+    blocks: [
+      { id: 'erp-image' as ElementType, label: 'ERP Image', icon: 'EI' },
+      { id: 'signature' as ElementType, label: 'Signature Block', icon: 'Sig' },
+      { id: 'drawn-signature' as ElementType, label: 'Drawn Signature', icon: 'DS' },
+    ],
+  },
 ];
 
 const PAGE_SIZES = ['A4', 'Letter', 'Legal', 'A3', 'A5'];
+
+/** Page dimensions in PDF points (1 pt = 1/72 inch) */
+const PAGE_SIZE_DIMENSIONS: Record<string, { width: number; height: number }> = {
+  A4: { width: 595, height: 842 },
+  Letter: { width: 612, height: 792 },
+  Legal: { width: 612, height: 1008 },
+  A3: { width: 842, height: 1191 },
+  A5: { width: 420, height: 595 },
+};
+
 const ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200];
 
 const FONT_FAMILIES = ['Helvetica', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
@@ -4882,11 +4897,14 @@ export default function ErpDesigner({
           {/* A4 Page */}
           <div
             data-testid="canvas-page"
+            data-page-size={pageSize}
+            data-page-width={PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595}
+            data-page-height={PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842}
             onDragOver={handleCanvasDragOver}
             onDrop={handleCanvasDrop}
             style={{
-              width: `${595 * (zoom / 100)}px`,
-              height: `${842 * (zoom / 100)}px`,
+              width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
+              height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
               backgroundColor: '#ffffff',
               boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
               borderRadius: '2px',
