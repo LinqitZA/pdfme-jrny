@@ -3159,3 +3159,58 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 71/71 tests passing across 3 test suites
 ### Current Status: ~227/388 features passing (58.5%)
+
+---
+
+## Session - 2026-03-18 - Features #307, #308, #309 (Accessibility)
+
+### Completed Features:
+- **Feature #307**: Focus rings visible on interactive elements ✅
+  - Added comprehensive :focus-visible CSS rules for all interactive elements
+  - Toolbar buttons, selects, and inputs: 2px solid #4f46e5 with 2px offset
+  - Properties panel inputs/selects/buttons: 2px solid #4f46e5 with 1px offset
+  - Left panel: block cards, field items (role=option), page thumbnails (role=tab)
+  - Canvas elements with tabindex=0: 2px solid #4f46e5 with 1px offset
+  - General designer button and role=button fallback
+  - Mouse-click focus suppressed via :focus:not(:focus-visible) { outline: none }
+  - Clickable validation errors and toast close buttons also covered
+  - Indigo #4f46e5 color provides high contrast on light backgrounds (WCAG compliant)
+  - 31/31 tests passing
+
+- **Feature #308**: ARIA labels on toolbar buttons ✅
+  - Added aria-label to ALL toolbar buttons: Back, Undo, Redo, Preview Data, Preview, Generate PDF, Async Render, Save, Publish, Archive
+  - Added aria-label to toolbar selects: Page Size, Zoom Level
+  - Added aria-label to template name input
+  - Added aria-label to left panel tabs (dynamic: blocks/fields/assets/pages)
+  - Added aria-label to properties buttons: Bold, Italic, Align (L/C/R), Delete Element, Add Column, Open Binding Picker
+  - Added aria-label to action buttons: Upload Asset, Add Page, Toggle Left/Right Panel
+  - Added aria-label to error/dismiss buttons: Save Retry, Save Dismiss, Publish Retry, Publish Dismiss, Render Dismiss, Toast Dismiss
+  - Added aria-label to context menu: Duplicate Page, Delete Page
+  - 66 total aria-label attributes in the component
+  - 35/35 tests passing
+
+- **Feature #309**: Screen reader reads element properties ✅
+  - Properties panel container: role="complementary" with aria-label="Element properties panel"
+  - Properties content area: role="region" with dynamic aria-label including element type
+  - Element type header: role="heading" aria-level=2 for proper heading hierarchy
+  - All 11 element types have human-readable labels via getElementTypeLabel()
+  - Empty state: role="status" with aria-label="No element selected"
+  - Position/Size inputs: aria-labels for X position, Y position, Width, Height
+  - Typography: aria-labels for Font family, Font size, Line height, Bold, Italic, Align, Color, Content
+  - Image properties: aria-labels for Source URL, Object fit, Opacity
+  - Table properties: aria-labels for Show header, Border style, Column key/header/width (dynamic)
+  - Data binding: aria-labels for binding field input and picker button
+  - Page visibility: aria-label for page scope select
+  - Output channel: aria-label for channel select
+  - Conditional visibility: aria-labels for visibility select and condition expression
+  - Canvas elements: aria-label with type and binding info, aria-selected state
+  - 51/51 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Focus ring CSS, ARIA labels on all elements
+- tests/test-feature-307-focus-rings.js - 31 tests
+- tests/test-feature-308-aria-labels.js - 35 tests
+- tests/test-feature-309-screen-reader.js - 51 tests
+
+### Test Results: 117/117 tests passing across 3 test suites
+### Current Status: ~228/388 features passing (58.8%)
