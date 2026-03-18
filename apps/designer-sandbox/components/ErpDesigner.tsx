@@ -338,6 +338,18 @@ export default function ErpDesigner({
   const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
   const assetFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Lock state - multi-tab editing protection
+  const [isReadOnly, setIsReadOnly] = useState(false);
+  const [lockHolder, setLockHolder] = useState<string | null>(null);
+  const [lockExpiresAt, setLockExpiresAt] = useState<string | null>(null);
+
+  // Network connectivity / session recovery state
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [pendingRetrySave, setPendingRetrySave] = useState(false);
+  const reconnectRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveRetryCountRef = useRef(0);
+  const MAX_RECONNECT_RETRIES = 5;
+
   // Keep isDirtyRef in sync with isDirty state
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -423,6 +435,46 @@ export default function ErpDesigner({
           }
         }
 
+        // ─── Attempt to acquire edit lock ───
+        try {
+          const lockRes = await fetch(`${apiBase}/templates/${templateId}/lock`, {
+            method: 'POST',
+            headers,
+          });
+
+          if (lockRes.ok) {
+            // Lock acquired successfully
+            if (!cancelled) {
+              setIsReadOnly(false);
+              setLockHolder(null);
+              setLockExpiresAt(null);
+            }
+          } else if (lockRes.status === 409) {
+            // Locked by another user
+            const lockData = await lockRes.json().catch(() => ({}));
+            if (!cancelled) {
+              setIsReadOnly(true);
+              setLockHolder(lockData.lockedBy || 'another user');
+              setLockExpiresAt(lockData.expiresAt || null);
+            }
+          }
+        } catch {
+          // Lock acquisition failed - check lock status as fallback
+          try {
+            const statusRes = await fetch(`${apiBase}/templates/${templateId}/lock`, { headers });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json().catch(() => ({}));
+              if (!cancelled && statusData.locked && statusData.lockedBy) {
+                setIsReadOnly(true);
+                setLockHolder(statusData.lockedBy);
+                setLockExpiresAt(statusData.expiresAt || null);
+              }
+            }
+          } catch {
+            // Ignore - proceed without lock
+          }
+        }
+
         setIsLoading(false);
       } catch (err: unknown) {
         if (cancelled) return;
@@ -436,6 +488,17 @@ export default function ErpDesigner({
 
     return () => {
       cancelled = true;
+      // Release lock on unmount if we hold it
+      if (templateId && !isReadOnly) {
+        const headers: Record<string, string> = {};
+        if (authToken) {
+          headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+        }
+        fetch(`${apiBase}/templates/${templateId}/lock`, {
+          method: 'DELETE',
+          headers,
+        }).catch(() => {});
+      }
     };
   }, [templateId, authToken, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -620,6 +683,10 @@ export default function ErpDesigner({
           setSaveStatus('saved');
           setIsDirty(false);
           isDirtyRef.current = false;
+          // Replace current history entry to prevent re-submit on back button
+          if (typeof window !== 'undefined') {
+            window.history.replaceState({ saved: true, templateId }, '', window.location.href);
+          }
           setTimeout(() => setSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
         } else {
           const errBody = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
@@ -698,7 +765,7 @@ export default function ErpDesigner({
 
   // ─── Auto-save: save draft to backend every 30 seconds ───
   const performAutoSave = useCallback(async () => {
-    if (!isDirtyRef.current || !templateId) return;
+    if (!isDirtyRef.current || !templateId || isReadOnly) return;
 
     setAutoSaveStatus('saving');
     try {
@@ -2012,6 +2079,35 @@ export default function ErpDesigner({
         backgroundColor: '#f8f9fa',
       }}
     >
+      {/* ─── Read-only lock warning banner ─── */}
+      {isReadOnly && (
+        <div
+          data-testid="lock-warning-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '10px 16px',
+            backgroundColor: '#fef3c7',
+            borderBottom: '1px solid #f59e0b',
+            color: '#92400e',
+            fontSize: '13px',
+            fontWeight: 500,
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ fontSize: '16px' }}>🔒</span>
+          <span data-testid="lock-warning-message">
+            This template is currently being edited by <strong data-testid="lock-holder">{lockHolder}</strong>.
+            You are viewing in <strong>read-only mode</strong>.
+          </span>
+          {lockExpiresAt && (
+            <span data-testid="lock-expires-at" style={{ marginLeft: 'auto', fontSize: '12px', color: '#b45309' }}>
+              Lock expires: {new Date(lockExpiresAt).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      )}
       {/* ─── Toolbar ─── */}
       <div
         className="erp-designer-toolbar"
@@ -2027,22 +2123,58 @@ export default function ErpDesigner({
           flexShrink: 0,
         }}
       >
+        {/* Back to Templates */}
+        <button
+          data-testid="btn-back-to-templates"
+          onClick={() => {
+            if (isDirty) {
+              const confirmed = window.confirm('You have unsaved changes. Leave without saving?');
+              if (!confirmed) return;
+            }
+            const params = new URLSearchParams(window.location.search);
+            const navParams = new URLSearchParams();
+            if (params.get('orgId')) navParams.set('orgId', params.get('orgId')!);
+            if (params.get('authToken')) navParams.set('authToken', params.get('authToken')!);
+            const url = `/templates${navParams.toString() ? `?${navParams.toString()}` : ''}`;
+            window.location.href = url;
+          }}
+          style={{
+            padding: '4px 8px',
+            borderRadius: '4px',
+            border: '1px solid #e2e8f0',
+            backgroundColor: '#f8fafc',
+            cursor: 'pointer',
+            fontSize: '13px',
+            color: '#64748b',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+          }}
+          title="Back to template list"
+        >
+          ← Templates
+        </button>
+
+        <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
+
         {/* Template Name (inline editable) */}
         <input
           data-testid="template-name-input"
           value={name}
-          onChange={(e) => { setName(e.target.value); setIsDirty(true); }}
+          onChange={(e) => { if (!isReadOnly) { setName(e.target.value); setIsDirty(true); } }}
+          readOnly={isReadOnly}
           style={{
             border: 'none',
             fontSize: '14px',
             fontWeight: 600,
             padding: '4px 8px',
             borderRadius: '4px',
-            backgroundColor: 'transparent',
+            backgroundColor: isReadOnly ? '#f1f5f9' : 'transparent',
             width: '200px',
+            cursor: isReadOnly ? 'not-allowed' : 'text',
           }}
-          onFocus={(e) => e.target.style.backgroundColor = '#f1f5f9'}
-          onBlur={(e) => e.target.style.backgroundColor = 'transparent'}
+          onFocus={(e) => { if (!isReadOnly) e.target.style.backgroundColor = '#f1f5f9'; }}
+          onBlur={(e) => { if (!isReadOnly) e.target.style.backgroundColor = 'transparent'; }}
         />
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
@@ -2195,7 +2327,7 @@ export default function ErpDesigner({
         <button
           data-testid="btn-save"
           onClick={handleSave}
-          disabled={saveStatus === 'saving'}
+          disabled={saveStatus === 'saving' || isReadOnly}
           style={{
             ...toolbarBtnStyle,
             backgroundColor: saveStatus === 'error' ? '#ef4444' : isDirty ? '#3b82f6' : '#94a3b8',
@@ -2210,7 +2342,7 @@ export default function ErpDesigner({
         <button
           data-testid="btn-publish"
           onClick={handlePublish}
-          disabled={publishStatus === 'publishing'}
+          disabled={publishStatus === 'publishing' || isReadOnly}
           style={{
             ...toolbarBtnStyle,
             backgroundColor: publishStatus === 'error' ? '#ef4444' : publishStatus === 'published' ? '#059669' : '#10b981',
