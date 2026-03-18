@@ -13,6 +13,7 @@ import { templates, generatedDocuments, renderBatches } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
 import { SignatureService } from './signature.service';
+import { AuditService } from './audit.service';
 import { EventEmitter } from 'events';
 import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-items-table';
 import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
@@ -114,6 +115,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
     private readonly signatureService: SignatureService,
     private readonly pdfaProcessor: PdfaProcessor,
+    private readonly auditService: AuditService,
     @Optional() private readonly dataSourceRegistry?: DataSourceRegistry,
   ) {
     // Allow many listeners (one per SSE client)
@@ -655,6 +657,20 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         inputSnapshot: inputs || dto.inputs || null,
       })
       .returning();
+
+    // Audit log for document render
+    try {
+      await this.auditService.log({
+        orgId,
+        entityType: 'generatedDocument',
+        entityId: docId,
+        action: 'document.rendered',
+        userId,
+        metadata: { templateId: dto.templateId, templateVer: template.version, channel: dto.channel, entityId: dto.entityId },
+      });
+    } catch (_auditErr) {
+      // Non-critical: don't fail the render if audit logging fails
+    }
 
     return { document };
   }
@@ -2005,7 +2021,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    * List generated documents for a specific template, optionally filtered by orgId.
    * Documents persist independently of template status (including archived templates).
    */
-  async listDocumentsByTemplate(templateId: string, orgId: string): Promise<Array<{
+  async listDocumentsByTemplate(templateId: string, orgId: string, status?: string): Promise<Array<{
     id: string;
     templateId: string;
     templateVer: number;
@@ -2016,6 +2032,16 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     createdAt: Date;
     pdfHash: string;
   }>> {
+    const conditions = [
+      eq(generatedDocuments.templateId, templateId),
+      eq(generatedDocuments.orgId, orgId),
+    ];
+
+    // Apply status filter if provided
+    if (status) {
+      conditions.push(eq(generatedDocuments.status, status));
+    }
+
     const docs = await this.db
       .select({
         id: generatedDocuments.id,
@@ -2029,13 +2055,60 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         pdfHash: generatedDocuments.pdfHash,
       })
       .from(generatedDocuments)
-      .where(
-        and(
-          eq(generatedDocuments.templateId, templateId),
-          eq(generatedDocuments.orgId, orgId),
-        ),
-      );
+      .where(and(...conditions));
     return docs;
+  }
+
+  /**
+   * List all generated documents for an org, optionally filtered by entityType and/or status.
+   * Used for render history across all templates.
+   */
+  async listDocuments(orgId: string, entityType?: string, status?: string, limit?: number): Promise<{
+    data: Array<{
+      id: string;
+      templateId: string;
+      templateVer: number;
+      entityType: string;
+      entityId: string;
+      status: string;
+      outputChannel: string;
+      createdAt: Date;
+      pdfHash: string;
+    }>;
+    pagination: { total: number; limit: number };
+  }> {
+    const conditions: any[] = [eq(generatedDocuments.orgId, orgId)];
+
+    if (entityType) {
+      conditions.push(eq(generatedDocuments.entityType, entityType));
+    }
+    if (status) {
+      conditions.push(eq(generatedDocuments.status, status));
+    }
+
+    const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+    const effectiveLimit = Math.min(limit || 100, 500);
+
+    const docs = await this.db
+      .select({
+        id: generatedDocuments.id,
+        templateId: generatedDocuments.templateId,
+        templateVer: generatedDocuments.templateVer,
+        entityType: generatedDocuments.entityType,
+        entityId: generatedDocuments.entityId,
+        status: generatedDocuments.status,
+        outputChannel: generatedDocuments.outputChannel,
+        createdAt: generatedDocuments.createdAt,
+        pdfHash: generatedDocuments.pdfHash,
+      })
+      .from(generatedDocuments)
+      .where(whereClause)
+      .limit(effectiveLimit);
+
+    return {
+      data: docs,
+      pagination: { total: docs.length, limit: effectiveLimit },
+    };
   }
 
   /**

@@ -15,6 +15,7 @@ import {
   Get,
   Body,
   Param,
+  Query,
   Req,
   Res,
   HttpException,
@@ -372,9 +373,11 @@ export class RenderController {
     res.send(result.buffer);
   }
 
-  @Get('documents/:templateId')
-  async listDocumentsByTemplate(
-    @Param('templateId') templateId: string,
+  @Get('documents')
+  async listAllDocuments(
+    @Query('entityType') entityType: string | undefined,
+    @Query('status') status: string | undefined,
+    @Query('limit') limitStr: string | undefined,
     @Req() req: any,
   ) {
     const user = req.user;
@@ -385,10 +388,47 @@ export class RenderController {
       );
     }
 
-    const documents = await this.renderService.listDocumentsByTemplate(templateId, user.orgId);
+    const limit = limitStr ? parseInt(limitStr, 10) : 100;
+    const result = await this.renderService.listDocuments(user.orgId, entityType, status, isNaN(limit) ? 100 : limit);
+    return {
+      ...result,
+      ...(entityType ? { filter: { entityType } } : {}),
+      ...(status ? { filter: { ...((entityType ? { entityType } : {})), status } } : {}),
+    };
+  }
+
+  @Get('documents/:templateId')
+  async listDocumentsByTemplate(
+    @Param('templateId') templateId: string,
+    @Query('status') status: string | undefined,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Validate status filter if provided
+    const validStatuses = ['queued', 'generating', 'done', 'failed'];
+    if (status && !validStatuses.includes(status)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Invalid status filter: ${status}. Valid values: ${validStatuses.join(', ')}`,
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const documents = await this.renderService.listDocumentsByTemplate(templateId, user.orgId, status);
     return {
       data: documents,
       pagination: { total: documents.length },
+      ...(status ? { filter: { status } } : {}),
     };
   }
 
