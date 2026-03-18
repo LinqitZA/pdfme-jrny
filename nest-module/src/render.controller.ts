@@ -31,6 +31,7 @@ export class RenderController {
   constructor(
     private readonly renderService: RenderService,
     private readonly pdfaProcessor: PdfaProcessor,
+    private readonly renderQueueService: RenderQueueService,
   ) {}
 
   @Post('now')
@@ -448,6 +449,73 @@ export class RenderController {
     }
 
     return result;
+  }
+
+  /**
+   * Format a currency value for testing/preview.
+   * POST /api/pdfme/render/format-currency
+   */
+  @Post('format-currency')
+  formatCurrency(
+    @Body() body: {
+      value: number;
+      currencyCode?: string;
+      currencySymbol?: string;
+      symbolPosition?: 'before' | 'after';
+      thousandSeparator?: string;
+      decimalSeparator?: string;
+      decimalPlaces?: number;
+      showCurrencyCode?: boolean;
+      dualCurrency?: {
+        enabled: boolean;
+        targetCurrencyCode: string;
+        targetCurrencySymbol?: string;
+        exchangeRate: number;
+        format?: 'below' | 'inline';
+        symbolPosition?: 'before' | 'after';
+        decimalPlaces?: number;
+      };
+    },
+  ) {
+    const { formatCurrencyField, resolveCurrencySymbol } = require('../../packages/erp-schemas/src/currency-field');
+
+    if (body.value === undefined || body.value === null) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'value is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const schema = {
+      type: 'currencyField' as const,
+      name: 'test',
+      currencyCode: body.currencyCode,
+      currencySymbol: body.currencySymbol,
+      symbolPosition: body.symbolPosition,
+      thousandSeparator: body.thousandSeparator,
+      decimalSeparator: body.decimalSeparator,
+      decimalPlaces: body.decimalPlaces,
+      showCurrencyCode: body.showCurrencyCode,
+      dualCurrency: body.dualCurrency,
+      position: { x: 0, y: 0 },
+      width: 60,
+      height: 15,
+    };
+
+    const context: Record<string, unknown> = {};
+    if (body.dualCurrency?.exchangeRate) {
+      context.exchangeRate = body.dualCurrency.exchangeRate;
+    }
+
+    const result = formatCurrencyField(Number(body.value), schema, undefined, context);
+    return {
+      formattedValue: result.formattedValue,
+      rawValue: result.rawValue,
+      currencyCode: result.currencyCode,
+      currencySymbol: result.currencySymbol,
+      dualCurrencyValue: result.dualCurrencyValue,
+      dualCurrencyRaw: result.dualCurrencyRaw,
+    };
   }
 
   /**
