@@ -22,6 +22,10 @@ import * as crypto from 'crypto';
 export const IS_PUBLIC_KEY = 'isPublic';
 export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
+export const PERMISSIONS_KEY = 'requiredPermissions';
+export const RequirePermissions = (...permissions: string[]) =>
+  SetMetadata(PERMISSIONS_KEY, permissions);
+
 /** Default dev secret - production MUST override via JWT_SECRET env var */
 const DEV_JWT_SECRET = 'pdfme-dev-secret';
 
@@ -148,5 +152,73 @@ export class JwtAuthGuard implements CanActivate {
         HttpStatus.UNAUTHORIZED,
       );
     }
+  }
+}
+
+/**
+ * PermissionsGuard - Checks that the authenticated user has the required permissions.
+ *
+ * Works with @RequirePermissions() decorator. If no permissions are specified on a route,
+ * access is allowed (permissive by default). If permissions are specified, the user's
+ * roles array must include ALL required permissions.
+ */
+@Injectable()
+export class PermissionsGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    // Check if route is public (no auth needed)
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPublic) {
+      return true;
+    }
+
+    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
+    // No permissions required on this route - allow access
+    if (!requiredPermissions || requiredPermissions.length === 0) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest();
+    const user = request.user as JwtPayload | undefined;
+
+    if (!user) {
+      throw new HttpException(
+        {
+          statusCode: 403,
+          error: 'Forbidden',
+          message: 'Insufficient permissions: authentication required',
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const userRoles = user.roles || [];
+
+    // Check if user has ALL required permissions
+    const hasAllPermissions = requiredPermissions.every(
+      (permission) => userRoles.includes(permission),
+    );
+
+    if (!hasAllPermissions) {
+      const missing = requiredPermissions.filter((p) => !userRoles.includes(p));
+      throw new HttpException(
+        {
+          statusCode: 403,
+          error: 'Forbidden',
+          message: `Insufficient permissions: requires ${missing.join(', ')}`,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    return true;
   }
 }

@@ -20,7 +20,7 @@ import { AssetService } from './asset.service';
 import { SignatureController } from './signature.controller';
 import { SignatureService } from './signature.service';
 import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
-import { JwtAuthGuard } from './auth.guard';
+import { JwtAuthGuard, PermissionsGuard } from './auth.guard';
 import { RenderController } from './render.controller';
 import { RenderService } from './render.service';
 import { SeedService } from './seeds/seed.service';
@@ -40,12 +40,13 @@ import { RenderQueueController } from './render-queue.controller';
 import { RenderQueueService } from './render-queue.service';
 import { OrgSettingsController } from './org-settings.controller';
 import { OrgSettingsService } from './org-settings.service';
+import { SystemController } from './system.controller';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController, OrgSettingsController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController, OrgSettingsController, SystemController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -75,6 +76,10 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
     {
       provide: 'FIELD_SCHEMA_REGISTRY',

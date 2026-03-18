@@ -29,6 +29,7 @@ import {
 } from '@nestjs/common';
 import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto, TemplateExportPackage } from './template.service';
 import { RenderService } from './render.service';
+import { RequirePermissions } from './auth.guard';
 
 /**
  * Extract orgId and userId from JWT token (simple decode for now).
@@ -150,6 +151,7 @@ export class TemplateController {
   }
 
   @Get()
+  @RequirePermissions('template:view')
   async list(
     @Query('orgId') queryOrgId?: string,
     @Query('limit') queryLimit?: string,
@@ -179,6 +181,7 @@ export class TemplateController {
   }
 
   @Get('types')
+  @RequirePermissions('template:view')
   async getDistinctTypes(
     @Query('orgId') queryOrgId?: string,
     @Headers('authorization') authHeader?: string,
@@ -610,6 +613,7 @@ export class TemplateController {
   }
 
   @Get(':id/versions')
+  @RequirePermissions('template:view')
   async getVersionHistory(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,
@@ -766,6 +770,7 @@ export class TemplateController {
   }
 
   @Get(':id')
+  @RequirePermissions('template:view')
   async getById(
     @Param('id') id: string,
     @Query('orgId') queryOrgId?: string,
@@ -785,6 +790,7 @@ export class TemplateController {
   }
 
   @Put(':id/draft')
+  @RequirePermissions('template:edit')
   async saveDraft(
     @Param('id') id: string,
     @Body() body: SaveDraftDto,
@@ -886,6 +892,7 @@ export class TemplateController {
   }
 
   @Post(':id/publish')
+  @RequirePermissions('template:publish')
   async publish(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,
@@ -1013,12 +1020,15 @@ export class TemplateController {
   }
 
   @Delete(':id')
+  @RequirePermissions('template:delete')
   async delete(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,
+    @Req() req?: any,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    // Use user from guard (set by JwtAuthGuard) or fallback to manual decode
+    const user = req?.user || decodeJwt(authHeader);
+    const orgId = user?.orgId;
 
     const result = await this.templateService.softDelete(id, orgId);
     if (!result) {
