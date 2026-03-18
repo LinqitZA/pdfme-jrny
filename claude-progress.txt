@@ -1409,3 +1409,26 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Key Changes: apps/designer-sandbox/components/ErpDesigner.tsx
 ### Current Status: 104/388 features passing (26.8%)
+
+---
+
+## Session - 2026-03-18 - Features #181, #182, #183 (Cascading Publish, Error Display, Filter/Sort)
+
+### Completed Features:
+- **Feature #181**: Cascading update - publish updates UI - 31/31 tests
+  - Created template_versions table and GET /api/pdfme/templates/:id/versions endpoint
+  - Publish creates version entry + audit log, list shows updated status
+- **Feature #182**: API error display in designer - 52/52 tests
+  - handlePublish in ErpDesigner with error/success UI (banners, retry, validation details)
+  - Consistent error envelopes, no stack traces exposed
+- **Feature #183**: Filter and sort with real database data - 34/34 tests
+  - Server-side sort (createdAt/name/updatedAt/type), order (asc/desc), status filter
+  - Combined filters, pagination, distinct types all verified with 50+ templates
+
+### Key Files Modified:
+- nest-module/src/db/schema.ts, migrate.ts - templateVersions table
+- nest-module/src/template.service.ts - version history, sort/filter params
+- nest-module/src/template.controller.ts - versions endpoint, sort/status/order query params
+- apps/designer-sandbox/components/ErpDesigner.tsx - publish handler, error/success UI
+
+### Current Status: ~107/388 features passing (27.6%)
