@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { fetchFontWithCache, getFontCacheStats, clearFontCache, pruneExpiredFonts, isCacheApiAvailable } from './fontCache';
+import PrintDialog from './PrintDialog';
 
 /**
  * ErpDesigner - Three-panel WYSIWYG template designer for ERP documents.
@@ -539,6 +540,7 @@ export default function ErpDesigner({
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pendingRetrySave, setPendingRetrySave] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [showPrintDialog, setShowPrintDialog] = useState(false);
   const reconnectRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveRetryCountRef = useRef(0);
   const saveGenerationRef = useRef(0); // Tracks changes during save to prevent late responses overwriting
@@ -4534,6 +4536,20 @@ export default function ErpDesigner({
           Export JSON
         </button>
         <button
+          data-testid="btn-print"
+          aria-label="Print label"
+          onClick={() => setShowPrintDialog(true)}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: '#0891b2',
+            color: '#fff',
+            fontWeight: 600,
+          }}
+          title="Print label directly"
+        >
+          Print
+        </button>
+        <button
           data-testid="btn-keyboard-shortcuts"
           aria-label="Keyboard shortcuts (?)"
           aria-keyshortcuts="Shift+/"
@@ -6295,6 +6311,24 @@ export default function ErpDesigner({
     >
       {errorAnnouncement}
     </div>
+
+    {/* ─── Print Dialog ─── */}
+    <PrintDialog
+      open={showPrintDialog}
+      onClose={() => setShowPrintDialog(false)}
+      apiBase={apiBase}
+      authToken={authToken}
+      templateId={templateId}
+      templateName={name}
+      pageWidth={(PAGE_SIZE_DIMENSIONS[pageSize] || PAGE_SIZE_DIMENSIONS.A4).width}
+      pageHeight={(PAGE_SIZE_DIMENSIONS[pageSize] || PAGE_SIZE_DIMENSIONS.A4).height}
+      onPrintSuccess={(jobId) => {
+        addToast('success', `Print job sent successfully! Job ID: ${jobId}`, 5000);
+      }}
+      onPrintError={(error) => {
+        addToast('error', `Print failed: ${error}`, 8000);
+      }}
+    />
     </>
   );
 }
