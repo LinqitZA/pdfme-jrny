@@ -341,8 +341,10 @@ export class TemplateService {
    * Returns array of validation errors (empty = valid).
    */
   /**
-   * Try to parse an expression string using expr-eval.
+   * Try to parse and evaluate an expression string using expr-eval.
    * Returns null if valid, or an error message string if invalid.
+   * Known functions are registered as stubs so they don't cause false positives.
+   * Unknown variables are allowed (they represent field references at runtime).
    */
   private validateExpression(expression: string): string | null {
     try {
@@ -354,7 +356,7 @@ export class TemplateService {
           logical: true, comparison: true, 'in': false, assignment: false,
         },
       });
-      // Register known function names so they don't cause parse errors
+      // Register known function names so they don't cause eval errors
       const knownFunctions = [
         'IF', 'AND', 'OR', 'NOT', 'LEFT', 'RIGHT', 'MID', 'UPPER', 'LOWER',
         'TRIM', 'CONCAT', 'LEN', 'FORMAT', 'ROUND', 'ABS', 'TODAY', 'YEAR',
@@ -363,7 +365,18 @@ export class TemplateService {
       for (const fn of knownFunctions) {
         parser.functions[fn] = (..._args: unknown[]) => 0;
       }
-      parser.parse(expression);
+
+      const parsed = parser.parse(expression);
+
+      // Try to evaluate with dummy values for all variables
+      // This catches unknown function calls like INVALID()
+      const vars = parsed.variables({ withMembers: false });
+      const dummyContext: Record<string, number> = {};
+      for (const v of vars) {
+        dummyContext[v] = 0;
+      }
+      parsed.evaluate(dummyContext);
+
       return null;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -474,6 +487,9 @@ export class TemplateService {
       }
     };
 
+    // Track total element count across all pages
+    let totalElementCount = 0;
+
     pages.forEach((page, pageIdx) => {
       if (!page || typeof page !== 'object') {
         errors.push({ field: `schema.pages[${pageIdx}]`, message: 'Page must be an object' });
@@ -481,6 +497,16 @@ export class TemplateService {
       }
       const pageObj = page as Record<string, unknown>;
       const elements = pageObj.elements as unknown[] | undefined;
+
+      // Check that page has elements
+      if (!elements || !Array.isArray(elements) || elements.length === 0) {
+        errors.push({
+          field: `schema.pages[${pageIdx}].elements`,
+          message: `Page ${pageIdx + 1} has no elements. Each page must contain at least one element.`,
+        });
+      } else {
+        totalElementCount += elements.length;
+      }
 
       // Check for elements with position validation
       if (elements && Array.isArray(elements)) {
@@ -562,11 +588,44 @@ export class TemplateService {
             }
           }
 
+          // Feature #271: Validate page scope on elements
+          const pageScope = (elem.pageScope || elem.page_scope) as string | undefined;
+          if (pageScope && typeof pageScope === 'string' && pageScope !== 'all') {
+            const validScopes = ['all', 'first', 'last', 'notFirst', 'not_first'];
+            if (!validScopes.includes(pageScope)) {
+              errors.push({
+                field: `${elPath}.pageScope`,
+                message: `Invalid page scope '${pageScope}'. Must be one of: ${validScopes.join(', ')}`,
+              });
+            } else if (pages.length === 1) {
+              // Single-page template with non-default scope is unreachable or redundant
+              if (pageScope === 'notFirst' || pageScope === 'not_first') {
+                errors.push({
+                  field: `${elPath}.pageScope`,
+                  message: `Unreachable page scope: '${pageScope}' on a single-page template. This element will never be visible because there is no page after the first.`,
+                });
+              } else if (pageScope === 'last' || pageScope === 'first') {
+                errors.push({
+                  field: `${elPath}.pageScope`,
+                  message: `Redundant page scope: '${pageScope}' on a single-page template. On a single page, '${pageScope}' is equivalent to 'all'. Consider using 'all' or removing the scope.`,
+                });
+              }
+            }
+          }
+
           // Check for bindings in element content/value/text
           walkElements(elem, elPath);
         });
       }
     });
+
+    // After iterating all pages, check total element count
+    if (totalElementCount === 0 && errors.length === 0) {
+      errors.push({
+        field: 'schema',
+        message: 'Template has no elements across any page. Add at least one element to publish.',
+      });
+    }
 
     return errors;
   }
