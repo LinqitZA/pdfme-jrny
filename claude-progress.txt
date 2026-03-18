@@ -829,3 +829,43 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 56/56 tests passing, persistence verified across server restart
 ### Current Status: ~63/388 features passing
+
+---
+
+## Session - 2026-03-18 - Features #134, #135, #136 (Output Channel & Preview)
+
+### Completed Features:
+- **Feature #134**: Render pipeline output channel filtering ✅
+  - Added resolveOutputChannels() method to RenderService
+  - Elements with outputChannel: 'email' excluded when channel='print' and vice versa
+  - outputChannel: 'both' (default) always included
+  - outputChannel property stripped from elements before pdfme generation
+  - Applied after conditions step in render pipeline
+  - 14 automated tests passing
+
+- **Feature #135**: Filter order: pageScope then conditions then channel ✅
+  - Verified pipeline order: resolvePageScopes (L124) < resolveConditions (L127) < resolveOutputChannels (L130)
+  - Created multi-page template with overlapping pageScope, condition, and outputChannel
+  - Email vs print with conditions met/not-met produce different PDFs
+  - All three filter methods verified as private methods in RenderService
+  - 11 automated tests passing
+
+- **Feature #136**: Preview PDF generation with sample data ✅
+  - POST /api/pdfme/templates/:id/preview generates watermarked preview PDF
+  - Works on draft templates (no publish required)
+  - Sample data auto-generated from field names (company, invoice, customer patterns)
+  - sampleRowCount param: 5 (default), 15, or 30 line items
+  - "PREVIEW — NOT A LEGAL DOCUMENT" watermark applied via applyWatermark()
+  - Preview stored temporarily at {orgId}/previews/{previewId}.pdf
+  - Returns previewId, downloadUrl, expiresAt (1 hour)
+  - Channel parameter supported for email/print filtering
+  - 21 automated tests passing
+
+### Key Changes:
+- nest-module/src/render.service.ts: Added resolveOutputChannels(), generatePreview(), buildSampleInputs(), generateSampleValue()
+- nest-module/src/template.controller.ts: Added POST :id/preview endpoint with RenderService injection
+
+### API Endpoints Added:
+- POST /api/pdfme/templates/:id/preview - Generate preview PDF with sample data and PREVIEW watermark
+
+### Current Status: ~66/388 features passing

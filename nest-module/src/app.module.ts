@@ -31,6 +31,7 @@ import { AuditService } from './audit.service';
 import { ExpressionController } from './expression.controller';
 import { GroupedTableController } from './grouped-table.controller';
 import { WatermarkController } from './watermark.controller';
+import { PdfaProcessor } from './pdfa-processor';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
@@ -193,7 +194,8 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     RenderService,
     AuditService,
     SeedService,
+    PdfaProcessor,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor],
 })
 export class AppModule {}

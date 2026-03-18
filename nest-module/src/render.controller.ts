@@ -23,10 +23,14 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { RenderService, RenderNowDto, RenderBulkDto } from './render.service';
+import { PdfaProcessor } from './pdfa-processor';
 
 @Controller('api/pdfme/render')
 export class RenderController {
-  constructor(private readonly renderService: RenderService) {}
+  constructor(
+    private readonly renderService: RenderService,
+    private readonly pdfaProcessor: PdfaProcessor,
+  ) {}
 
   @Post('now')
   async renderNow(
@@ -244,6 +248,40 @@ export class RenderController {
     req.on('close', () => {
       this.renderService.batchEvents.removeListener(eventKey, listener);
     });
+  }
+
+  @Post('validate-pdfa')
+  async validatePdfA(
+    @Body() body: { documentPath: string },
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!body.documentPath) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'documentPath is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    try {
+      const fileStorage = (this.renderService as any).fileStorage;
+      const pdfBuffer = await fileStorage.read(body.documentPath);
+      const result = await this.pdfaProcessor.validate(pdfBuffer);
+      return result;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new HttpException(
+        { statusCode: 500, error: 'Internal Server Error', message: `Validation failed: ${msg}` },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   @Post('batch/:batchId/merge')
