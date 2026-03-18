@@ -5,7 +5,7 @@
  *   SHA-256 hash -> FileStorageService store -> GeneratedDocument record
  */
 
-import { Injectable, Inject, Optional } from '@nestjs/common';
+import { Injectable, Inject, Optional, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { eq, and, inArray } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
@@ -70,7 +70,9 @@ export interface PreviewRecord {
 }
 
 @Injectable()
-export class RenderService {
+export class RenderService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(RenderService.name);
+
   /** EventEmitter for SSE progress streams, keyed by batchId */
   public readonly batchEvents = new EventEmitter();
 
@@ -79,6 +81,23 @@ export class RenderService {
 
   /** In-memory registry of preview PDFs with expiry metadata */
   public readonly previewRegistry = new Map<string, PreviewRecord>();
+
+  /** Purge interval handle for cleanup */
+  private purgeIntervalHandle: ReturnType<typeof setInterval> | null = null;
+
+  /** Purge cycle interval in milliseconds (default: 5 minutes) */
+  public purgeIntervalMs = 5 * 60 * 1000;
+
+  /** Retention period in milliseconds (default: 60 minutes) */
+  public retentionPeriodMs = 60 * 60 * 1000;
+
+  /** Track last purge run metadata for observability */
+  public lastPurgeResult: {
+    timestamp: string;
+    purgedCount: number;
+    remainingCount: number;
+    errors: number;
+  } | null = null;
 
   /** Retry configuration for file storage operations */
   private retryConfig = {
@@ -99,6 +118,78 @@ export class RenderService {
   ) {
     // Allow many listeners (one per SSE client)
     this.batchEvents.setMaxListeners(100);
+  }
+
+  onModuleInit() {
+    this.startPurgeCycle();
+  }
+
+  onModuleDestroy() {
+    this.stopPurgeCycle();
+  }
+
+  /**
+   * Start the periodic purge cycle for expired preview files.
+   * Runs every purgeIntervalMs (default 5 minutes).
+   */
+  startPurgeCycle() {
+    if (this.purgeIntervalHandle) return; // Already running
+    this.logger.log(`Starting preview purge cycle (interval: ${this.purgeIntervalMs}ms, retention: ${this.retentionPeriodMs}ms)`);
+    this.purgeIntervalHandle = setInterval(() => {
+      this.purgeExpiredPreviews().catch((err) => {
+        this.logger.error(`Purge cycle error: ${err.message}`);
+      });
+    }, this.purgeIntervalMs);
+  }
+
+  /**
+   * Stop the periodic purge cycle.
+   */
+  stopPurgeCycle() {
+    if (this.purgeIntervalHandle) {
+      clearInterval(this.purgeIntervalHandle);
+      this.purgeIntervalHandle = null;
+      this.logger.log('Stopped preview purge cycle');
+    }
+  }
+
+  /**
+   * Purge all expired preview files from storage and remove from registry.
+   * Returns the count of purged previews.
+   */
+  async purgeExpiredPreviews(): Promise<{ purgedCount: number; remainingCount: number; errors: number }> {
+    const now = new Date();
+    let purgedCount = 0;
+    let errors = 0;
+
+    for (const [previewId, record] of this.previewRegistry.entries()) {
+      if (new Date(record.expiresAt) < now) {
+        // Expired - delete file and remove from registry
+        try {
+          await this.fileStorage.delete(record.filePath);
+        } catch {
+          // File may already be gone - that's OK
+          errors++;
+        }
+        this.previewRegistry.delete(previewId);
+        purgedCount++;
+      }
+    }
+
+    const remainingCount = this.previewRegistry.size;
+
+    this.lastPurgeResult = {
+      timestamp: now.toISOString(),
+      purgedCount,
+      remainingCount,
+      errors,
+    };
+
+    if (purgedCount > 0) {
+      this.logger.log(`Purged ${purgedCount} expired preview(s), ${remainingCount} remaining, ${errors} file errors`);
+    }
+
+    return { purgedCount, remainingCount, errors };
   }
 
   /**

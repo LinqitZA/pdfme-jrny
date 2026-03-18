@@ -439,6 +439,25 @@ export class RenderController {
     return { expired: success, previewId: body.previewId };
   }
 
+  @Post('purge-expired-previews')
+  async purgeExpiredPreviews() {
+    const result = await this.renderService.purgeExpiredPreviews();
+    return {
+      ...result,
+      lastPurge: this.renderService.lastPurgeResult,
+    };
+  }
+
+  @Get('purge-status')
+  getPurgeStatus() {
+    return {
+      lastPurge: this.renderService.lastPurgeResult,
+      registrySize: this.renderService.previewRegistry.size,
+      purgeIntervalMs: this.renderService.purgeIntervalMs,
+      retentionPeriodMs: this.renderService.retentionPeriodMs,
+    };
+  }
+
   @Get('verify/:documentId')
   async verifyDocument(
     @Param('documentId') documentId: string,
