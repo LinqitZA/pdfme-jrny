@@ -2957,3 +2957,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 134/134 tests passing across 3 test suites
 ### Current Status: ~218/388 features passing (56.2 pct)
+
+---
+
+## Session - 2026-03-18 - Features #291, #292, #306 (Error Notifications, Lock Feedback, Tab Navigation)
+
+### Completed Features:
+- **Feature #291**: Error notification on failed operations ✅
+  - Verified comprehensive error notification system across all operations
+  - Save errors: banner with retry button, error toast, descriptive messages
+  - Publish errors: banner with validation error list, retry button
+  - Render errors: overlay with error icon, message, close button
+  - All error responses return structured JSON with message and details
+  - Error notifications don't block other operations
+  - Network errors show user-friendly guidance
+  - 50/50 tests passing
+
+- **Feature #292**: Lock acquisition feedback ✅
+  - Lock acquired on template open via POST /templates/:id/lock
+  - Lock status shows lockedBy user and expiresAt timestamp
+  - Other users get 409 Conflict with lock holder info
+  - Lock warning banner shows in read-only mode with holder name
+  - Lock released on page unmount via DELETE
+  - Lock status queryable via GET
+  - After release, other users can acquire lock
+  - 37/37 tests passing
+
+- **Feature #306**: Tab navigation through designer controls ✅
+  - Added tabIndex={0} and role="button" to block cards with keyboard handlers
+  - Added tabIndex={0} and role="option" to field items with keyboard handlers
+  - Added tabIndex={0} and role="tab" to page thumbnails with keyboard handlers
+  - Added tabIndex={0} to canvas elements with Enter/Space selection and Delete removal
+  - Added aria-label attributes to all interactive div elements
+  - Added aria-selected state to pages and canvas elements
+  - Clickable publish validation errors now keyboard accessible
+  - All toolbar controls use native <button>/<select>/<input> (naturally tabbable)
+  - Logical DOM order: toolbar → left panel → canvas → right panel
+  - No focus traps (no tabIndex={-1} or inert)
+  - 47/47 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - tabIndex, role, aria-label, keyboard handlers
+- tests/test-feature-291-error-notifications.js - 50 tests
+- tests/test-feature-292-lock-feedback.js - 37 tests
+- tests/test-feature-306-tab-navigation.js - 47 tests
+
+### Test Results: 134/134 tests passing across 3 test suites
+### Current Status: ~212/388 features passing (54.6%)
