@@ -80,6 +80,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   /** Track document IDs per batch for merge operations */
   private batchDocuments = new Map<string, string[]>();
 
+  /** Font cache - LRU cache mapping "orgId:fontName" to font data buffers */
+  private readonly fontCache = new Map<string, { data: Uint8Array; accessedAt: number }>();
+  /** Maximum font cache size in bytes (50MB) */
+  private readonly fontCacheMaxBytes = 50 * 1024 * 1024;
+  /** Current font cache size in bytes */
+  private fontCacheSizeBytes = 0;
+  /** Font cache hit/miss counters for stats */
+  public fontCacheStats = { hits: 0, misses: 0, evictions: 0 };
+
   /** In-memory registry of preview PDFs with expiry metadata */
   public readonly previewRegistry = new Map<string, PreviewRecord>();
 
@@ -1022,7 +1031,24 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     schemas: unknown[];
   } {
     const basePdf = schema.basePdf || { width: 210, height: 297, padding: [10, 10, 10, 10] };
-    const rawSchemas = (schema.schemas as unknown[]) || [[]];
+
+    // Support both storage formats:
+    // 1. "schemas" format (legacy pdfme): [[{name, type, position, ...}, ...]]
+    // 2. "pages" format (API): [{elements: [{name, type, position, ...}], size: {...}}, ...]
+    let rawSchemas: unknown[];
+    if (schema.schemas && Array.isArray(schema.schemas)) {
+      rawSchemas = schema.schemas as unknown[];
+    } else if (schema.pages && Array.isArray(schema.pages)) {
+      // Convert pages[].elements[] to pdfme schemas[][] format
+      rawSchemas = (schema.pages as unknown[]).map((page: unknown) => {
+        if (page && typeof page === 'object' && 'elements' in page) {
+          return (page as { elements: unknown[] }).elements || [];
+        }
+        return [];
+      });
+    } else {
+      rawSchemas = [[]];
+    }
 
     // Convert legacy keyed format to flat pdfme format:
     // Legacy: [[{fieldName: {type, position, ...}}, ...]]
@@ -1550,6 +1576,89 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Get a font from cache, or return null if not cached.
+   */
+  private fontCacheGet(orgId: string, fontName: string): Uint8Array | null {
+    const key = `${orgId}:${fontName}`;
+    const entry = this.fontCache.get(key);
+    if (entry) {
+      entry.accessedAt = Date.now();
+      this.fontCacheStats.hits++;
+      return entry.data;
+    }
+    this.fontCacheStats.misses++;
+    return null;
+  }
+
+  /**
+   * Put a font into the cache, evicting LRU entries if needed.
+   */
+  private fontCachePut(orgId: string, fontName: string, data: Uint8Array): void {
+    const key = `${orgId}:${fontName}`;
+
+    // If already cached, remove old entry first
+    const existing = this.fontCache.get(key);
+    if (existing) {
+      this.fontCacheSizeBytes -= existing.data.byteLength;
+      this.fontCache.delete(key);
+    }
+
+    // Evict LRU entries until we have room
+    while (this.fontCacheSizeBytes + data.byteLength > this.fontCacheMaxBytes && this.fontCache.size > 0) {
+      // Find LRU entry
+      let oldestKey = '';
+      let oldestTime = Infinity;
+      for (const [k, v] of this.fontCache) {
+        if (v.accessedAt < oldestTime) {
+          oldestTime = v.accessedAt;
+          oldestKey = k;
+        }
+      }
+      if (oldestKey) {
+        const evicted = this.fontCache.get(oldestKey);
+        if (evicted) {
+          this.fontCacheSizeBytes -= evicted.data.byteLength;
+          this.fontCache.delete(oldestKey);
+          this.fontCacheStats.evictions++;
+        }
+      }
+    }
+
+    this.fontCache.set(key, { data, accessedAt: Date.now() });
+    this.fontCacheSizeBytes += data.byteLength;
+  }
+
+  /**
+   * Get font cache statistics.
+   */
+  public getFontCacheStats() {
+    return {
+      entries: this.fontCache.size,
+      sizeBytes: this.fontCacheSizeBytes,
+      sizeMB: Math.round(this.fontCacheSizeBytes / 1024 / 1024 * 100) / 100,
+      maxSizeMB: this.fontCacheMaxBytes / 1024 / 1024,
+      hits: this.fontCacheStats.hits,
+      misses: this.fontCacheStats.misses,
+      evictions: this.fontCacheStats.evictions,
+      hitRate: this.fontCacheStats.hits + this.fontCacheStats.misses > 0
+        ? Math.round(this.fontCacheStats.hits / (this.fontCacheStats.hits + this.fontCacheStats.misses) * 10000) / 100
+        : 0,
+    };
+  }
+
+  /**
+   * Clear the font cache (useful for testing).
+   */
+  public clearFontCache(): { cleared: number; freedBytes: number } {
+    const cleared = this.fontCache.size;
+    const freedBytes = this.fontCacheSizeBytes;
+    this.fontCache.clear();
+    this.fontCacheSizeBytes = 0;
+    this.fontCacheStats = { hits: 0, misses: 0, evictions: 0 };
+    return { cleared, freedBytes };
+  }
+
+  /**
    * Resolve fonts for a template.
    *
    * Scans template schemas for fontName references, attempts to load custom fonts
@@ -1601,35 +1710,44 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       // Skip if it's the default font
       if (fontName === defaultFontName) continue;
 
-      // Try to load from org font storage
+      // Try font cache first, then load from org font storage
       let loaded = false;
-      try {
-        // Try common font file extensions
-        const extensions = ['.ttf', '.otf', '.woff2'];
-        const fontDir = `${orgId}/fonts`;
-        const files = await this.fileStorage.list(fontDir).catch(() => [] as string[]);
+      const cachedData = this.fontCacheGet(orgId, fontName);
+      if (cachedData) {
+        fontMap[fontName] = { data: cachedData, subset: true };
+        loaded = true;
+      } else {
+        try {
+          // Try common font file extensions
+          const extensions = ['.ttf', '.otf', '.woff2'];
+          const fontDir = `${orgId}/fonts`;
+          const files = await this.fileStorage.list(fontDir).catch(() => [] as string[]);
 
-        for (const ext of extensions) {
-          // Look for a file matching the font name (case-insensitive)
-          const matchingFile = files.find((f: string) => {
-            const baseName = path.basename(f, path.extname(f)).toLowerCase().replace(/[_-]/g, '');
-            const searchName = fontName.toLowerCase().replace(/[_-\s]/g, '');
-            return baseName.includes(searchName) || searchName.includes(baseName);
-          });
+          for (const ext of extensions) {
+            // Look for a file matching the font name (case-insensitive)
+            const matchingFile = files.find((f: string) => {
+              const baseName = path.basename(f, path.extname(f)).toLowerCase().replace(/[_-]/g, '');
+              const searchName = fontName.toLowerCase().replace(/[_-\s]/g, '');
+              return baseName.includes(searchName) || searchName.includes(baseName);
+            });
 
-          if (matchingFile) {
-            try {
-              const fontData = await this.fileStorage.read(matchingFile);
-              fontMap[fontName] = { data: new Uint8Array(fontData), subset: true };
-              loaded = true;
-              break;
-            } catch {
-              // File exists but couldn't be read - continue to fallback
+            if (matchingFile) {
+              try {
+                const fontData = await this.fileStorage.read(matchingFile);
+                const fontUint8 = new Uint8Array(fontData);
+                fontMap[fontName] = { data: fontUint8, subset: true };
+                // Store in cache for future renders
+                this.fontCachePut(orgId, fontName, fontUint8);
+                loaded = true;
+                break;
+              } catch {
+                // File exists but couldn't be read - continue to fallback
+              }
             }
           }
+        } catch {
+          // Storage access failed - continue to fallback
         }
-      } catch {
-        // Storage access failed - continue to fallback
       }
 
       if (!loaded) {

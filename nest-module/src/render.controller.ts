@@ -884,6 +884,20 @@ export class RenderController {
     };
   }
 
+  @Get('font-cache/stats')
+  getFontCacheStats() {
+    return this.renderService.getFontCacheStats();
+  }
+
+  @Post('font-cache/clear')
+  clearFontCache() {
+    const result = this.renderService.clearFontCache();
+    return {
+      ...result,
+      message: `Cleared ${result.cleared} cached fonts, freed ${Math.round(result.freedBytes / 1024)} KB`,
+    };
+  }
+
   @Post('batch/:batchId/merge')
   async mergeBatchPdfs(
     @Param('batchId') batchId: string,
