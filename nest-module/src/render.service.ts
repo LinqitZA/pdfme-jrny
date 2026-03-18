@@ -573,6 +573,32 @@ export class RenderService {
    * Returns immediately with 202 and the batchId.
    */
   async renderBulk(dto: RenderBulkDto, orgId: string, userId: string) {
+    const templateType = dto.entityType || 'document';
+
+    // Check for already-running batch with same templateType + orgId
+    const [existingBatch] = await this.db
+      .select({ id: renderBatches.id, status: renderBatches.status, totalJobs: renderBatches.totalJobs, completedJobs: renderBatches.completedJobs })
+      .from(renderBatches)
+      .where(
+        and(
+          eq(renderBatches.orgId, orgId),
+          eq(renderBatches.templateType, templateType),
+          eq(renderBatches.status, 'running'),
+        ),
+      )
+      .limit(1);
+
+    if (existingBatch) {
+      return {
+        error: 'A bulk render is already in progress for this template type',
+        existingBatchId: existingBatch.id,
+        status: existingBatch.status,
+        totalJobs: existingBatch.totalJobs,
+        completedJobs: existingBatch.completedJobs,
+        conflict: true,
+      };
+    }
+
     const batchId = createId();
     const onFailure = dto.onFailure || 'continue';
 

@@ -187,6 +187,22 @@ export class RenderController {
       user.sub,
     );
 
+    // If there's an existing running batch, return 409 Conflict
+    if (result.conflict) {
+      throw new HttpException(
+        {
+          statusCode: 409,
+          error: 'Conflict',
+          message: result.error,
+          existingBatchId: result.existingBatchId,
+          status: result.status,
+          totalJobs: result.totalJobs,
+          completedJobs: result.completedJobs,
+        },
+        HttpStatus.CONFLICT,
+      );
+    }
+
     return result;
   }
 
