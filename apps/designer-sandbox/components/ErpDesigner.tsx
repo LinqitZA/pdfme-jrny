@@ -89,6 +89,9 @@ interface DesignElement {
   outputChannel?: 'both' | 'email' | 'print';
   // Text overflow strategy
   textOverflow?: 'clip' | 'truncate' | 'shrinkToFit';
+  // Conditional visibility
+  conditionalVisibility?: 'always' | 'conditional';
+  visibilityCondition?: string;
 }
 
 /** Represents a single page in the template */
@@ -381,6 +384,7 @@ export default function ErpDesigner({
       setSaveError(null);
       setPublishStatus('idle');
       setPublishError(null);
+      setZoom(100); // Reset zoom to default on new template load
 
       try {
         const headers: Record<string, string> = {};
@@ -683,6 +687,7 @@ export default function ErpDesigner({
       y,
       pageScope: 'all',
       outputChannel: 'both',
+      conditionalVisibility: 'always',
     };
     setPagesWithHistory((prev) => {
       return prev.map((page, idx) => {
@@ -2312,6 +2317,57 @@ export default function ErpDesigner({
               >
                 {selectedElement.outputChannel === 'email' && 'Email only'}
                 {selectedElement.outputChannel === 'print' && 'Print only'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Conditional Visibility section - always shown */}
+        <div data-testid="properties-conditional-visibility" style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Conditional Visibility</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Visibility</span>
+              <select
+                data-testid="prop-conditional-visibility"
+                style={propInputStyle}
+                value={selectedElement.conditionalVisibility || 'always'}
+                onChange={(e) => updateElement(selectedElement.id, { conditionalVisibility: e.target.value as DesignElement['conditionalVisibility'], visibilityCondition: e.target.value === 'always' ? '' : selectedElement.visibilityCondition })}
+              >
+                <option value="always">Always Visible</option>
+                <option value="conditional">Conditional</option>
+              </select>
+            </div>
+            {selectedElement.conditionalVisibility === 'conditional' && (
+              <div>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>Condition Expression</span>
+                <input
+                  data-testid="prop-visibility-condition"
+                  type="text"
+                  style={propInputStyle}
+                  value={selectedElement.visibilityCondition || ''}
+                  onChange={(e) => updateElement(selectedElement.id, { visibilityCondition: e.target.value })}
+                  placeholder="e.g. {{document.total}} > 0"
+                />
+              </div>
+            )}
+            {selectedElement.conditionalVisibility === 'conditional' && (
+              <div
+                data-testid="conditional-visibility-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#f3e8ff',
+                  color: '#7c3aed',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  width: 'fit-content',
+                }}
+              >
+                ⚡ Conditional
               </div>
             )}
           </div>
