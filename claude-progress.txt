@@ -3298,3 +3298,32 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 71/71 tests passing across 3 test suites
 ### Current Status: ~233/388 features passing (60.1%)
+
+
+---
+
+## Session - 2026-03-18 - Features #316, #317, #318 (Accessibility and Panel Controls)
+
+### Completed Features:
+- **Feature #316**: Panel collapse/expand keyboard accessible
+  - Added leftPanelCollapsed and rightPanelCollapsed state
+  - Collapse buttons in left panel tabs row and right panel header
+  - Expand buttons appear in thin 36px strip when panel is collapsed
+  - All buttons have tabIndex=0, onKeyDown for Enter/Space
+  - aria-label attributes on all collapse/expand buttons
+
+- **Feature #317**: Tab names in left panel have ARIA roles
+  - Added role=tablist and aria-label to tab container
+  - Added role=tab to each tab button with aria-selected
+  - Added role=tabpanel with id and aria-labelledby to content area
+
+- **Feature #318**: Dialog modals trap focus
+  - Focus trap useEffect for shortcuts and render dialogs
+  - Escape key closes shortcuts dialog
+  - Focus returns to trigger element when dialog closes
+  - aria-modal=true on both dialogs
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx
+
+### Current Status: ~238/388 features passing (61.3%)
