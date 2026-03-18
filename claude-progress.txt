@@ -3509,3 +3509,48 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 93/93 tests passing across 3 features
 ### Current Status: ~251/388 features passing (64.7%)
+
+---
+
+## Session - 2026-03-18 - Features #334, #335, #336 (Concurrency)
+
+### Completed Features:
+- **Feature #334**: Concurrent asset uploads don't conflict ✅
+  - Uploaded 5 assets simultaneously with same filename - all succeed with unique IDs
+  - UUID prefix (randomUUID) in asset service ensures unique filenames
+  - All 10 concurrent uploads (5 same-name + 5 different-name) have unique IDs, paths, and filenames
+  - All assets accessible and downloadable after concurrent upload
+  - Correct metadata (originalName, category, mimeType, orgId, timestamp) preserved
+  - 41/41 tests passing
+
+- **Feature #335**: Late API response handled in designer ✅
+  - Added saveGenerationRef counter that increments whenever isDirty becomes true
+  - Manual save captures generation at start, only clears dirty if generation unchanged
+  - Auto-save captures generation at start, only clears dirty if generation unchanged
+  - Reconnection retry save also uses generation check
+  - isSavingRef prevents double-save race condition
+  - Save response does not overwrite local state (no setPages/setName/setPageSize calls)
+  - isDirty preserved on save error for retry
+  - handleSave useCallback depends on name, pageSize, pages (closure capture)
+  - 29/29 tests passing
+
+- **Feature #336**: Concurrent batch renders queued properly ✅
+  - Submit batch A (invoice) and batch B (statement) concurrently - both accepted with 202
+  - Batches tracked separately with unique IDs
+  - No cross-batch interference (totalJobs, channel preserved independently)
+  - Same entityType batch correctly rejected with 409 Conflict while running
+  - After completion, new batches with same entityType accepted
+  - Batch channels preserved correctly (email vs print)
+  - Job counts accurate for each batch
+  - 29/29 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - saveGenerationRef for late response handling
+- tests/test-feature-334-concurrent-uploads.js - 41 tests
+- tests/test-feature-335-late-api-response.js - 29 tests
+- tests/test-feature-336-concurrent-batch-renders.js - 29 tests
+
+### Test Results: 99/99 tests passing across 3 features
+### Current Status: ~256/388 features passing (66.0%)
+
+### Note: Browser automation unavailable (missing libatk-1.0.so.0). Tests verified via API testing and source code analysis.
