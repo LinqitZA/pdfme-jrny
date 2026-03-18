@@ -25,6 +25,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AssetService } from './asset.service';
+import { TemplateService } from './template.service';
 import { Response } from 'express';
 import * as path from 'path';
 
@@ -51,7 +52,10 @@ const MAX_ASSET_SIZE = 10 * 1024 * 1024;
 
 @Controller('api/pdfme/assets')
 export class AssetController {
-  constructor(private readonly assetService: AssetService) {}
+  constructor(
+    private readonly assetService: AssetService,
+    private readonly templateService: TemplateService,
+  ) {}
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
@@ -174,6 +178,7 @@ export class AssetController {
   async delete(
     @Param('assetId') assetId: string,
     @Query('orgId') queryOrgId?: string,
+    @Query('confirm') confirm?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     const jwt = decodeJwt(authHeader);
@@ -189,7 +194,98 @@ export class AssetController {
       );
     }
 
+    // Check if any templates reference this asset
+    const referencingTemplates = await this.findTemplatesReferencingAsset(orgId, assetId, match);
+
+    if (referencingTemplates.length > 0 && confirm !== 'true') {
+      // Return warning with 409 Conflict - asset is in use
+      return {
+        statusCode: 409,
+        warning: true,
+        message: `Asset is referenced by ${referencingTemplates.length} template(s). Add ?confirm=true to delete anyway.`,
+        referencingTemplates: referencingTemplates.map(t => ({
+          id: t.id,
+          name: t.name,
+          type: t.type,
+          status: t.status,
+        })),
+        assetId,
+        deletable: true,
+      };
+    }
+
     await this.assetService.deleteAsset(match);
-    return { id: assetId, deleted: true };
+    return {
+      id: assetId,
+      deleted: true,
+      ...(referencingTemplates.length > 0 ? {
+        warning: `Asset was referenced by ${referencingTemplates.length} template(s). Those templates may show placeholder images.`,
+        affectedTemplates: referencingTemplates.map(t => ({ id: t.id, name: t.name })),
+      } : {}),
+    };
+  }
+
+  /**
+   * Find templates that reference a given asset by scanning template schemas.
+   * Checks for assetId, assetPath, src, imageSrc, logoPath references.
+   */
+  private async findTemplatesReferencingAsset(
+    orgId: string,
+    assetId: string,
+    storagePath: string,
+  ): Promise<Array<{ id: string; name: string; type: string; status: string }>> {
+    const result = await this.templateService.findAll(orgId, { limit: 1000 });
+    const templates = result.data;
+    const matching: Array<{ id: string; name: string; type: string; status: string }> = [];
+
+    for (const template of templates) {
+      if (this.schemaReferencesAsset(template.schema, assetId, storagePath)) {
+        matching.push({
+          id: template.id,
+          name: template.name,
+          type: template.type,
+          status: template.status,
+        });
+      }
+    }
+
+    return matching;
+  }
+
+  /**
+   * Recursively check if a template schema references a given asset ID or path.
+   */
+  private schemaReferencesAsset(
+    schema: unknown,
+    assetId: string,
+    storagePath: string,
+  ): boolean {
+    if (!schema || typeof schema !== 'object') return false;
+
+    if (Array.isArray(schema)) {
+      return schema.some(item => this.schemaReferencesAsset(item, assetId, storagePath));
+    }
+
+    const record = schema as Record<string, unknown>;
+    // Check known asset-referencing keys
+    for (const key of ['assetPath', 'assetId', 'src', 'imageSrc', 'logoPath', 'content']) {
+      const val = record[key];
+      if (typeof val === 'string') {
+        if (val.includes(assetId) || val === storagePath) {
+          return true;
+        }
+      }
+    }
+
+    // Recurse into all object values
+    for (const val of Object.values(record)) {
+      if (typeof val === 'object' && val !== null) {
+        if (this.schemaReferencesAsset(val, assetId, storagePath)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 }
