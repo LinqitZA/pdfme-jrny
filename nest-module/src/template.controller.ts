@@ -60,6 +60,9 @@ export class TemplateController {
     @Query('limit') queryLimit?: string,
     @Query('cursor') queryCursor?: string,
     @Query('type') queryType?: string,
+    @Query('status') queryStatus?: string,
+    @Query('sort') querySort?: string,
+    @Query('order') queryOrder?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     // Prefer orgId from JWT, fallback to query param for dev convenience
@@ -68,7 +71,14 @@ export class TemplateController {
 
     const limit = queryLimit ? Math.min(Math.max(parseInt(queryLimit, 10) || 100, 1), 1000) : 100;
 
-    return this.templateService.findAll(orgId, { limit, cursor: queryCursor, type: queryType });
+    return this.templateService.findAll(orgId, {
+      limit,
+      cursor: queryCursor,
+      type: queryType,
+      status: queryStatus,
+      sort: querySort as 'createdAt' | 'name' | 'updatedAt' | 'type' | undefined,
+      order: queryOrder as 'asc' | 'desc' | undefined,
+    });
   }
 
   @Get('types')

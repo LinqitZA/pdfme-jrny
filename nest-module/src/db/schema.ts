@@ -92,6 +92,24 @@ export const renderBatches = pgTable('render_batches', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });
 
+// ─── TemplateVersion ─────────────────────────────────────────────────
+// Stores version snapshots when templates are published or major changes occur
+export const templateVersions = pgTable('template_versions', {
+  id: text('id').primaryKey(), // cuid2
+  templateId: text('template_id')
+    .notNull()
+    .references(() => templates.id),
+  orgId: text('org_id'),
+  version: integer('version').notNull(),
+  status: text('status').notNull(), // draft | published
+  schema: jsonb('schema').notNull(), // snapshot of template schema at this version
+  savedBy: text('saved_by').notNull(), // userId
+  savedAt: timestamp('saved_at', { withTimezone: true }).notNull().defaultNow(),
+  changeNote: text('change_note'), // optional description of change
+}, (table) => [
+  index('idx_template_versions_template').on(table.templateId),
+]);
+
 // ─── AuditLog ────────────────────────────────────────────────────────
 // APPEND-ONLY: no UPDATE or DELETE
 export const auditLogs = pgTable('audit_logs', {

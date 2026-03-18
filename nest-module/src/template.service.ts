@@ -125,7 +125,7 @@ export class TemplateService {
    * Cursor is based on createdAt descending + id for stable ordering.
    * The cursor format is: base64(JSON({createdAt, id}))
    */
-  async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string }) {
+  async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string; status?: string; sort?: 'createdAt' | 'name' | 'updatedAt' | 'type'; order?: 'asc' | 'desc' }) {
     const limit = options?.limit ?? 100;
     const conditions: SQL[] = [ne(templates.status, 'archived')];
 
@@ -136,6 +136,20 @@ export class TemplateService {
     if (options?.type) {
       conditions.push(eq(templates.type, options.type));
     }
+
+    if (options?.status) {
+      conditions.push(eq(templates.status, options.status));
+    }
+
+    // Determine sort column and direction
+    const sortColumnMap = {
+      createdAt: templates.createdAt,
+      name: templates.name,
+      updatedAt: templates.updatedAt,
+      type: templates.type,
+    };
+    const sortCol = sortColumnMap[options?.sort || 'createdAt'] || templates.createdAt;
+    const sortDir = options?.order === 'asc' ? asc : desc;
 
     // Decode cursor if provided
     if (options?.cursor) {
@@ -159,7 +173,7 @@ export class TemplateService {
       .select()
       .from(templates)
       .where(and(...conditions))
-      .orderBy(desc(templates.createdAt), desc(templates.id))
+      .orderBy(sortDir(sortCol), desc(templates.id))
       .limit(limit + 1);
 
     const hasMore = rows.length > limit;
@@ -180,6 +194,9 @@ export class TemplateService {
     }
     if (options?.type) {
       countConditions.push(eq(templates.type, options.type));
+    }
+    if (options?.status) {
+      countConditions.push(eq(templates.status, options.status));
     }
     const allRows = await this.db
       .select({ id: templates.id })

@@ -321,6 +321,11 @@ export default function ErpDesigner({
   const [isLoading, setIsLoading] = useState(!!templateId);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Publish state
+  const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle');
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishErrors, setPublishErrors] = useState<Array<{ field: string; message: string }>>([]);
+
   // Preview mode state - substitutes binding placeholders with example values
   const [previewMode, setPreviewMode] = useState(false);
 
@@ -566,6 +571,58 @@ export default function ErpDesigner({
       setIsDirty(false);
     }
   }, [name, pageSize, pages, onSave, templateId, authToken, apiBase]);
+
+  // ─── Publish: publish template to backend ───
+  const handlePublish = useCallback(async () => {
+    if (!templateId) {
+      setPublishStatus('error');
+      setPublishError('Cannot publish: no template ID');
+      return;
+    }
+
+    setPublishStatus('publishing');
+    setPublishError(null);
+    setPublishErrors([]);
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+
+      const response = await fetch(`${apiBase}/templates/${templateId}/publish`, {
+        method: 'POST',
+        headers,
+      });
+
+      if (response.ok) {
+        setPublishStatus('published');
+        setTimeout(() => setPublishStatus((prev) => prev === 'published' ? 'idle' : prev), 5000);
+      } else {
+        const errBody = await response.json().catch(() => ({ message: `Publish failed with status ${response.status}` }));
+
+        if (response.status === 422 && errBody.details && Array.isArray(errBody.details)) {
+          // Validation errors
+          setPublishStatus('error');
+          setPublishError('Template validation failed');
+          setPublishErrors(errBody.details);
+        } else if (response.status === 409) {
+          setPublishStatus('error');
+          setPublishError(errBody.message || 'Template is locked by another user');
+        } else {
+          const errorMsg = errBody.message || `Publish failed with status ${response.status}`;
+          setPublishStatus('error');
+          setPublishError(errorMsg);
+        }
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error
+        ? (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')
+          ? 'Network error — check your connection and try again'
+          : err.message)
+        : 'An unexpected error occurred while publishing';
+      setPublishStatus('error');
+      setPublishError(errorMsg);
+    }
+  }, [templateId, authToken, apiBase]);
 
   // ─── Auto-save: save draft to backend every 30 seconds ───
   const performAutoSave = useCallback(async () => {
@@ -1922,14 +1979,18 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-publish"
+          onClick={handlePublish}
+          disabled={publishStatus === 'publishing'}
           style={{
             ...toolbarBtnStyle,
-            backgroundColor: '#10b981',
+            backgroundColor: publishStatus === 'error' ? '#ef4444' : publishStatus === 'published' ? '#059669' : '#10b981',
             color: '#fff',
             fontWeight: 600,
+            opacity: publishStatus === 'publishing' ? 0.7 : 1,
+            cursor: publishStatus === 'publishing' ? 'not-allowed' : 'pointer',
           }}
         >
-          Publish
+          {publishStatus === 'publishing' ? 'Publishing…' : publishStatus === 'published' ? '✓ Published' : publishStatus === 'error' ? 'Retry Publish' : 'Publish'}
         </button>
       </div>
 
@@ -1984,6 +2045,90 @@ export default function ErpDesigner({
               ✕
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ─── Publish Error Banner ─── */}
+      {publishStatus === 'error' && publishError && (
+        <div
+          data-testid="publish-error-banner"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            backgroundColor: '#fef2f2',
+            borderBottom: '1px solid #fecaca',
+            padding: '8px 16px',
+            fontSize: '13px',
+            color: '#991b1b',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px' }}>⚠</span>
+              <span data-testid="publish-error-message">{publishError}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <button
+                data-testid="publish-error-retry"
+                onClick={handlePublish}
+                style={{
+                  padding: '4px 12px',
+                  backgroundColor: '#ef4444',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                }}
+              >
+                Retry
+              </button>
+              <button
+                data-testid="publish-error-dismiss"
+                onClick={() => { setPublishStatus('idle'); setPublishError(null); setPublishErrors([]); }}
+                style={{
+                  padding: '4px 8px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '16px',
+                  color: '#991b1b',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+          {publishErrors.length > 0 && (
+            <ul data-testid="publish-validation-errors" style={{ margin: '4px 0 0 24px', padding: 0, listStyle: 'disc' }}>
+              {publishErrors.map((err, i) => (
+                <li key={i} data-testid={`publish-validation-error-${i}`} style={{ fontSize: '12px', marginTop: '2px' }}>
+                  <strong>{err.field}</strong>: {err.message}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {/* ─── Publish Success Toast ─── */}
+      {publishStatus === 'published' && (
+        <div
+          data-testid="publish-success-toast"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            backgroundColor: '#ecfdf5',
+            borderBottom: '1px solid #a7f3d0',
+            padding: '8px 16px',
+            fontSize: '13px',
+            color: '#065f46',
+          }}
+        >
+          <span style={{ fontSize: '16px' }}>✓</span>
+          <span>Template published successfully</span>
         </div>
       )}
 

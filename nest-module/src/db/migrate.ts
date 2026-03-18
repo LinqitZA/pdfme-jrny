@@ -79,6 +79,22 @@ CREATE TABLE IF NOT EXISTS render_batches (
   completed_at TIMESTAMPTZ
 );
 
+-- TemplateVersion table (version history snapshots)
+CREATE TABLE IF NOT EXISTS template_versions (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL REFERENCES templates(id),
+  org_id TEXT,
+  version INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  schema JSONB NOT NULL,
+  saved_by TEXT NOT NULL,
+  saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  change_note TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_template_versions_template
+  ON template_versions (template_id);
+
 -- AuditLog table (APPEND-ONLY: no UPDATE or DELETE)
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,

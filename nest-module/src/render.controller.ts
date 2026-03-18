@@ -24,6 +24,7 @@ import {
 import { Response } from 'express';
 import { RenderService, RenderNowDto, RenderBulkDto } from './render.service';
 import { PdfaProcessor } from './pdfa-processor';
+import { RenderQueueService } from './render-queue.service';
 
 @Controller('api/pdfme/render')
 export class RenderController {
@@ -447,6 +448,108 @@ export class RenderController {
     }
 
     return result;
+  }
+
+  /**
+   * Submit an async render job to the queue.
+   * Returns a jobId that can be polled via GET /render/status/:jobId
+   */
+  @Post('async')
+  @HttpCode(202)
+  async renderAsync(
+    @Body() body: RenderNowDto,
+    @Req() req: any,
+  ) {
+    // Validate required fields
+    const missingFields: string[] = [];
+    if (!body.templateId) missingFields.push('templateId');
+    if (!body.entityId) missingFields.push('entityId');
+    if (!body.channel) missingFields.push('channel');
+    if (missingFields.length > 0) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'templateId, entityId, and channel are required',
+          details: missingFields.map(f => ({ field: f, reason: `${f} is required` })),
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const jobId = await this.renderQueueService.addJob({
+      templateId: body.templateId,
+      entityId: body.entityId,
+      entityType: body.entityType || 'document',
+      orgId: user.orgId,
+      channel: body.channel,
+      triggeredBy: user.sub || 'anonymous',
+      inputs: body.inputs as Record<string, unknown>,
+    });
+
+    return {
+      jobId,
+      status: 'queued',
+      message: 'Render job submitted. Poll GET /api/pdfme/render/status/' + jobId + ' for progress.',
+    };
+  }
+
+  /**
+   * Poll async render job status.
+   * Returns normalized status: queued | generating | done | failed
+   */
+  @Get('status/:jobId')
+  async getRenderStatus(
+    @Param('jobId') jobId: string,
+  ) {
+    const jobStatus = await this.renderQueueService.getJobStatus(jobId);
+
+    if (!jobStatus) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Render job ${jobId} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    // Map BullMQ states to user-friendly status
+    let status: 'queued' | 'generating' | 'done' | 'failed';
+    switch (jobStatus.state) {
+      case 'waiting':
+      case 'delayed':
+      case 'prioritized':
+      case 'wait':
+        status = 'queued';
+        break;
+      case 'active':
+        status = 'generating';
+        break;
+      case 'completed':
+        status = 'done';
+        break;
+      case 'failed':
+        status = 'failed';
+        break;
+      default:
+        status = 'queued';
+    }
+
+    return {
+      jobId: jobStatus.id,
+      status,
+      attemptsMade: jobStatus.attemptsMade,
+      maxAttempts: jobStatus.maxAttempts,
+      result: jobStatus.result || null,
+      error: jobStatus.failedReason || null,
+      attemptLog: jobStatus.attemptLog,
+    };
   }
 
   @Post('batch/:batchId/merge')
