@@ -747,6 +747,35 @@ export default function ErpDesigner({
     };
   }, [templateId, autoSaveInterval, performAutoSave]);
 
+  // ─── Warn on navigation when there are unsaved changes ───
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirtyRef.current && templateId) {
+        // Attempt to trigger auto-save before leaving
+        performAutoSave();
+        // Show browser's native "unsaved changes" dialog
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+
+    // Also trigger auto-save when page becomes hidden (tab switch, navigation)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isDirtyRef.current && templateId) {
+        performAutoSave();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [templateId, performAutoSave]);
+
   // ─── Render / PDF generation handlers ───
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
