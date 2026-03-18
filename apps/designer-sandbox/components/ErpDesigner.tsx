@@ -1931,10 +1931,25 @@ export default function ErpDesigner({
         key={el.id}
         data-testid={`canvas-element-${el.id}`}
         data-element-type={el.type}
+        role="button"
+        tabIndex={0}
+        aria-label={`${getElementTypeLabel(el.type)} element${el.binding ? ` bound to ${el.binding}` : ''}`}
+        aria-selected={isSelected}
         style={baseStyle}
         onClick={(e) => {
           e.stopPropagation();
           setSelectedElementId(el.id);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedElementId(el.id); }
+          if (e.key === 'Delete' || e.key === 'Backspace') {
+            e.preventDefault();
+            if (isSelected) {
+              setPagesWithHistory((prev) => prev.map((p, idx) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem) => elem.id !== el.id) }));
+              setSelectedElementId(null);
+              setIsDirty(true);
+            }
+          }
         }}
       >
         {content}
@@ -2649,6 +2664,25 @@ export default function ErpDesigner({
     <>
     <style>{`
       @keyframes spin { to { transform: rotate(360deg); } }
+      @media (max-width: 1200px) and (min-width: 769px) {
+        .erp-designer-left-panel {
+          width: 220px !important;
+        }
+        .erp-designer-right-panel {
+          width: 240px !important;
+        }
+        .erp-designer-canvas {
+          padding: 16px !important;
+        }
+        .erp-designer-toolbar {
+          gap: 8px !important;
+          padding: 6px 12px !important;
+        }
+        .erp-designer-toolbar select,
+        .erp-designer-toolbar input {
+          max-width: 140px;
+        }
+      }
       @media (max-width: 768px) {
         .erp-designer-toolbar {
           flex-wrap: wrap !important;
@@ -3307,9 +3341,13 @@ export default function ErpDesigner({
                         <div
                           key={block.id}
                           data-testid={`block-${block.id}`}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Add ${block.label} block`}
                           draggable
                           onDragStart={(e) => handleBlockDragStart(e, block.id)}
                           onClick={() => addElementToCanvas(block.id)}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addElementToCanvas(block.id); } }}
                           style={{
                             padding: '8px',
                             borderRadius: '6px',
@@ -3364,12 +3402,23 @@ export default function ErpDesigner({
                           <div
                             key={field.key}
                             data-testid={`field-${field.key}`}
+                            role="option"
+                            tabIndex={0}
+                            aria-label={`Bind field ${field.key}`}
                             draggable
                             onDragStart={(e) => handleFieldDragStart(e, field.key)}
                             style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab' }}
                             onClick={() => {
                               if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
                                 handleBindField(field.key);
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
+                                  handleBindField(field.key);
+                                }
                               }
                             }}
                           >
@@ -3519,6 +3568,10 @@ export default function ErpDesigner({
                   <div
                     key={page.id}
                     data-testid={`page-thumbnail-${index}`}
+                    role="tab"
+                    tabIndex={0}
+                    aria-label={`Page ${index + 1}`}
+                    aria-selected={index === currentPageIndex}
                     draggable
                     onDragStart={() => handleDragStart(index)}
                     onDragOver={(e) => handleDragOver(e, index)}
@@ -3526,6 +3579,7 @@ export default function ErpDesigner({
                     onDragEnd={handleDragEnd}
                     onContextMenu={(e) => handleContextMenu(e, index)}
                     onClick={() => setCurrentPageIndex(index)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setCurrentPageIndex(index); } }}
                     style={{
                       padding: '8px',
                       border: index === currentPageIndex
