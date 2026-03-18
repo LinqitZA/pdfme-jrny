@@ -2883,3 +2883,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 59/59 tests passing across all 3 features
 ### Current Status: ~206/388 features passing (53.1%)
+
+---
+
+## Session - 2026-03-18 - Features #288, #289, #290 (Progress Indicators, Upload Feedback)
+
+### Completed Features:
+- **Feature #288**: Bulk render progress bar updates ✅
+  - Progress bar already existed in ErpDesigner with SSE event handling
+  - Added percentage text display (`data-testid="render-progress-percentage"`)
+  - Progress bar width driven by (completed + failed) / total * 100
+  - SSE events (job_completed, job_failed, batch_complete) update progress state
+  - Bar turns amber when failures present, purple otherwise
+  - Completed batch SSE immediately sends batch_complete event
+  - 42/42 tests passing
+
+- **Feature #289**: Auto-save indicator shows in toolbar ✅
+  - Auto-save indicator already fully implemented in toolbar
+  - States: idle (gray), saving (amber spinner), saved (green checkmark), error (red X)
+  - Idle state shows "Last auto-saved [timestamp]" 
+  - Auto-save interval configurable (default 30s), triggers before page unload
+  - Reconnection retry with exponential backoff
+  - Manual save vs auto-save clearly distinguished in UI
+  - 42/42 tests passing
+
+- **Feature #290**: Asset upload progress shown ✅
+  - Replaced fetch() with XMLHttpRequest for upload progress tracking
+  - Added assetUploadProgress state and progress bar UI
+  - Progress bar shows during upload with percentage text
+  - Button text changes: "Upload Asset" → "Uploading… X%" → "✓ Upload Complete"
+  - Success state with green bar and "asset added to library" message
+  - Auto-dismisses success after 3 seconds
+  - Error handling with 5-second auto-dismiss
+  - 44/44 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Progress percentage text, upload progress bar with XHR
+- tests/test-bulk-progress-bar-288.js - 42 tests
+- tests/test-autosave-indicator-289.js - 42 tests
+- tests/test-asset-upload-progress-290.js - 44 tests
+
+### Test Results: 128/128 tests passing across 3 test suites
+### Current Status: ~208/388 features passing (53.6%)
