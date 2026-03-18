@@ -4,6 +4,8 @@
  * GET /api/pdfme/audit - Returns paginated audit log entries
  * Supports filtering by entityType, entityId, action, and date range (from/to).
  * Results in reverse chronological order.
+ *
+ * APPEND-ONLY: PUT and DELETE endpoints always return 403.
  */
 
 import { Controller, Get, Put, Delete, Req, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
@@ -12,6 +14,20 @@ import { AuditService } from './audit.service';
 @Controller('api/pdfme')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
+
+  /**
+   * GET /api/pdfme/audit/policy - Returns the append-only policy status
+   * Must be defined BEFORE audit/:id to avoid route conflict.
+   */
+  @Get('audit/policy')
+  async getAuditPolicy() {
+    const enforcement = await this.auditService.verifyAppendOnlyEnforcement();
+    return {
+      policy: 'append-only',
+      description: 'AuditLog table rejects UPDATE and DELETE operations',
+      enforcement,
+    };
+  }
 
   @Get('audit')
   async getAuditLogs(
@@ -59,18 +75,5 @@ export class AuditController {
       { error: 'Forbidden', message: 'Audit log is append-only: DELETE operations are not allowed' },
       HttpStatus.FORBIDDEN,
     );
-  }
-
-  /**
-   * GET /api/pdfme/audit/policy - Returns the append-only policy status
-   */
-  @Get('audit/policy')
-  async getAuditPolicy() {
-    const enforcement = await this.auditService.verifyAppendOnlyEnforcement();
-    return {
-      policy: 'append-only',
-      description: 'AuditLog table rejects UPDATE and DELETE operations',
-      enforcement,
-    };
   }
 }

@@ -60,7 +60,25 @@ export class LocalDiskStorageAdapter extends FileStorageService {
   async write(filePath: string, data: Buffer): Promise<void> {
     this.checkSimulatedFailure();
     const fullPath = this.resolvePath(filePath);
-    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    const dirPath = path.dirname(fullPath);
+    fs.mkdirSync(dirPath, { recursive: true });
+
+    // Enforce restricted permissions (0700) on signature directories
+    if (filePath.includes('/signatures/') || filePath.includes('/signatures')) {
+      // Set 0700 on the signatures directory itself
+      const sigDirIndex = fullPath.indexOf('/signatures');
+      if (sigDirIndex !== -1) {
+        // Find the signatures directory path
+        const sigDir = fullPath.substring(0, fullPath.indexOf('/signatures') + '/signatures'.length);
+        if (fs.existsSync(sigDir)) {
+          fs.chmodSync(sigDir, 0o700);
+        }
+        // Also set restrictive permissions on the file itself (0600 = owner read/write only)
+        fs.writeFileSync(fullPath, data, { mode: 0o600 });
+        return;
+      }
+    }
+
     fs.writeFileSync(fullPath, data);
   }
 

@@ -120,6 +120,58 @@ export class TemplateService {
   }
 
   /**
+   * Fork (clone) a template, creating a new draft copy with forkedFromId set.
+   */
+  async forkTemplate(sourceId: string, orgId: string, userId: string, newName?: string) {
+    // Get the source template
+    const conditions: any[] = [eq(templates.id, sourceId)];
+    // Allow forking from own org or system templates
+    const [source] = await this.db
+      .select()
+      .from(templates)
+      .where(eq(templates.id, sourceId))
+      .limit(1);
+
+    if (!source) return null;
+
+    // Check org access: must be same org or system template
+    if (source.orgId && source.orgId !== orgId) return null;
+
+    const id = createId();
+    const now = new Date();
+    const [result] = await this.db
+      .insert(templates)
+      .values({
+        id,
+        orgId,
+        type: source.type,
+        name: newName || `${source.name} (Fork)`,
+        schema: source.schema,
+        status: 'draft',
+        version: 1,
+        forkedFromId: sourceId,
+        createdBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+
+    // Audit log: template forked
+    if (this.auditService && result) {
+      await this.auditService.log({
+        orgId: result.orgId || '',
+        entityType: 'template',
+        entityId: result.id,
+        action: 'template.forked',
+        userId,
+        metadata: { sourceTemplateId: sourceId, sourceName: source.name },
+      });
+    }
+
+    return result;
+  }
+
+  /**
    * List templates for an org with cursor-based pagination.
    * Includes:
    * - Templates owned by the org (orgId matches)
@@ -340,6 +392,17 @@ export class TemplateService {
         schema: result.schema,
         createdBy: userId || 'unknown',
       }, dto.saveMode === 'newVersion' ? 'New version save' : 'Draft save');
+
+      // Audit log: template updated
+      if (this.auditService) {
+        await this.auditService.log({
+          orgId: result.orgId || '',
+          entityType: 'template',
+          entityId: result.id,
+          action: 'template.updated',
+          userId: userId || 'unknown',
+        });
+      }
     }
 
     return result || null;
@@ -776,7 +839,7 @@ export class TemplateService {
         orgId: result.orgId || '',
         entityType: 'template',
         entityId: result.id,
-        action: 'archived',
+        action: 'template.archived',
         userId: userId || result.createdBy,
         metadata: { name: result.name, previousStatus: 'draft' },
       });

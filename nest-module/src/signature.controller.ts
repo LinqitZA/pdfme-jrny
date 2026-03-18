@@ -15,6 +15,7 @@ import {
   Delete,
   Body,
   Req,
+  Inject,
   HttpException,
   HttpStatus,
   HttpCode,
@@ -22,14 +23,18 @@ import {
 } from '@nestjs/common';
 import { SignatureService } from './signature.service';
 import { AuditService } from './audit.service';
+import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
 import { Response, Request } from 'express';
 import type { JwtPayload } from './auth.guard';
 import { Optional } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Controller('api/pdfme/signatures')
 export class SignatureController {
   constructor(
     private readonly signatureService: SignatureService,
+    @Inject('FILE_STORAGE') private readonly storage: any,
     @Optional() private readonly auditService?: AuditService,
   ) {}
 
@@ -230,5 +235,53 @@ export class SignatureController {
     }
 
     return { message: 'Signature revoked successfully' };
+  }
+
+  /**
+   * GET /api/pdfme/signatures/storage-info
+   * Returns information about signature storage permissions for the authenticated org.
+   */
+  @Get('storage-info')
+  async getStorageInfo(@Req() req: Request) {
+    const user = (req as any).user as JwtPayload;
+    const orgId = user.orgId;
+
+    // Get the storage root
+    const rootDir = this.storage.getRootDir?.() || '';
+    const sigDir = path.join(rootDir, orgId, 'signatures');
+
+    let directoryPermissions: string | null = null;
+    let directoryExists = false;
+    let filePermissions: string | null = null;
+    let fileCount = 0;
+
+    try {
+      if (fs.existsSync(sigDir)) {
+        directoryExists = true;
+        const stats = fs.statSync(sigDir);
+        directoryPermissions = '0' + (stats.mode & 0o777).toString(8);
+
+        // Check files in directory
+        const files = fs.readdirSync(sigDir);
+        fileCount = files.length;
+        if (files.length > 0) {
+          const fileStat = fs.statSync(path.join(sigDir, files[0]));
+          filePermissions = '0' + (fileStat.mode & 0o777).toString(8);
+        }
+      }
+    } catch {
+      // Directory might not exist yet
+    }
+
+    return {
+      orgId,
+      signatureDirectory: sigDir,
+      directoryExists,
+      directoryPermissions,
+      filePermissions,
+      fileCount,
+      restricted: directoryPermissions === '0700',
+      publiclyAccessible: false, // Files are only served via authenticated API endpoint
+    };
   }
 }

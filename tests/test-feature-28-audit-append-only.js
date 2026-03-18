@@ -14,7 +14,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const BASE = 'http://localhost:3000/api/pdfme';
-const JWT_SECRET = 'pdfme_jwt_secret_dev';
+const JWT_SECRET = 'pdfme-dev-secret';
 
 let passed = 0;
 let failed = 0;
@@ -30,8 +30,7 @@ function makeJwt(payload) {
 const TOKEN = makeJwt({
   sub: 'audit-test-user',
   orgId: 'org-audit-28',
-  roles: ['admin'],
-  permissions: ['template:view', 'template:edit', 'template:publish', 'template:delete', 'render:trigger', 'render:bulk', 'audit:view'],
+  roles: ['admin', 'template:view', 'template:edit', 'template:publish', 'template:delete', 'render:trigger', 'render:bulk', 'audit:view'],
 });
 
 function request(method, path, body = null, token = TOKEN) {
@@ -140,7 +139,7 @@ async function run() {
   assert('Original entry createdAt unchanged', refound && refound.createdAt === testEntry.createdAt);
 
   // Step 8: Verify all 3 original template-creation audit entries exist
-  const templateAuditEntries = afterEntries.filter(e => e.entityType === 'template' && e.action === 'create');
+  const templateAuditEntries = afterEntries.filter(e => e.entityType === 'template' && (e.action === 'template.created' || e.action === 'create'));
   assert('Template creation audit entries exist', templateAuditEntries.length >= 3);
 
   // Step 9: Verify additional audit entries (from earlier operations) also persist

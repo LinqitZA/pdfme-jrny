@@ -998,6 +998,28 @@ export class TemplateController {
     }
   }
 
+  @Post(':id/fork')
+  @RequirePermissions('template:edit')
+  async forkTemplate(
+    @Param('id') id: string,
+    @Body() body: { name?: string },
+    @Headers('authorization') authHeader?: string,
+    @Req() req?: any,
+  ) {
+    const user = req?.user || decodeJwt(authHeader);
+    const orgId = user?.orgId;
+    const userId = user?.sub || 'unknown';
+
+    const result = await this.templateService.forkTemplate(id, orgId, userId, body?.name);
+    if (!result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found or not accessible` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
+  }
+
   @Put(':id')
   async update(
     @Param('id') id: string,

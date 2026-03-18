@@ -1,6 +1,6 @@
 const http = require('http');
 const crypto = require('crypto');
-const JWT_SECRET = 'pdfme_jwt_secret_dev';
+const JWT_SECRET = 'pdfme-dev-secret';
 
 function makeJwt(p) {
   const h = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
