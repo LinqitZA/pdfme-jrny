@@ -2626,3 +2626,46 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 58/58 tests passing across 3 test suites
 ### Current Status: ~188/388 features passing (48.5%)
+
+---
+
+## Session - 2026-03-18 - Features #270, #271, #272 (Validation Features)
+
+### Completed Features:
+- **Feature #270**: Required fields validation on template ✅
+  - Enhanced validateTemplateForPublish to check pages have elements
+  - Empty pages (no elements array, or empty elements array) rejected on publish with 422
+  - Templates with valid elements publish successfully
+  - Mixed pages (valid + empty) correctly rejected
+  - schemas key (pdfme alternate) also validated
+  - 26/26 tests passing
+
+- **Feature #271**: Page scope sanity validation ✅
+  - Added POST /templates/:id/validate endpoint for standalone validation
+  - Validates pageScope values: all, first, last, notFirst, not_first
+  - Single-page templates with 'notFirst'/'not_first' scope → unreachable error
+  - Single-page templates with 'first'/'last' scope → redundant warning
+  - Invalid scope values (e.g., 'middle') → invalid scope error
+  - Multi-page templates with scoped elements validate correctly
+  - Supports both pageScope and page_scope property names
+  - 34/34 tests passing
+
+- **Feature #272**: Bulk entityIds uniqueness validation ✅
+  - Added duplicate detection before bulk render processing
+  - Duplicate entityIds return 400 with list of duplicate IDs
+  - Response details include field, reason, and duplicates array
+  - Case-sensitive comparison (Entity-A vs entity-a are different)
+  - Fixed global exception filter: short strings (< 3 chars) no longer sanitized to generic error
+  - 21/21 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - validateTemplateForPublish: empty page check, page scope validation
+- nest-module/src/template.controller.ts - POST /templates/:id/validate endpoint
+- nest-module/src/render.controller.ts - entityIds uniqueness check in bulk endpoint
+- nest-module/src/global-exception.filter.ts - Fix short string sanitization
+- tests/test-feature-270.js - 26 tests
+- tests/test-feature-271.js - 34 tests
+- tests/test-feature-272.js - 21 tests
+
+### Test Results: 81/81 tests passing across 3 test suites
+### Current Status: ~191/388 features passing (49.2%)
