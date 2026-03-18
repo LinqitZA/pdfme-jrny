@@ -6,11 +6,12 @@
  * System templates (orgId=null) are visible to all orgs.
  */
 
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { templates } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
+import { AuditService } from './audit.service';
 
 export interface CreateTemplateDto {
   orgId?: string | null;
@@ -45,7 +46,10 @@ export interface SaveDraftDto {
 
 @Injectable()
 export class TemplateService {
-  constructor(@Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase) {}
+  constructor(
+    @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
+    @Optional() private readonly auditService?: AuditService,
+  ) {}
 
   /**
    * Create a new template. Defaults to status=draft, version=1.
@@ -68,6 +72,19 @@ export class TemplateService {
         updatedAt: now,
       })
       .returning();
+
+    // Audit log
+    if (this.auditService && result) {
+      await this.auditService.log({
+        orgId: result.orgId || '',
+        entityType: 'template',
+        entityId: result.id,
+        action: 'template.created',
+        userId: dto.createdBy,
+        metadata: { name: result.name, type: result.type },
+      });
+    }
+
     return result;
   }
 
@@ -251,6 +268,19 @@ export class TemplateService {
       })
       .where(eq(templates.id, id))
       .returning();
+
+    // Audit log
+    if (this.auditService && result) {
+      await this.auditService.log({
+        orgId: result.orgId || '',
+        entityType: 'template',
+        entityId: result.id,
+        action: 'template.published',
+        userId: result.createdBy,
+        metadata: { name: result.name, version: result.publishedVer },
+      });
+    }
+
     return result || null;
   }
 
@@ -269,6 +299,19 @@ export class TemplateService {
       .set({ status: 'archived', updatedAt: new Date() })
       .where(and(...conditions))
       .returning();
+
+    // Audit log
+    if (this.auditService && result) {
+      await this.auditService.log({
+        orgId: result.orgId || '',
+        entityType: 'template',
+        entityId: result.id,
+        action: 'template.archived',
+        userId: result.createdBy,
+        metadata: { name: result.name },
+      });
+    }
+
     return result || null;
   }
 }
