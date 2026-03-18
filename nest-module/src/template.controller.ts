@@ -333,7 +333,7 @@ export class TemplateController {
     const orgId = jwt?.orgId || queryOrgId;
 
     const result = await this.templateService.findById(id, orgId);
-    if (!result) {
+    if (!result || result.status === 'archived') {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
         HttpStatus.NOT_FOUND,
@@ -351,6 +351,15 @@ export class TemplateController {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId;
     const userId = jwt?.sub || 'unknown';
+
+    // Check if template exists and is not archived
+    const existing = await this.templateService.findById(id, orgId);
+    if (!existing || existing.status === 'archived') {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
 
     // Check for edit lock conflict
     const lockConflict = await this.templateService.checkLockConflict(id, userId, orgId);
