@@ -98,7 +98,7 @@ async function run() {
 
   // Verify lock status
   const lockStatus = await request('GET', `/api/pdfme/templates/${templateId}/lock`, tokenA);
-  assert('Lock status shows locked', lockStatus.data.isLocked === true);
+  assert('Lock status shows locked', lockStatus.data.locked === true);
   assert('Lock held by user-A', lockStatus.data.lockedBy === 'user-A-lock');
 
   // ============================================================
@@ -112,7 +112,7 @@ async function run() {
 
   // Verify lock is still held by user-A
   const lockAfterB = await request('GET', `/api/pdfme/templates/${templateId}/lock`, tokenA);
-  assert('Lock still held after user-B attempt', lockAfterB.data.isLocked === true);
+  assert('Lock still held after user-B attempt', lockAfterB.data.locked === true);
   assert('Lock still held by user-A', lockAfterB.data.lockedBy === 'user-A-lock');
 
   // ============================================================
@@ -138,7 +138,7 @@ async function run() {
   process.stdout.write('\nStep 5: Verify lock is released\n');
 
   const lockAfterC = await request('GET', `/api/pdfme/templates/${templateId}/lock`, tokenA);
-  assert('Lock is no longer held', lockAfterC.data.isLocked === false || lockAfterC.data.lockedBy === null);
+  assert('Lock is no longer held', lockAfterC.data.locked === false || lockAfterC.data.lockedBy === null);
 
   // ============================================================
   // Step 6: User-A can re-acquire lock (it's free now)
@@ -193,7 +193,7 @@ async function run() {
   assert('E2E: admin force-release succeeds', e2eC.status === 200);
   // Verify released
   const finalStatus = await request('GET', `/api/pdfme/templates/${templateId}/lock`, tokenA);
-  assert('E2E: lock is released', finalStatus.data.isLocked === false || finalStatus.data.lockedBy === null);
+  assert('E2E: lock is released', finalStatus.data.locked === false || finalStatus.data.lockedBy === null);
 
   // ============================================================
   // Cleanup
