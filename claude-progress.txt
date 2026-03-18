@@ -2078,3 +2078,54 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 67/67 tests passing across 3 test suites
 ### Current Status: ~145/388 features passing (37.4%)
+
+---
+
+## Session - 2026-03-18 - Features #229, #230, #231 (Asset Warnings, Archive Docs, Signature Revocation)
+
+### Completed Features:
+- **Feature #229**: Asset delete warns about template references ✅
+  - DELETE /api/pdfme/assets/:assetId checks all templates for asset references
+  - Returns warning with referencing template details (id, name, type, status)
+  - Warning includes statusCode 409 and deletable=true flag
+  - Asset NOT deleted when warning shown (no ?confirm=true)
+  - ?confirm=true forces deletion even with references
+  - Confirmed delete response lists affected templates
+  - Unreferenced assets delete without warning
+  - Template renders handle missing assets gracefully (placeholder images)
+  - Injected TemplateService into AssetController for reference scanning
+  - Recursive schema scanning checks assetPath, assetId, src, imageSrc, logoPath, content
+  - 40/40 tests passing
+
+- **Feature #230**: Template archive - rendered docs still accessible ✅
+  - Added GET /api/pdfme/render/documents/:templateId endpoint for render history
+  - Added listDocumentsByTemplate() to RenderService
+  - Generated documents persist independently of template status
+  - PDF downloads unchanged after template archive (same ETag/hash)
+  - Render history accessible for archived templates
+  - Document metadata (entityId, channel, status, hash) all preserved
+  - 37/37 tests passing
+
+- **Feature #231**: Signature revocation removes from future renders ✅
+  - Revoked signature not used in new renders (uses fallback behavior)
+  - Previous renders with signature remain unchanged and downloadable
+  - Blank fallback produces valid PDF with transparent 1x1 PNG
+  - Placeholder fallback works for revoked signatures
+  - Re-uploading signature after revocation restores it for future renders
+  - Second revocation produces renders different from signed renders
+  - Render history shows both pre and post-revocation documents
+  - 41/41 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/asset.controller.ts - Template reference checking on DELETE, TemplateService injection
+- nest-module/src/render.service.ts - Added listDocumentsByTemplate()
+- nest-module/src/render.controller.ts - Added GET /render/documents/:templateId endpoint
+- tests/test-asset-delete-warning-229.js - 40 tests
+- tests/test-archive-docs-accessible-230.js - 37 tests
+- tests/test-signature-revoke-render-231.js - 41 tests
+
+### API Endpoints Added:
+- GET /api/pdfme/render/documents/:templateId - List generated documents for a template
+
+### Test Results: 118/118 tests passing across 3 test suites
+### Current Status: ~149/388 features passing (38.4%)
