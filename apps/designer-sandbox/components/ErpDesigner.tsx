@@ -2065,44 +2065,44 @@ export default function ErpDesigner({
           <label style={labelStyle}>Position &amp; Size</label>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>X</span>
+              <label htmlFor="prop-x" style={{ fontSize: '11px', color: '#64748b' }}>X</label>
               <input
+                id="prop-x"
                 data-testid="prop-x"
                 type="number"
-                aria-label="X position"
                 style={propInputStyle}
                 value={selectedElement.x}
                 onChange={(e) => updateElement(selectedElement.id, { x: Number(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Y</span>
+              <label htmlFor="prop-y" style={{ fontSize: '11px', color: '#64748b' }}>Y</label>
               <input
+                id="prop-y"
                 data-testid="prop-y"
                 type="number"
-                aria-label="Y position"
                 style={propInputStyle}
                 value={selectedElement.y}
                 onChange={(e) => updateElement(selectedElement.id, { y: Number(e.target.value) || 0 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>W</span>
+              <label htmlFor="prop-w" style={{ fontSize: '11px', color: '#64748b' }}>W</label>
               <input
+                id="prop-w"
                 data-testid="prop-w"
                 type="number"
-                aria-label="Width"
                 style={propInputStyle}
                 value={selectedElement.w}
                 onChange={(e) => updateElement(selectedElement.id, { w: Number(e.target.value) || 1 })}
               />
             </div>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>H</span>
+              <label htmlFor="prop-h" style={{ fontSize: '11px', color: '#64748b' }}>H</label>
               <input
+                id="prop-h"
                 data-testid="prop-h"
                 type="number"
-                aria-label="Height"
                 style={propInputStyle}
                 value={selectedElement.h}
                 onChange={(e) => updateElement(selectedElement.id, { h: Number(e.target.value) || 1 })}
@@ -2117,10 +2117,10 @@ export default function ErpDesigner({
             <label style={labelStyle}>Typography</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Font Family</span>
+                <label htmlFor="prop-font-family" style={{ fontSize: '11px', color: '#64748b' }}>Font Family</label>
                 <select
+                  id="prop-font-family"
                   data-testid="prop-font-family"
-                  aria-label="Font family"
                   style={propInputStyle}
                   value={selectedElement.fontFamily || 'Helvetica'}
                   onChange={(e) => updateElement(selectedElement.id, { fontFamily: e.target.value })}
@@ -2132,22 +2132,22 @@ export default function ErpDesigner({
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>Font Size</span>
+                  <label htmlFor="prop-font-size" style={{ fontSize: '11px', color: '#64748b' }}>Font Size</label>
                   <input
+                    id="prop-font-size"
                     data-testid="prop-font-size"
                     type="number"
-                    aria-label="Font size"
                     style={propInputStyle}
                     value={selectedElement.fontSize || 14}
                     onChange={(e) => updateElement(selectedElement.id, { fontSize: Number(e.target.value) || 14 })}
                   />
                 </div>
                 <div>
-                  <span style={{ fontSize: '11px', color: '#64748b' }}>Line Height</span>
+                  <label htmlFor="prop-line-height" style={{ fontSize: '11px', color: '#64748b' }}>Line Height</label>
                   <input
+                    id="prop-line-height"
                     data-testid="prop-line-height"
                     type="number"
-                    aria-label="Line height"
                     step="0.1"
                     style={propInputStyle}
                     value={selectedElement.lineHeight || 1.4}
@@ -2203,17 +2203,18 @@ export default function ErpDesigner({
                 ))}
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Color</span>
+                <label htmlFor="prop-color" style={{ fontSize: '11px', color: '#64748b' }}>Color</label>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
+                    id="prop-color"
                     data-testid="prop-color"
                     type="color"
-                    aria-label="Text color picker"
                     style={{ width: '32px', height: '28px', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', padding: 0 }}
                     value={selectedElement.color || '#000000'}
                     onChange={(e) => updateElement(selectedElement.id, { color: e.target.value })}
                   />
                   <input
+                    id="prop-color-hex"
                     data-testid="prop-color-hex"
                     type="text"
                     aria-label="Text color hex value"
@@ -2224,10 +2225,10 @@ export default function ErpDesigner({
                 </div>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Content</span>
+                <label htmlFor="prop-content" style={{ fontSize: '11px', color: '#64748b' }}>Content</label>
                 <textarea
+                  id="prop-content"
                   data-testid="prop-content"
-                  aria-label="Element content"
                   style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical' }}
                   value={selectedElement.content || ''}
                   onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
@@ -3581,6 +3582,33 @@ export default function ErpDesigner({
                 {tab}
               </button>
             ))}
+            {!isNarrowViewport && (
+              <button
+                data-testid="btn-collapse-left-panel"
+                aria-label="Collapse left panel"
+                tabIndex={0}
+                onClick={() => setLeftPanelCollapsed(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setLeftPanelCollapsed(true);
+                  }
+                }}
+                style={{
+                  padding: '6px 8px',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#64748b',
+                  borderRadius: '4px',
+                  flexShrink: 0,
+                }}
+                title="Collapse left panel"
+              >
+                ◀
+              </button>
+            )}
           </div>
 
           {/* Tab Content */}
@@ -4116,16 +4144,56 @@ export default function ErpDesigner({
         </div>
 
         {/* ─── Right Properties Panel ─── */}
+        {rightPanelCollapsed && !isNarrowViewport && (
+          <div
+            data-testid="right-panel-expand"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              backgroundColor: '#ffffff',
+              borderLeft: '1px solid #e2e8f0',
+              flexShrink: 0,
+              width: '36px',
+            }}
+          >
+            <button
+              data-testid="btn-expand-right-panel"
+              aria-label="Expand right panel"
+              tabIndex={0}
+              onClick={() => setRightPanelCollapsed(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setRightPanelCollapsed(false);
+                }
+              }}
+              style={{
+                marginTop: '8px',
+                padding: '4px',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#64748b',
+                borderRadius: '4px',
+              }}
+              title="Expand right panel"
+            >
+              ◀
+            </button>
+          </div>
+        )}
         <div
           className={`erp-designer-right-panel${isNarrowViewport && mobilePanelOpen !== 'right' ? ' panel-hidden' : ''}`}
           data-testid="right-panel"
           role="complementary"
           aria-label="Element properties panel"
           style={{
-            width: '280px',
+            width: rightPanelCollapsed && !isNarrowViewport ? '0px' : '280px',
             backgroundColor: '#ffffff',
-            borderLeft: '1px solid #e2e8f0',
-            display: 'flex',
+            borderLeft: rightPanelCollapsed && !isNarrowViewport ? 'none' : '1px solid #e2e8f0',
+            display: rightPanelCollapsed && !isNarrowViewport ? 'none' : 'flex',
             flexDirection: 'column',
             flexShrink: 0,
           }}
@@ -4137,9 +4205,38 @@ export default function ErpDesigner({
               fontSize: '13px',
               fontWeight: 600,
               color: '#334155',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
             }}
           >
             Properties
+            {!isNarrowViewport && (
+              <button
+                data-testid="btn-collapse-right-panel"
+                aria-label="Collapse right panel"
+                tabIndex={0}
+                onClick={() => setRightPanelCollapsed(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setRightPanelCollapsed(true);
+                  }
+                }}
+                style={{
+                  padding: '2px 6px',
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#64748b',
+                  borderRadius: '4px',
+                }}
+                title="Collapse right panel"
+              >
+                ▶
+              </button>
+            )}
           </div>
           <div
             data-testid="properties-scroll-container"
