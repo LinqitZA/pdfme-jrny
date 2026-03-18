@@ -177,6 +177,80 @@ DATA_FIELDS.forEach((group) => {
   });
 });
 
+/** Expression functions catalogue organized by category (Feature #404) */
+const EXPRESSION_FUNCTIONS: Array<{ category: string; functions: Array<{ name: string; signature: string; description: string }> }> = [
+  {
+    category: 'String',
+    functions: [
+      { name: 'CONCAT', signature: 'CONCAT(a, b, ...)', description: 'Join multiple values into one string' },
+      { name: 'LEFT', signature: 'LEFT(str, n)', description: 'First n characters of a string' },
+      { name: 'RIGHT', signature: 'RIGHT(str, n)', description: 'Last n characters of a string' },
+      { name: 'MID', signature: 'MID(str, start, len)', description: 'Substring from start position (1-based)' },
+      { name: 'UPPER', signature: 'UPPER(str)', description: 'Convert to uppercase' },
+      { name: 'LOWER', signature: 'LOWER(str)', description: 'Convert to lowercase' },
+      { name: 'TRIM', signature: 'TRIM(str)', description: 'Remove leading/trailing whitespace' },
+      { name: 'LEN', signature: 'LEN(str)', description: 'Length of string' },
+      { name: 'PADLEFT', signature: 'PADLEFT(str, len, char)', description: 'Pad string on the left' },
+      { name: 'PADRIGHT', signature: 'PADRIGHT(str, len, char)', description: 'Pad string on the right' },
+      { name: 'REPLACE', signature: 'REPLACE(str, find, repl)', description: 'Replace first occurrence' },
+      { name: 'SUBSTITUTE', signature: 'SUBSTITUTE(str, find, repl)', description: 'Replace all occurrences' },
+      { name: 'FIND', signature: 'FIND(search, within)', description: 'Find position of substring (1-based)' },
+      { name: 'SPLIT', signature: 'SPLIT(str, delim, idx)', description: 'Split and return element at index' },
+    ],
+  },
+  {
+    category: 'Math',
+    functions: [
+      { name: 'ROUND', signature: 'ROUND(value, decimals)', description: 'Round to decimal places' },
+      { name: 'ABS', signature: 'ABS(value)', description: 'Absolute value' },
+      { name: 'FLOOR', signature: 'FLOOR(value)', description: 'Round down to nearest integer' },
+      { name: 'CEIL', signature: 'CEIL(value)', description: 'Round up to nearest integer' },
+      { name: 'MIN', signature: 'MIN(a, b, ...)', description: 'Minimum of values' },
+      { name: 'MAX', signature: 'MAX(a, b, ...)', description: 'Maximum of values' },
+      { name: 'SUM', signature: 'SUM(a, b, ...)', description: 'Sum of values' },
+    ],
+  },
+  {
+    category: 'Date',
+    functions: [
+      { name: 'TODAY', signature: 'TODAY()', description: 'Current date as timestamp' },
+      { name: 'YEAR', signature: 'YEAR(date)', description: 'Extract year from date' },
+      { name: 'MONTH', signature: 'MONTH(date)', description: 'Extract month (1-12) from date' },
+      { name: 'DAY', signature: 'DAY(date)', description: 'Extract day of month from date' },
+      { name: 'DATEDIFF', signature: 'DATEDIFF(d1, d2)', description: 'Difference in days (d1 - d2)' },
+      { name: 'FORMAT', signature: 'FORMAT(date, pattern)', description: 'Format date (yyyy, MM, dd, etc.)' },
+    ],
+  },
+  {
+    category: 'Logical',
+    functions: [
+      { name: 'IF', signature: 'IF(cond, trueVal, falseVal)', description: 'Conditional value' },
+      { name: 'AND', signature: 'AND(a, b, ...)', description: 'Logical AND of all arguments' },
+      { name: 'OR', signature: 'OR(a, b, ...)', description: 'Logical OR of all arguments' },
+      { name: 'NOT', signature: 'NOT(value)', description: 'Logical negation' },
+      { name: 'SWITCH', signature: 'SWITCH(expr, c1, v1, ...)', description: 'Multi-way conditional match' },
+    ],
+  },
+  {
+    category: 'Format',
+    functions: [
+      { name: 'FORMAT_CURRENCY', signature: 'FORMAT_CURRENCY(value)', description: 'Format as currency (locale-aware)' },
+      { name: 'FORMAT_DATE', signature: 'FORMAT_DATE(date)', description: 'Format date (locale-aware)' },
+      { name: 'FORMAT_NUMBER', signature: 'FORMAT_NUMBER(value)', description: 'Format number (locale-aware)' },
+    ],
+  },
+];
+
+/** Common expression examples for the help section */
+const EXPRESSION_EXAMPLES = [
+  { label: 'Join fields', expr: 'CONCAT(customer.name, " - ", document.number)', description: 'Combine customer name and document number' },
+  { label: 'Truncate text', expr: 'LEFT(customer.name, 20)', description: 'First 20 characters of name' },
+  { label: 'Conditional text', expr: 'IF(document.total > 1000, "Premium", "Standard")', description: 'Show text based on condition' },
+  { label: 'Currency format', expr: 'FORMAT_CURRENCY(document.total)', description: 'Format total as currency' },
+  { label: 'Zero-pad number', expr: 'PADLEFT(document.number, 8, "0")', description: 'Pad document number to 8 digits' },
+  { label: 'Calculate tax', expr: 'ROUND(document.subtotal * 0.15, 2)', description: 'Calculate 15% tax rounded to 2 decimals' },
+];
+
 /**
  * Resolve binding expressions to example values for preview mode.
  * Handles both raw binding keys (e.g., "customer.name") and
@@ -524,6 +598,8 @@ export default function ErpDesigner({
 
   // Template status (draft/published/archived) - shown in UI
   const [templateStatus, setTemplateStatus] = useState<'draft' | 'published' | 'archived' | null>(null);
+  // Template type (invoice/statement/etc.) - used for loading seed sample data
+  const [templateType, setTemplateType] = useState<string | null>(null);
 
   // Lock state - multi-tab editing protection
   const [isReadOnly, setIsReadOnly] = useState(false);
@@ -535,6 +611,18 @@ export default function ErpDesigner({
   const [exprTestLoading, setExprTestLoading] = useState(false);
   const [showExprFieldPicker, setShowExprFieldPicker] = useState(false);
   const [exprFieldSearch, setExprFieldSearch] = useState('');
+
+  // ─── Expression Builder state (Feature #404) ───
+  const [expressionMode, setExpressionMode] = useState(false);
+  const [exprBuilderText, setExprBuilderText] = useState('');
+  const [exprBuilderPreview, setExprBuilderPreview] = useState<{ result?: string; error?: string; type?: string } | null>(null);
+  const [exprBuilderPreviewLoading, setExprBuilderPreviewLoading] = useState(false);
+  const [showExprFunctionsPalette, setShowExprFunctionsPalette] = useState(false);
+  const [exprFunctionCategory, setExprFunctionCategory] = useState<string>('String');
+  const [exprBuilderFieldAutocomplete, setExprBuilderFieldAutocomplete] = useState(false);
+  const [exprBuilderFieldFilter, setExprBuilderFieldFilter] = useState('');
+  const [showExprBuilderHelp, setShowExprBuilderHelp] = useState(false);
+  const exprBuilderTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Network connectivity / session recovery state
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -765,6 +853,9 @@ export default function ErpDesigner({
         // Populate state from template data
         if (template.status) {
           setTemplateStatus(template.status);
+        }
+        if (template.type) {
+          setTemplateType(template.type);
         }
         if (template.name) {
           setName(template.name);
@@ -3239,10 +3330,42 @@ export default function ErpDesigner({
           </div>
         )}
 
-        {/* Data Binding section - for text and calculated elements */}
-        {(category === 'text' || selectedElement.type === 'qr-barcode') && (
+        {/* Data Binding section - for text, calculated, barcode, and QR elements */}
+        {(category === 'text' || selectedElement.type === 'qr-barcode' || selectedElement.type === 'calculated') && (
           <div data-testid="properties-binding" style={{ marginBottom: '16px' }}>
-            <label style={labelStyle}>Data Binding</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+              <label style={labelStyle}>Data Binding</label>
+              {/* Expression Mode toggle */}
+              <button
+                data-testid="btn-expression-mode-toggle"
+                aria-label={expressionMode ? 'Switch to simple field mode' : 'Switch to expression mode'}
+                aria-pressed={expressionMode}
+                style={{
+                  ...toolbarBtnStyle,
+                  padding: '2px 8px',
+                  fontSize: '10px',
+                  backgroundColor: expressionMode ? '#7c3aed' : '#f1f5f9',
+                  color: expressionMode ? '#fff' : '#64748b',
+                  border: expressionMode ? '1px solid #7c3aed' : '1px solid #e2e8f0',
+                  borderRadius: '12px',
+                  fontWeight: 600,
+                }}
+                onClick={() => {
+                  const newMode = !expressionMode;
+                  setExpressionMode(newMode);
+                  if (newMode) {
+                    setExprBuilderText(selectedElement.binding || '');
+                    setExprBuilderPreview(null);
+                    setExprBuilderFieldAutocomplete(false);
+                  }
+                }}
+              >
+                {expressionMode ? 'Expression' : 'Simple'}
+              </button>
+            </div>
+
+            {/* ───── SIMPLE FIELD MODE (original binding picker) ───── */}
+            {!expressionMode && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
                 <label htmlFor="prop-binding" style={{ fontSize: '11px', color: '#64748b' }}>Bound Field</label>
@@ -3339,6 +3462,405 @@ export default function ErpDesigner({
                 </div>
               )}
             </div>
+            )}
+
+            {/* ───── EXPRESSION MODE (Feature #404 — Expression Builder) ───── */}
+            {expressionMode && (
+            <div data-testid="expression-builder" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Expression textarea with syntax highlighting hint */}
+              <div style={{ position: 'relative' }}>
+                <label htmlFor="expr-builder-textarea" style={{ fontSize: '11px', color: '#64748b' }}>Expression</label>
+                <textarea
+                  ref={exprBuilderTextareaRef}
+                  id="expr-builder-textarea"
+                  data-testid="expr-builder-textarea"
+                  style={{
+                    ...propInputStyle,
+                    minHeight: '70px',
+                    resize: 'vertical',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    width: '100%',
+                  }}
+                  placeholder='e.g. CONCAT({{customer.name}}, " - ", {{document.number}})'
+                  value={exprBuilderText}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setExprBuilderText(val);
+                    // Detect {{ trigger for autocomplete
+                    const cursorPos = e.target.selectionStart || 0;
+                    const beforeCursor = val.substring(0, cursorPos);
+                    const lastOpen = beforeCursor.lastIndexOf('{{');
+                    const lastClose = beforeCursor.lastIndexOf('}}');
+                    if (lastOpen > lastClose) {
+                      const partial = beforeCursor.substring(lastOpen + 2);
+                      setExprBuilderFieldFilter(partial);
+                      setExprBuilderFieldAutocomplete(true);
+                    } else {
+                      setExprBuilderFieldAutocomplete(false);
+                      setExprBuilderFieldFilter('');
+                    }
+                  }}
+                />
+                {/* Syntax hint below textarea */}
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                  Use <span style={{ color: '#7c3aed', fontFamily: 'monospace' }}>{'{{field}}'}</span> for fields, <span style={{ color: '#2563eb', fontFamily: 'monospace' }}>FUNC()</span> for functions
+                </div>
+
+                {/* Field autocomplete dropdown triggered by {{ */}
+                {exprBuilderFieldAutocomplete && (
+                  <div
+                    data-testid="expr-builder-autocomplete"
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 100,
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '6px',
+                      backgroundColor: '#fff',
+                      maxHeight: '180px',
+                      overflow: 'auto',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+                    }}
+                  >
+                    {DATA_FIELDS
+                      .map((group) => ({
+                        ...group,
+                        fields: group.fields.filter((f) =>
+                          !exprBuilderFieldFilter ||
+                          f.key.toLowerCase().includes(exprBuilderFieldFilter.toLowerCase()) ||
+                          f.label.toLowerCase().includes(exprBuilderFieldFilter.toLowerCase())
+                        ),
+                      }))
+                      .filter((g) => g.fields.length > 0)
+                      .map((group) => (
+                      <div key={group.group}>
+                        <div style={{ padding: '3px 8px', fontSize: '10px', fontWeight: 600, color: '#64748b', backgroundColor: '#f8fafc', textTransform: 'uppercase' }}>
+                          {group.group}
+                        </div>
+                        {group.fields.map((field) => (
+                          <div
+                            key={field.key}
+                            data-testid={`expr-autocomplete-${field.key}`}
+                            style={{
+                              padding: '4px 12px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                            }}
+                            onClick={() => {
+                              const ta = exprBuilderTextareaRef.current;
+                              if (!ta) return;
+                              const cursorPos = ta.selectionStart || 0;
+                              const text = exprBuilderText;
+                              const beforeCursor = text.substring(0, cursorPos);
+                              const lastOpen = beforeCursor.lastIndexOf('{{');
+                              const afterCursor = text.substring(cursorPos);
+                              const newText = text.substring(0, lastOpen) + '{{' + field.key + '}}' + afterCursor;
+                              setExprBuilderText(newText);
+                              setExprBuilderFieldAutocomplete(false);
+                              setExprBuilderFieldFilter('');
+                              // Re-focus textarea
+                              setTimeout(() => {
+                                ta.focus();
+                                const newPos = lastOpen + field.key.length + 4;
+                                ta.setSelectionRange(newPos, newPos);
+                              }, 0);
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f5f9')}
+                            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                          >
+                            <span style={{ color: '#334155' }}>{field.label}</span>
+                            <span style={{ color: '#94a3b8', fontSize: '10px', fontFamily: 'monospace' }}>{field.key}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Functions palette */}
+              <div>
+                <button
+                  data-testid="btn-expr-functions-palette"
+                  aria-label="Show functions palette"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '11px',
+                    padding: '6px 8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                  onClick={() => setShowExprFunctionsPalette(!showExprFunctionsPalette)}
+                >
+                  <span>Functions</span>
+                  <span style={{ fontSize: '10px', color: '#94a3b8' }}>{showExprFunctionsPalette ? '▲' : '▼'}</span>
+                </button>
+              </div>
+              {showExprFunctionsPalette && (
+                <div
+                  data-testid="expr-functions-palette"
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    backgroundColor: '#fff',
+                    maxHeight: '280px',
+                    overflow: 'auto',
+                  }}
+                >
+                  {/* Category tabs */}
+                  <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                    {EXPRESSION_FUNCTIONS.map((cat) => (
+                      <button
+                        key={cat.category}
+                        data-testid={`expr-func-cat-${cat.category.toLowerCase()}`}
+                        style={{
+                          ...toolbarBtnStyle,
+                          flex: '1 1 auto',
+                          fontSize: '10px',
+                          padding: '4px 6px',
+                          borderRadius: 0,
+                          borderBottom: exprFunctionCategory === cat.category ? '2px solid #7c3aed' : '2px solid transparent',
+                          color: exprFunctionCategory === cat.category ? '#7c3aed' : '#64748b',
+                          fontWeight: exprFunctionCategory === cat.category ? 700 : 400,
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => setExprFunctionCategory(cat.category)}
+                      >
+                        {cat.category}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Function list for selected category */}
+                  <div>
+                    {EXPRESSION_FUNCTIONS
+                      .filter((cat) => cat.category === exprFunctionCategory)
+                      .flatMap((cat) => cat.functions)
+                      .map((fn) => (
+                        <div
+                          key={fn.name}
+                          data-testid={`expr-func-${fn.name}`}
+                          style={{
+                            padding: '6px 10px',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            borderBottom: '1px solid #f1f5f9',
+                          }}
+                          onClick={() => {
+                            const ta = exprBuilderTextareaRef.current;
+                            if (!ta) return;
+                            const cursorPos = ta.selectionStart || exprBuilderText.length;
+                            const before = exprBuilderText.substring(0, cursorPos);
+                            const after = exprBuilderText.substring(cursorPos);
+                            const insertion = fn.name + '(';
+                            const newText = before + insertion + ')' + after;
+                            setExprBuilderText(newText);
+                            setTimeout(() => {
+                              ta.focus();
+                              const newPos = cursorPos + insertion.length;
+                              ta.setSelectionRange(newPos, newPos);
+                            }, 0);
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f5f3ff')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <div style={{ fontFamily: 'monospace', color: '#2563eb', fontWeight: 600 }}>{fn.signature}</div>
+                          <div style={{ color: '#64748b', fontSize: '10px', marginTop: '1px' }}>{fn.description}</div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Live preview panel */}
+              <div>
+                <button
+                  data-testid="btn-expr-builder-preview"
+                  aria-label="Preview expression result"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '11px',
+                    padding: '6px 10px',
+                    backgroundColor: '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 600,
+                    opacity: exprBuilderPreviewLoading ? 0.7 : 1,
+                  }}
+                  disabled={exprBuilderPreviewLoading || !exprBuilderText.trim()}
+                  onClick={async () => {
+                    if (!exprBuilderText.trim()) return;
+                    setExprBuilderPreviewLoading(true);
+                    setExprBuilderPreview(null);
+                    try {
+                      // Build context from example data
+                      const context: Record<string, unknown> = {};
+                      DATA_FIELDS.forEach((group) => {
+                        group.fields.forEach((field) => {
+                          const numVal = parseFloat(field.example.replace(/[^0-9.-]/g, ''));
+                          context[field.key] = isNaN(numVal) ? field.example : numVal;
+                        });
+                      });
+
+                      // Strip {{ }} wrappers from field refs for expression engine
+                      const exprForEval = exprBuilderText.replace(/\{\{([^}]+)\}\}/g, '$1');
+
+                      const resp = await fetch(`${apiBase}/expressions/evaluate`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
+                        },
+                        body: JSON.stringify({
+                          expression: exprForEval,
+                          context,
+                        }),
+                      });
+
+                      if (resp.ok) {
+                        const data = await resp.json();
+                        setExprBuilderPreview({ result: String(data.result), type: data.type });
+                      } else {
+                        const errData = await resp.json().catch(() => ({ message: 'Unknown error' }));
+                        setExprBuilderPreview({ error: errData.message || 'Evaluation failed' });
+                      }
+                    } catch (err) {
+                      setExprBuilderPreview({ error: err instanceof Error ? err.message : 'Network error' });
+                    } finally {
+                      setExprBuilderPreviewLoading(false);
+                    }
+                  }}
+                >
+                  {exprBuilderPreviewLoading ? 'Evaluating...' : 'Preview Result'}
+                </button>
+              </div>
+
+              {/* Preview/validation result display */}
+              {exprBuilderPreview && (
+                <div
+                  data-testid="expr-builder-preview-result"
+                  style={{
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    backgroundColor: exprBuilderPreview.error ? '#fef2f2' : '#f0fdf4',
+                    border: `1px solid ${exprBuilderPreview.error ? '#fecaca' : '#bbf7d0'}`,
+                  }}
+                >
+                  {exprBuilderPreview.error ? (
+                    <div style={{ color: '#dc2626' }}>
+                      <span style={{ fontWeight: 600 }}>Error: </span>
+                      <span data-testid="expr-builder-error">{exprBuilderPreview.error}</span>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#15803d' }}>
+                      <span style={{ fontWeight: 600 }}>Result: </span>
+                      <span data-testid="expr-builder-result-value">{exprBuilderPreview.result}</span>
+                      <span style={{ color: '#94a3b8', marginLeft: '8px', fontSize: '10px' }}>({exprBuilderPreview.type})</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Insert button - places expression into element value */}
+              <div>
+                <button
+                  data-testid="btn-expr-builder-insert"
+                  aria-label="Insert expression into element"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '12px',
+                    padding: '8px 12px',
+                    backgroundColor: '#16a34a',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 600,
+                  }}
+                  disabled={!exprBuilderText.trim()}
+                  onClick={() => {
+                    if (!exprBuilderText.trim() || !selectedElement) return;
+                    updateElement(selectedElement.id, {
+                      binding: exprBuilderText,
+                      content: exprBuilderText,
+                    });
+                    setIsDirty(true);
+                  }}
+                >
+                  Insert Expression
+                </button>
+              </div>
+
+              {/* Help section with common examples */}
+              <div>
+                <button
+                  data-testid="btn-expr-builder-help"
+                  aria-label={showExprBuilderHelp ? 'Hide expression help' : 'Show expression help'}
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '11px',
+                    padding: '4px 8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    color: '#64748b',
+                  }}
+                  onClick={() => setShowExprBuilderHelp(!showExprBuilderHelp)}
+                >
+                  <span>Help &amp; Examples</span>
+                  <span style={{ fontSize: '10px' }}>{showExprBuilderHelp ? '▲' : '▼'}</span>
+                </button>
+              </div>
+              {showExprBuilderHelp && (
+                <div
+                  data-testid="expr-builder-help"
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    backgroundColor: '#fafafa',
+                    padding: '8px',
+                    fontSize: '11px',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: '6px', color: '#334155' }}>Common Expressions</div>
+                  {EXPRESSION_EXAMPLES.map((ex) => (
+                    <div
+                      key={ex.label}
+                      data-testid={`expr-example-${ex.label.replace(/\s+/g, '-').toLowerCase()}`}
+                      style={{
+                        padding: '4px 0',
+                        borderBottom: '1px solid #f1f5f9',
+                        cursor: 'pointer',
+                      }}
+                      onClick={() => {
+                        setExprBuilderText(ex.expr);
+                        const ta = exprBuilderTextareaRef.current;
+                        if (ta) ta.focus();
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f0f0f0')}
+                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                    >
+                      <div style={{ fontWeight: 600, color: '#334155' }}>{ex.label}</div>
+                      <div style={{ fontFamily: 'monospace', color: '#7c3aed', fontSize: '10px' }}>{ex.expr}</div>
+                      <div style={{ color: '#94a3b8', fontSize: '10px' }}>{ex.description}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            )}
           </div>
         )}
 
@@ -4424,6 +4946,62 @@ export default function ErpDesigner({
         )}
 
         {/* Right-side actions */}
+        <button
+          data-testid="btn-load-sample-data"
+          onClick={async () => {
+            if (!templateType) {
+              addToast('warning', 'Template type unknown — save the template first to load sample data');
+              return;
+            }
+            try {
+              const headers: Record<string, string> = {};
+              if (authToken) {
+                headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+              }
+              const resp = await fetch(`${apiBase}/admin/seed/data/${templateType}`, { headers });
+              if (!resp.ok) {
+                const err = await resp.json().catch(() => ({ message: 'Failed to load sample data' }));
+                addToast('warning', err.message || `No sample data for type: ${templateType}`);
+                return;
+              }
+              const result = await resp.json();
+              if (result.success && result.inputs) {
+                // Apply seed data as example values to matching element bindings
+                setPages(prev => prev.map(page => ({
+                  ...page,
+                  elements: page.elements.map(el => {
+                    if (el.binding && result.inputs[el.binding]) {
+                      return { ...el, content: result.inputs[el.binding] };
+                    }
+                    // Also check element name keys from seed data
+                    const elKey = Object.keys(result.inputs).find(k =>
+                      el.id.includes(k) || el.binding === k
+                    );
+                    if (elKey) {
+                      return { ...el, content: result.inputs[elKey] };
+                    }
+                    return el;
+                  }),
+                })));
+                setPreviewMode(true);
+                addToast('success', `Sample data loaded for ${templateType} template`);
+              }
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : 'Failed to load sample data';
+              addToast('error', msg);
+            }
+          }}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: '#fef3c7',
+            borderColor: '#f59e0b',
+            color: '#92400e',
+          }}
+          title="Load realistic South African sample data for this template type"
+          aria-label="Load sample data for preview"
+        >
+          📋 Sample Data
+        </button>
         <button
           data-testid="btn-preview-data"
           onClick={() => setPreviewMode((prev) => !prev)}
