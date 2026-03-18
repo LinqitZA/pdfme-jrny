@@ -28,7 +28,10 @@
     "packages/schemas",
     "packages/generator",
     "packages/manipulator",
-    "packages/ui"
+    "packages/ui",
+    "packages/erp-schemas",
+    "nest-module",
+    "apps/designer-sandbox"
   ],
   "scripts": {
     "postinstall": "./scripts/link-workspaces.sh",

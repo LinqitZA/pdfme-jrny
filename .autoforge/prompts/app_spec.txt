@@ -1,0 +1,885 @@
+<project_specification>
+  <project_name>pdfme ERP Edition</project_name>
+
+  <overview>
+    A forked, extended build of the open-source pdfme library tailored as the document design and report generation engine within a NestJS/Next.js ERP platform. It provides a WYSIWYG template designer for ERP documents (invoices, statements, purchase orders, delivery notes, credit notes) and operational reports (aged debtors, stock on hand, sales analysis), with multi-tenancy, PDF/A-3b compliance, an expression engine, and a comprehensive REST API designed for seamless drop-in integration with a host ERP application. All customisation lives in the UI layer and new packages — upstream core packages (@pdfme/generator, @pdfme/common) remain unmodified to preserve upstream compatibility.
+  </overview>
+
+  <technology_stack>
+    <frontend>
+      <framework>Next.js Latest (App Router)</framework>
+      <styling>Tailwind CSS + shadcn/ui</styling>
+      <ui_library>React (pdfme UI fork — @pdfme/ui redesigned)</ui_library>
+      <drag_and_drop>dnd-kit</drag_and_drop>
+      <icons>Lucide React</icons>
+      <rich_text_editor>Tiptap or Lexical (lightweight WYSIWYG)</rich_text_editor>
+      <signature_capture>signature_pad (MIT)</signature_capture>
+      <html_sanitisation>DOMPurify</html_sanitisation>
+    </frontend>
+    <backend>
+      <runtime>Node.js (TypeScript throughout — no Python in the document pipeline)</runtime>
+      <framework>NestJS Latest</framework>
+      <database>PostgreSQL via Drizzle ORM</database>
+      <queue>Bull (Redis-backed) for async PDF generation</queue>
+      <pdf_engine>pdfme generate() — native Node.js PDF generation, no WeasyPrint or HTML intermediary</pdf_engine>
+      <pdf_a_conversion>Ghostscript (PDF/A-3b output)</pdf_a_conversion>
+      <pdf_a_validation>veraPDF</pdf_a_validation>
+      <expression_engine>expr-eval (MIT) extended with custom functions</expression_engine>
+      <file_storage>Abstract FileStorageService — default local disk adapter</file_storage>
+    </backend>
+    <communication>
+      <api>REST with JSON — all endpoints under configurable prefix (default: /api/pdfme)</api>
+      <auth>JWT from host ERP — module does not manage authentication itself</auth>
+      <realtime>Server-Sent Events (SSE) for bulk render progress</realtime>
+    </communication>
+    <testing>
+      <unit>Jest</unit>
+      <visual>Jest Image Snapshot</visual>
+      <e2e>Playwright</e2e>
+    </testing>
+    <build>
+      <monorepo>npm workspaces (existing pdfme structure)</monorepo>
+      <bundler>Vite / esbuild</bundler>
+    </build>
+  </technology_stack>
+
+  <prerequisites>
+    <environment_setup>
+      - Node.js LTS (20+)
+      - PostgreSQL 15+
+      - Redis 7+ (for Bull queue)
+      - Ghostscript (for PDF/A-3b conversion)
+      - veraPDF (for PDF/A validation)
+      - pnpm or npm for package management
+      - The forked pdfme repository as the base codebase
+    </environment_setup>
+  </prerequisites>
+
+  <feature_count>388</feature_count>
+
+  <fork_strategy>
+    <principle>Preserve all upstream packages unchanged wherever possible</principle>
+    <new_packages>
+      - @pdfme-erp/schemas — ERP-specific schema plugins (line items table, ERP image, signature block, watermark, calculated field, grouped table, rich text, drawn signature)
+      - @pdfme-erp/nest — NestJS integration module (TemplateService, RenderService, DataSourceRegistry, FileStorageService, controllers)
+    </new_packages>
+    <forked_packages>
+      - @pdfme/ui — redesigned designer UI with three-panel layout, ERP-grade UX. Same public API surface, new visual design and ERP-specific features.
+    </forked_packages>
+    <upstream_unchanged>
+      - @pdfme/common — consumed as-is, never modified
+      - @pdfme/generator — consumed as-is, never modified
+      - @pdfme/schemas — upstream base schemas (text, image, barcode) remain unchanged
+    </upstream_unchanged>
+  </fork_strategy>
+
+  <monorepo_structure>
+    pdfme-erp/
+    ├── packages/
+    │   ├── common/              ← upstream, do not modify
+    │   ├── generator/           ← upstream, do not modify
+    │   ├── schemas/             ← upstream base schemas (text, image, barcode)
+    │   ├── ui/                  ← FORKED — redesigned designer UI
+    │   └── erp-schemas/         ← NEW — custom ERP schema plugins
+    │       └── src/
+    │           ├── line-items-table/    ← dynamic rows with page-break support
+    │           ├── grouped-table/      ← hierarchical report layouts
+    │           ├── erp-image/          ← logo/stamp with file storage resolver
+    │           ├── signature-block/    ← signature placeholder
+    │           ├── drawn-signature/    ← real drawn signature embedding
+    │           ├── qr-barcode/         ← QR with ERP URL binding
+    │           ├── watermark/          ← draft/copy/void overlay
+    │           ├── calculated-field/   ← expression-evaluated fields
+    │           ├── rich-text/          ← HTML-subset rich text rendering
+    │           └── expression-engine/  ← expr-eval extended with custom functions
+    ├── apps/
+    │   ├── designer-sandbox/    ← Next.js dev harness for the designer
+    │   └── storybook/           ← component library docs
+    ├── nest-module/             ← NEW — NestJS integration package
+    │   └── src/
+    │       ├── template.service.ts
+    │       ├── template.controller.ts
+    │       ├── render.service.ts
+    │       ├── render.controller.ts
+    │       ├── datasource.registry.ts
+    │       ├── field-schema.registry.ts
+    │       ├── file-storage.service.ts
+    │       ├── local-disk-storage.adapter.ts
+    │       ├── page-scope-resolver.ts
+    │       ├── pdfa-processor.ts
+    │       ├── audit.service.ts
+    │       └── seeds/templates/
+    └── package.json             ← workspaces
+  </monorepo_structure>
+
+  <security_and_access_control>
+    <user_roles>
+      <role name="All authenticated users">
+        <permissions>
+          - template:view — view published templates and designer (read-only)
+          - render:trigger — trigger on-demand PDF generation
+          - Manage own signature (upload, view, revoke)
+        </permissions>
+      </role>
+      <role name="Template Designer">
+        <permissions>
+          - template:edit — open designer, save drafts
+          - template:fork — fork a system template
+          - All "authenticated user" permissions
+        </permissions>
+      </role>
+      <role name="Template Admin">
+        <permissions>
+          - template:publish — promote draft to published
+          - template:delete — archive a template
+          - template:import — import template JSON from external source
+          - Force-release another user's template edit lock
+          - All "Template Designer" permissions
+        </permissions>
+      </role>
+      <role name="Report Operator">
+        <permissions>
+          - render:bulk — trigger bulk/scheduled PDF runs
+          - All "authenticated user" permissions
+        </permissions>
+      </role>
+      <role name="Super Admin">
+        <permissions>
+          - system:seed — upsert system templates
+          - All other permissions
+        </permissions>
+      </role>
+    </user_roles>
+    <authentication>
+      <method>JWT passed from host ERP — module does not manage auth itself</method>
+      <jwt_claims>sub (userId), orgId (tenant identifier), roles (permission array)</jwt_claims>
+      <session_timeout>Managed by host ERP — not the pdfme module</session_timeout>
+    </authentication>
+    <tenant_isolation>
+      - Every API endpoint validates orgId from JWT against requested resource
+      - Template queries always include WHERE orgId = :orgId OR orgId IS NULL (system templates)
+      - File storage paths prefixed with orgId — tenants cannot access each other's assets
+      - Designer receives orgId as a prop from host — never derived from URL
+      - Signature files stored in private directory with filesystem permissions 0700
+    </tenant_isolation>
+    <sensitive_operations>
+      - Force-release of another user's template lock is logged in audit trail
+      - Signature revocation is logged in audit trail
+      - Template deletion (archive) is logged in audit trail
+      - All state-changing actions recorded in append-only AuditLog table
+    </sensitive_operations>
+  </security_and_access_control>
+
+  <core_features>
+    <designer_ui_redesign>
+      - Three-panel layout: left panel (Blocks/Fields/Assets/Pages tabs), canvas (A4/Letter/etc.), right properties panel
+      - Toolbar: template name (inline editable), page size selector, undo/redo, zoom control (25%-200%), preview mode toggle, generate preview PDF, save draft (auto-save 30s), publish, export JSON, version history
+      - Blocks tab: draggable block cards grouped by category (Content, Media, Data, Layout, ERP)
+      - Fields tab: searchable categorised tree of ERP data fields, drag-to-canvas binding, example value substitution
+      - Assets tab: uploaded images/fonts/brand assets, drag-to-canvas, upload from panel
+      - Pages tab: thumbnail strip, drag to reorder, context menu (duplicate, delete, set cover)
+      - Canvas: real-time template rendering, rulers (px/mm), snap-to-grid (configurable, default 5mm), snap-to-element alignment guides, multi-select (cmd/ctrl+click), arrow key nudge (1px, shift=10px), delete/backspace to remove, page boundary with shadow
+      - Properties panel: context-sensitive — Position and Size, Typography, Data Binding, Appearance, Schema Options, Constraints, Visibility (output channel), Page Visibility (pageScope), Conditional Visibility (expression-based)
+    </designer_ui_redesign>
+
+    <erp_schema_plugins>
+      - Line Items Table: dynamic table with configurable columns, automatic page break with header repeat, multi-row groups (primary + conditional sub-rows), alternating group shading, footer rows (subtotal/VAT/total), maxRowsPerPage (number or {first, middle, last}), colSpan support
+      - Grouped Table: hierarchical report layouts with groupBy (up to 3 levels), group header/footer rows with subtotals, multi-level nesting, SUM scoped to current group
+      - ERP Image: storage-resolved assets (logos, stamps) via FileStorageService
+      - Signature Block: signature line with configurable label, optional sub-label from field binding
+      - Drawn Signature: real drawn signature embedding from FileStorageService at render time, fallback behaviour (blank/placeholder/error)
+      - Watermark: diagonal text overlay (DRAFT/COPY/VOID), configurable text/colour/opacity/rotation/font size, controlled by template variable
+      - Calculated Field: expression-evaluated field with format string, evaluated at render time
+      - Rich Text: limited HTML subset (bold, italic, underline, font size, colour, line breaks), lightweight WYSIWYG editor, field bindings within rich text
+      - QR/Barcode: QR code with ERP URL binding
+    </erp_schema_plugins>
+
+    <field_schema_system>
+      - FieldGroup and FieldDefinition TypeScript types
+      - Searchable tree with drag-to-canvas
+      - Field binding stores {{field.key}} in schema content
+      - Example value substitution in preview mode
+      - Field type determines compatible schema types (image fields → image elements only)
+      - Host ERP provides fieldSchema prop to Designer component
+      - Field schemas registered per template type via FieldSchemaRegistry
+    </field_schema_system>
+
+    <expression_engine>
+      - Built on expr-eval (MIT) with custom extensions
+      - Arithmetic: standard operators with field references
+      - String functions: LEFT, RIGHT, MID, UPPER, LOWER, TRIM, CONCAT, LEN
+      - Conditional: IF (nested support), AND, OR, NOT
+      - Date functions: FORMAT, DATEDIFF, TODAY, YEAR, MONTH, DAY
+      - Numeric/Currency: FORMAT, ROUND, ABS
+      - Locale-aware: FORMAT_CURRENCY, FORMAT_DATE, FORMAT_NUMBER (use org locale config)
+      - Sandboxed execution — no Node.js globals, no require(), no eval()
+      - Type coercion: numbers before arithmetic; null/empty → 0 for arithmetic, "" for strings
+      - Expression editor in Properties panel with field picker and test button
+      - 100% branch coverage required on all functions
+    </expression_engine>
+
+    <template_management>
+      - CRUD with versioning and tenant isolation
+      - Save mode prompt: "Edit in place" (overwrite published) or "New version" (draft, previous stays active)
+      - Version history: version number, status, saved by, saved at, restore action, max 50 versions retained
+      - Fork workflow: fork system template into org namespace
+      - Template validation at publish time: binding check, expression parse, column sum, font availability, required fields, page scope sanity, orphaned elements
+      - Template import/export: self-contained TemplateExportPackage with embedded fonts and images
+      - Pessimistic edit locking: 30-minute timeout, 5-minute heartbeat, read-only mode for locked templates, force-release for admins
+      - Auto-save every 30 seconds
+    </template_management>
+
+    <render_pipeline>
+      - Synchronous renderNow: fetch published template → resolve data via DataSource → validate template → resolve page scopes → resolve conditions → resolve output channel → generate PDF via pdfme → PDF/A-3b conversion via Ghostscript → validate via veraPDF → compute SHA-256 hash → store via FileStorageService → create GeneratedDocument record
+      - Async queueRender: Bull queue job, status polling endpoint
+      - Bulk queueBulk: batch tracking with RenderBatch record, SSE progress endpoint, webhook callback, onFailure (continue/abort), max 2000 entityIds per request
+      - PDF merge for batch downloads via pdf-lib
+      - Preview PDF generation with sample data (5/15/30 rows), auto-watermarked "PREVIEW — NOT A LEGAL DOCUMENT"
+      - Output channel awareness: elements tagged email/print/both, channel filtering at render time
+      - Page scope resolution: all/first/last/notFirst, elements conditionally included per page
+      - Conditional visibility: data-driven show/hide via fieldNonEmpty or expression evaluation
+      - Filter application order: resolvePageScopes → resolveConditions → resolveSchema (channel) → generate
+    </render_pipeline>
+
+    <page_scope_system>
+      - pageScope values: all (default), first, last, notFirst
+      - resolvePageScopes() generates per-page template variants
+      - estimatePageCount() via maxRowsPerPage or overflow detection
+      - Designer: page visibility segmented control in Properties panel
+      - Designer: page simulator in toolbar (1/2/3 page toggle)
+      - Canvas: out-of-scope elements at 50% opacity with scope badge
+      - Fully orthogonal with outputChannel — applied independently in sequence
+    </page_scope_system>
+
+    <output_channel_awareness>
+      - outputChannel values: both (default), email, print
+      - Pre-printed stationery support: suppress email-only elements when printing
+      - resolveSchema() filters elements by channel before generation
+      - Channel badges on canvas elements in designer
+      - Channel preview toggle in toolbar
+      - System templates authored with stationery group (email-only) and content group (both)
+      - Render endpoints require explicit channel parameter
+    </output_channel_awareness>
+
+    <conditional_visibility>
+      - ElementCondition: type fieldNonEmpty (render if field is non-empty) or expression (render if truthy)
+      - resolveConditions() applied after page scope, before output channel
+      - Properties panel: "Always visible" (default) or "Condition" with expression editor
+      - Canvas badge: lightning bolt icon on conditional elements
+      - Preview mode evaluates conditions against example data
+    </conditional_visibility>
+
+    <signature_system>
+      - SignatureManager component: HTML5 Canvas drawing surface, signature_pad library
+      - Capture as SVG path → transparent-background PNG → stored via FileStorageService
+      - UserSignature model: orgId, userId, filePath, capturedAt, revokedAt
+      - Signature revocation endpoint
+      - drawnSignature schema plugin: pdf renderer fetches PNG at render time
+      - Security: private directory (0700 permissions), authenticated API access only
+    </signature_system>
+
+    <pdf_a_compliance>
+      - PDF/A-3b (ISO 19005-3) mandatory for all generated documents
+      - Ghostscript conversion: -dPDFA=3 -dPDFACompatibilityPolicy=1 -sColorConversionStrategy=sRGB
+      - veraPDF validation: reject and surface errors on failure
+      - All fonts fully embedded — no system font references
+      - Only open-licence fonts: Inter, Noto Sans, IBM Plex Sans, Roboto for system templates
+      - Font fsType validation on upload: only flags 0 (installable) and 4 (preview and print) accepted
+      - XMP metadata block with dc:title, dc:creator, xmp:CreateDate, xmp:ModifyDate, xmp:CreatorTool, pdfaid:part=3, pdfaid:conformance=B
+      - PDF/UA (ISO 14289) as optional per-org setting for accessibility tagging
+    </pdf_a_compliance>
+
+    <localisation>
+      - LocaleConfig: locale (BCP-47), currency (code, symbol, position, separators, decimal places), date (short/long format), number (separators)
+      - Stored per-org in ERP settings, passed as prop to Designer and render API
+      - Locale-aware FORMAT_CURRENCY, FORMAT_DATE, FORMAT_NUMBER expression functions
+      - Multi-currency support: document-level currency indicator, dual-currency display
+    </localisation>
+
+    <file_storage_service>
+      - Abstract FileStorageService interface: write, read, exists, delete, list, stat, usage
+      - Default LocalDiskStorageAdapter: configurable rootDir and tempDir
+      - Directory structure: {orgId}/documents/, {orgId}/assets/, {orgId}/fonts/, {orgId}/signatures/, system/fonts/, {tempDir}/previews/, {tempDir}/backups/
+      - Temp file auto-purge (configurable retention, default 60 minutes)
+      - Org-level isolation enforced at service level
+      - Future extensibility: S3, Azure Blob adapters without changing consuming code
+    </file_storage_service>
+
+    <font_management>
+      - Tenant-uploaded fonts via FileStorageService
+      - Browser Cache API with 24-hour TTL for designer client
+      - In-memory LRU cache (max 50MB) for render service
+      - System fonts bundled in application under /app/fonts/
+      - Font fallback to Noto Sans on missing font
+      - Font validation on upload: fsType, file format (.ttf, .otf, .woff2), size limit (10MB)
+    </font_management>
+
+    <audit_trail>
+      - Append-only AuditLog table: orgId, entityType, entityId, action, userId, metadata, createdAt
+      - Written on every state-changing action by TemplateService and RenderService
+      - No UPDATE or DELETE operations on audit table
+      - Optional inputSnapshot on GeneratedDocument for exact document re-creation
+      - PDF tamper detection: SHA-256 hash computed before storage, verification endpoint
+    </audit_trail>
+
+    <render_resilience>
+      - Missing field binding: use fallbackValue or empty string
+      - Missing image: placeholder rectangle with "Image not found" text
+      - Missing signature: configurable fallbackBehaviour (blank/placeholder/error)
+      - Expression error: configurable (empty string, "#ERROR", or fail render)
+      - DataSource error: fail render cleanly, record error
+      - Ghostscript failure: fail render, store raw PDF with _non-pdfa suffix for debugging
+      - Font not found: fall back to Noto Sans, log warning
+      - Retry logic: file storage 3x exponential backoff, database 2x, Bull queue attempts:3
+      - Dead-letter queue: pdf-generation-dlq for failed jobs after all retries
+    </render_resilience>
+
+    <rate_limiting>
+      - POST /api/render/now: 60 requests/minute per tenant
+      - POST /api/render/queue: 120 requests/minute per tenant
+      - POST /api/render/bulk: 5 requests/hour per tenant
+      - Bulk batch size: max 2000 entityIds per request
+      - Queue concurrency: configurable per-tenant (default 5, max 20)
+      - Storage quotas: configurable per-tenant (default 5GB documents, 500MB assets)
+      - HTTP 429 with Retry-After header on exceed
+    </rate_limiting>
+
+    <text_overflow>
+      - Overflow strategy per text element: clip (default), truncate (with "..."), shrinkToFit (min 6pt)
+      - Designer: segmented control in Properties panel
+      - Preview mode simulates overflow behaviour with example value
+      - Yellow warning badge when example value would trigger overflow
+      - Dynamic vertical reflow NOT supported in v1 (pdfme absolute positioning constraint)
+    </text_overflow>
+
+    <backup_restore>
+      - Export: ZIP archive with all org templates, assets, fonts, signatures, locale config
+      - Import: ZIP archive → new draft templates (never overwrite), deduplicated assets, user validation for signatures
+      - Temporary storage with 1-hour auto-purge
+      - Use cases: staging↔production migration, tenant onboarding, disaster recovery
+    </backup_restore>
+
+    <system_templates>
+      - 9 prebuilt templates seeded on first deploy:
+        1. invoice-standard — standard tax invoice with header, line items, VAT summary, totals
+        2. invoice-simple — minimal invoice, no logo column
+        3. statement-account — customer account statement with balance b/f, transactions, balance c/f
+        4. purchase-order-standard — PO with delivery address and terms
+        5. delivery-note — no prices, quantity and description only
+        6. credit-note-standard — credit note referencing original invoice
+        7. report-aged-debtors — aged debtors analysis 30/60/90/120+ columns
+        8. report-stock-on-hand — stock by category with quantity, value, reorder flag
+        9. report-sales-summary — sales by customer/product for date range
+      - System templates have orgId: null, seeded via CLI command
+      - Read-only via API — fork endpoint creates tenant copy
+      - All authored with output channel awareness (stationery group = email-only)
+      - All use only open-licence fonts for PDF/A compliance
+    </system_templates>
+
+    <datasource_registry>
+      - Each document/report type registers a DataSource implementation
+      - DataSource interface: templateType (string), resolve(entityId, orgId, params?) → PdfmeInputs[]
+      - Reference implementations: InvoiceDataSource, StatementDataSource, PurchaseOrderDataSource, DeliveryNoteDataSource, CreditNoteDataSource, AgedDebtorsDataSource, StockOnHandDataSource, SalesSummaryDataSource
+      - Host ERP registers DataSources at module initialisation via DataSourceRegistry
+      - Field schemas registered separately via FieldSchemaRegistry
+    </datasource_registry>
+  </core_features>
+
+  <database_schema>
+    <orm>Drizzle ORM</orm>
+    <tables>
+      <Template>
+        - id (cuid, primary key)
+        - orgId (string, nullable — null = system template)
+        - type (string — invoice | statement | purchase_order | delivery_note | credit_note | report_aged_debtors | report_stock_on_hand | report_sales_summary | custom)
+        - name (string)
+        - schema (jsonb — pdfme Template JSON)
+        - status (string — draft | published | archived)
+        - version (integer, default 1)
+        - saveMode (string, nullable — inPlace | newVersion)
+        - publishedVer (integer, nullable — which version is currently live)
+        - forkedFromId (string, nullable — FK to Template.id)
+        - createdAt (timestamp, default now)
+        - updatedAt (timestamp, auto-updated)
+        - createdBy (string — userId)
+        - lockedBy (string, nullable — userId holding edit lock)
+        - lockedAt (timestamp, nullable — lock acquisition time)
+        - Index: [orgId, type, status]
+      </Template>
+
+      <GeneratedDocument>
+        - id (cuid, primary key)
+        - orgId (string)
+        - templateId (string — FK to Template.id)
+        - templateVer (integer — snapshot of version used)
+        - entityType (string — invoice | statement | etc.)
+        - entityId (string — FK to source record in host ERP)
+        - filePath (string — relative path within FileStorageService root)
+        - pdfHash (string — SHA-256 hash for tamper detection)
+        - status (string — queued | generating | done | failed)
+        - outputChannel (string — email | print)
+        - triggeredBy (string — userId who initiated render)
+        - inputSnapshot (jsonb, nullable — serialised inputs for audit)
+        - errorMessage (string, nullable — error details if failed)
+        - createdAt (timestamp, default now)
+      </GeneratedDocument>
+
+      <UserSignature>
+        - id (cuid, primary key)
+        - orgId (string)
+        - userId (string)
+        - filePath (string — relative path to PNG in private storage)
+        - capturedAt (timestamp, default now)
+        - revokedAt (timestamp, nullable)
+        - Unique: [orgId, userId]
+        - Index: [orgId]
+      </UserSignature>
+
+      <RenderBatch>
+        - id (cuid, primary key)
+        - orgId (string)
+        - templateType (string)
+        - channel (string — email | print)
+        - totalJobs (integer)
+        - completedJobs (integer, default 0)
+        - failedJobs (integer, default 0)
+        - failedIds (text array — entityIds that failed)
+        - status (string — running | completed | completedWithErrors | aborted)
+        - onFailure (string — continue | abort)
+        - notifyUrl (string, nullable — webhook callback URL)
+        - createdAt (timestamp, default now)
+        - completedAt (timestamp, nullable)
+        - Index: [orgId, status]
+      </RenderBatch>
+
+      <AuditLog>
+        - id (cuid, primary key)
+        - orgId (string)
+        - entityType (string — template | generatedDocument | signature)
+        - entityId (string)
+        - action (string — created | updated | published | archived | forked | rendered | deleted)
+        - userId (string)
+        - metadata (jsonb, nullable — action-specific details)
+        - createdAt (timestamp, default now)
+        - Index: [orgId, entityType, entityId]
+        - Index: [orgId, createdAt]
+        - APPEND-ONLY: no UPDATE or DELETE operations
+      </AuditLog>
+    </tables>
+  </database_schema>
+
+  <api_endpoints_summary>
+    <template_endpoints>
+      - GET    /api/pdfme/templates                   → list org + system templates (paginated, cursor-based)
+      - POST   /api/pdfme/templates                   → create template (draft)
+      - GET    /api/pdfme/templates/:id               → get template by ID (includes full schema JSON)
+      - PUT    /api/pdfme/templates/:id/draft         → save draft schema (requires saveMode when published)
+      - POST   /api/pdfme/templates/:id/publish       → publish draft (runs validation gate)
+      - POST   /api/pdfme/templates/:id/fork          → fork into current org
+      - GET    /api/pdfme/templates/:id/versions      → version history
+      - POST   /api/pdfme/templates/:id/restore       → restore a historical version as new draft
+      - DELETE /api/pdfme/templates/:id               → archive (soft delete)
+      - GET    /api/pdfme/templates/system             → list system templates
+      - GET    /api/pdfme/templates/system/:id         → get system template JSON
+      - POST   /api/pdfme/templates/import             → import TemplateExportPackage JSON
+      - POST   /api/pdfme/templates/:id/validate       → run validation suite without publishing
+      - POST   /api/pdfme/templates/:id/preview        → generate preview PDF with sample data
+      - POST   /api/pdfme/templates/:id/lock           → acquire/renew edit lock (heartbeat)
+      - DELETE /api/pdfme/templates/:id/lock           → release edit lock
+    </template_endpoints>
+
+    <render_endpoints>
+      - POST   /api/pdfme/render/now                   → synchronous render — returns when PDF is ready
+      - POST   /api/pdfme/render/queue                 → async render — returns job ID immediately
+      - POST   /api/pdfme/render/bulk                  → batch render — returns batch ID
+      - GET    /api/pdfme/render/status/:jobId         → poll single job status
+      - GET    /api/pdfme/render/batch/:batchId        → get batch aggregate status
+      - GET    /api/pdfme/render/batch/:batchId/progress → SSE stream for real-time batch progress
+      - POST   /api/pdfme/render/batch/:batchId/merge  → merge batch PDFs into single file
+      - GET    /api/pdfme/render/download/:documentId  → stream PDF binary (authenticated)
+      - GET    /api/pdfme/render/verify/:documentId    → verify PDF integrity (SHA-256 hash check)
+      - GET    /api/pdfme/render/history               → query generated document history (paginated)
+    </render_endpoints>
+
+    <asset_endpoints>
+      - POST   /api/pdfme/assets/upload                → upload image, font, or brand asset
+      - GET    /api/pdfme/assets                       → list org assets (paginated)
+      - GET    /api/pdfme/assets/:assetId              → download/stream asset file
+      - DELETE /api/pdfme/assets/:assetId              → delete asset (with reference warning)
+    </asset_endpoints>
+
+    <signature_endpoints>
+      - POST   /api/pdfme/signatures                   → upload drawn signature
+      - GET    /api/pdfme/signatures/me                → get current user's active signature
+      - GET    /api/pdfme/signatures/:id/preview       → stream signature image
+      - DELETE /api/pdfme/signatures/me                → revoke current user's signature
+    </signature_endpoints>
+
+    <backup_endpoints>
+      - POST   /api/pdfme/backup/export                → generate backup ZIP
+      - POST   /api/pdfme/backup/import                → import backup ZIP
+    </backup_endpoints>
+
+    <configuration_endpoints>
+      - GET    /api/pdfme/health                       → health check (unauthenticated)
+      - GET    /api/pdfme/config                       → get frontend configuration (fonts, locale, features)
+      - GET    /api/pdfme/field-schema/:templateType   → get field schema for designer Fields tab
+    </configuration_endpoints>
+
+    <audit_endpoints>
+      - GET    /api/pdfme/audit                        → query audit log (paginated)
+    </audit_endpoints>
+  </api_endpoints_summary>
+
+  <api_conventions>
+    <authentication>All endpoints require JWT in Authorization header (except GET /api/pdfme/health). JWT claims: sub (userId), orgId, roles[].</authentication>
+    <tenant_isolation>orgId always derived from JWT — never accepted as URL or body parameter.</tenant_isolation>
+    <error_envelope>
+      {
+        statusCode: number,
+        error: string (HTTP status text),
+        message: string (human-readable),
+        details?: unknown (structured, e.g. validation issues),
+        timestamp: string (ISO 8601),
+        path: string
+      }
+    </error_envelope>
+    <pagination>
+      Cursor-based: ?limit=20 and cursor=clxyz123
+      Response: { data: T[], pagination: { total, limit, cursor?, hasMore } }
+    </pagination>
+    <status_codes>
+      200 OK, 201 Created, 202 Accepted, 204 No Content,
+      400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found,
+      409 Conflict (lock), 410 Gone (expired preview), 413 Payload Too Large (quota),
+      422 Unprocessable Entity (validation), 429 Too Many Requests (rate limit),
+      500 Internal Server Error
+    </status_codes>
+  </api_conventions>
+
+  <ui_layout>
+    <main_structure>
+      Three-panel designer layout:
+      ┌─────────────────────────────────────────────────────────────────┐
+      │ TOOLBAR [Template name] [Page size ▾] [Zoom ─────] [Actions]   │
+      ├──────────┬──────────────────────────────────────┬───────────────┤
+      │ PANEL    │                                      │ PROPERTIES    │
+      │ LEFT     │         CANVAS (A4/Letter/etc.)      │ PANEL         │
+      │          │                                      │               │
+      │ Blocks   │  ┌──────────────────────────────┐    │ (context-     │
+      │ ──────   │  │                              │    │  sensitive)   │
+      │ Fields   │  │    Live document preview     │    │               │
+      │ ──────   │  │                              │    │ Schema type   │
+      │ Assets   │  │                              │    │ Position/size │
+      │ ──────   │  └──────────────────────────────┘    │ Typography    │
+      │ Pages    │                                      │ Data binding  │
+      │          │    [+ Add page]  Page 1 of 3         │ Constraints   │
+      └──────────┴──────────────────────────────────────┴───────────────┘
+    </main_structure>
+    <design_philosophy>
+      Target aesthetic: Figma/Notion — clean, sidebar-driven, clear visual hierarchy, no distracting chrome.
+      The designer is embedded inside the ERP's Next.js frontend as a full-page component.
+      It receives configuration props and communicates back to the host via callback functions.
+      It must not manage its own auth, routing, or API calls.
+    </design_philosophy>
+  </ui_layout>
+
+  <design_system>
+    <color_palette>
+      Professional, ERP-grade — neutral tones with accent colour from tenant brandConfig.primaryColour.
+      System templates use clean greys with subtle accent lines.
+      Canvas elements use #1e2a3a for text, #d1d5db for borders, #f9fafb for alternating rows.
+    </color_palette>
+    <typography>
+      Open-licence fonts only (PDF/A-3b requirement):
+      - Inter — primary UI and document font
+      - Noto Sans — fallback and multilingual support
+      - IBM Plex Sans — alternative document font
+      - Roboto — alternative document font
+      Tenant-uploaded fonts validated for embeddability (fsType).
+    </typography>
+    <component_library>shadcn/ui for all UI controls in the designer and NestJS admin panels</component_library>
+  </design_system>
+
+  <designer_component_api>
+    interface ErpDesignerProps extends DesignerProps {
+      fieldSchema: FieldGroup[];
+      templateContext: 'invoice' | 'statement' | 'purchase_order' | 'delivery_note' | 'credit_note' | 'report' | string;
+      brandConfig?: { primaryColour: string; logoUrl: string; fonts: FontConfig[] };
+      localeConfig?: LocaleConfig;
+      onSaveDraft: (template: Template) => Promise&lt;void&gt;;
+      onPublish: (template: Template) => Promise&lt;void&gt;;
+      onAssetUpload: (file: File) => Promise&lt;string&gt;;
+      onGeneratePreview?: (template: Template) => Promise&lt;string&gt;;
+      permissions: { canPublish: boolean; canDelete: boolean; canExportJson: boolean };
+    }
+  </designer_component_api>
+
+  <nestjs_module_registration>
+    PdfmeErpModule.register({
+      storage: { rootDir, tempDir, tempRetentionMinutes },
+      jwt: { secret, algorithm, claimsMapping },
+      redis: { host, port },
+      database: { drizzleClient },
+      apiPrefix: '/api/pdfme',
+      rateLimits: { renderNow, renderQueue, renderBulk, bulkMaxEntityIds },
+      quotas: { documentsBytes, assetsBytes },
+      queue: { defaultConcurrency, maxConcurrency },
+      ghostscript: { binary },
+      verapdf: { binary }
+    })
+  </nestjs_module_registration>
+
+  <implementation_steps>
+    <step number="1">
+      <title>Foundation — Repository, NestJS Module, Database Schema</title>
+      <tasks>
+        - Configure workspaces for new packages (@pdfme-erp/schemas, @pdfme-erp/nest)
+        - Create @pdfme-erp/nest package skeleton with NestJS module boilerplate
+        - Implement Drizzle schema for Template, GeneratedDocument, UserSignature, RenderBatch, AuditLog
+        - Implement TemplateService (CRUD only — no versioning yet)
+        - Implement TemplateController with basic REST endpoints
+        - Seed script for system templates (empty JSON stubs)
+        - Unit tests for TemplateService
+        - Add pageScope field to SchemaForUI type in @pdfme/ui fork
+        - Implement resolvePageScopes() and estimatePageCount()
+        - Integrate into RenderService before generate() call
+        - Implement page visibility section in Properties panel
+        - Implement page simulator in designer toolbar
+        - Implement scope badge overlay on canvas elements
+      </tasks>
+    </step>
+    <step number="2">
+      <title>Render Pipeline — DataSource, RenderService, FileStorage</title>
+      <tasks>
+        - Implement DataSourceRegistry and DataSource interface
+        - Implement InvoiceDataSource as reference implementation
+        - Implement RenderService (synchronous renderNow only)
+        - Implement FileStorageService abstraction and LocalDiskStorageAdapter
+        - Wire file upload and download endpoints
+        - Implement /api/render/now endpoint end-to-end
+        - Integration test: template JSON → render → verify PDF output
+      </tasks>
+    </step>
+    <step number="3">
+      <title>Line Items Table Plugin</title>
+      <tasks>
+        - Implement @pdfme-erp/schemas package skeleton
+        - Implement type definitions (ColumnDefinition, RowTemplate, RowCondition, CellDefinition, RowStyle)
+        - Implement lineItemsTable pdf renderer with colSpan
+        - Implement sub-row rendering with RowCondition evaluation
+        - Implement maxRowsPerPage chunking via chunkRowsIntoPages()
+        - Implement alternateGroupShading per logical group
+        - Implement page-break with header repeat on continuation pages
+        - Implement lineItemsTable ui renderer — static preview
+        - Implement Row Templates section in Properties panel
+        - Test: invoice with 3 row templates, 20 line items, sub-rows — verify pagination
+        - Test: statement with transactions, allocation sub-rows — verify running balance
+      </tasks>
+    </step>
+    <step number="4">
+      <title>Designer UI Redesign</title>
+      <tasks>
+        - Fork @pdfme/ui — preserve upstream logic, replace layout/styling
+        - Implement three-panel layout
+        - Implement Blocks tab with draggable block cards
+        - Implement redesigned Properties panel with all sections
+        - Implement Toolbar with undo/redo, zoom, preview, save/publish
+        - Implement Pages tab with thumbnail strip
+      </tasks>
+    </step>
+    <step number="5">
+      <title>Field Picker</title>
+      <tasks>
+        - Define FieldGroup and FieldDefinition types in @pdfme-erp/schemas
+        - Implement Fields tab UI — searchable tree with drag-to-canvas
+        - Implement field binding in schema elements ({{field.key}} syntax)
+        - Implement example value substitution in preview mode
+        - Implement data binding section in Properties panel
+        - Pass fieldSchema prop through to Designer component
+      </tasks>
+    </step>
+    <step number="6">
+      <title>Remaining Plugins and System Templates</title>
+      <tasks>
+        - Implement erpImage, signatureBlock, watermark, calculatedField plugins
+        - Build all 9 system templates as pdfme Template JSON files
+        - Seed system templates and verify render pipeline for each
+        - Implement template versioning and fork workflow
+      </tasks>
+    </step>
+    <step number="7">
+      <title>Queue, RBAC, Polish</title>
+      <tasks>
+        - Implement Bull queue for async rendering (queueRender, queueBulk)
+        - Implement render status polling endpoint
+        - Implement assets upload and management endpoints
+        - RBAC enforcement on all endpoints
+        - E2E test: design → save → publish → render → verify PDF
+        - Performance test: bulk render 100 invoices
+      </tasks>
+    </step>
+    <step number="8">
+      <title>Expression Engine</title>
+      <tasks>
+        - Implement expression-engine.ts with expr-eval base
+        - Implement all string functions (LEFT, RIGHT, MID, UPPER, LOWER, TRIM, CONCAT, LEN)
+        - Implement conditional functions (IF with nesting, AND, OR, NOT)
+        - Implement date functions (FORMAT, DATEDIFF, TODAY, YEAR, MONTH, DAY)
+        - Implement numeric functions (FORMAT, ROUND, ABS)
+        - Implement expression editor UI in Properties panel
+        - 100% branch coverage unit tests
+      </tasks>
+    </step>
+    <step number="9">
+      <title>Signature Capture</title>
+      <tasks>
+        - Implement SignatureManager component with signature_pad
+        - Implement UserSignature Drizzle schema and migration
+        - Implement signature upload endpoint with private storage
+        - Implement drawnSignature schema plugin
+        - Implement designer canvas preview for drawnSignature
+        - Implement signature revocation endpoint and UI
+        - Security review: file permissions, no public web access
+      </tasks>
+    </step>
+    <step number="10">
+      <title>PDF/A Compliance</title>
+      <tasks>
+        - Add Ghostscript to container, verify PDF/A-3b output
+        - Implement pdfa-processor.ts wrapping Ghostscript
+        - Implement veraPDF validation step
+        - Implement XMP metadata injection
+        - Implement font fsType validation in asset upload
+        - Update system templates to open-licence fonts only
+        - Integration tests: generate each template, validate with veraPDF
+      </tasks>
+    </step>
+    <step number="11">
+      <title>Output Channel Awareness</title>
+      <tasks>
+        - Add outputChannel field to SchemaForUI
+        - Implement Visibility section in Properties panel
+        - Implement channel badges on canvas elements
+        - Implement channel preview toggle in toolbar
+        - Implement resolveSchema() filtering in RenderService
+        - Add outputChannel param to render endpoints
+        - Re-author system templates with correct channel tags
+      </tasks>
+    </step>
+    <step number="12">
+      <title>Version Management Polish</title>
+      <tasks>
+        - Implement save mode prompt modal
+        - Implement version history panel UI
+        - Implement restore action (new draft from historical version)
+        - Record saveMode on every save
+        - Cap version history at 50 entries per template
+      </tasks>
+    </step>
+    <step number="13">
+      <title>Localisation, Multi-Currency, Conditional Visibility</title>
+      <tasks>
+        - Implement LocaleConfig type and tenant locale settings
+        - Implement locale-aware FORMAT functions in expression engine
+        - Implement multi-currency field type with symbol resolution
+        - Implement condition property on SchemaForUI
+        - Implement resolveConditions() in RenderService
+        - Implement conditional visibility UI in Properties panel
+        - Implement condition badge overlay on canvas
+        - Unit tests: locale formatting, condition evaluation
+      </tasks>
+    </step>
+    <step number="14">
+      <title>Grouped Report Layouts</title>
+      <tasks>
+        - Implement GroupedTableSchema plugin with groupBy support
+        - Implement group header/footer rendering with subtotals
+        - Implement multi-level grouping (up to 3 levels)
+        - Update report system templates with grouping
+        - Test: aged debtors grouped by salesperson
+        - Test: sales summary with multi-level totals
+      </tasks>
+    </step>
+    <step number="15">
+      <title>Render Resilience, Validation, Audit</title>
+      <tasks>
+        - Implement render error handling (fallbacks, retry, dead-letter queue)
+        - Implement SHA-256 hashing and audit fields on GeneratedDocument
+        - Implement append-only AuditLog table
+        - Implement template validation at publish time
+        - Implement validation warnings in designer on save
+        - Implement font management (storage, caching, fallback)
+        - Implement bulk render progress (SSE, batch status, webhook)
+        - Implement PDF merge endpoint
+        - Implement per-tenant rate limiting
+      </tasks>
+    </step>
+    <step number="16">
+      <title>Template Portability and Locking</title>
+      <tasks>
+        - Implement template import with validation
+        - Implement template export with dependency packaging
+        - Implement pessimistic edit locking with timeout
+        - Implement tenant backup export/import
+        - Implement preview PDF generation endpoint
+      </tasks>
+    </step>
+    <step number="17">
+      <title>Dynamic Content, Rich Text, Accessibility</title>
+      <tasks>
+        - Implement text overflow strategy (clip/truncate/shrinkToFit)
+        - Implement rich text plugin with HTML-subset support
+        - Add PDF/UA tagging as optional post-processing step
+        - Final integration tests across all features
+        - Performance test: bulk render 500 grouped report documents
+      </tasks>
+    </step>
+  </implementation_steps>
+
+  <success_criteria>
+    <functionality>
+      - All 9 system templates render correctly via the full pipeline (DataSource → generate → PDF/A → validate)
+      - Template lifecycle works end-to-end: create → design → save → publish → render → download
+      - Multi-tenancy with strict org isolation — no cross-tenant data access
+      - Expression engine passes 100% branch coverage with all function types
+      - Bulk render of 100+ documents completes successfully with queue management
+      - Template import/export round-trips without data loss
+      - PDF/A-3b validation passes for all generated documents via veraPDF
+    </functionality>
+    <user_experience>
+      - Designer feels native to professional business applications (Figma/Notion aesthetic)
+      - Drag-and-drop field binding is intuitive and responsive
+      - Preview mode accurately represents generated PDF output
+      - Page scope and output channel controls are clear and discoverable
+      - Auto-save prevents data loss; edit locking prevents conflicts
+      - Validation errors provide actionable suggestions
+    </user_experience>
+    <technical_quality>
+      - TypeScript strict mode throughout — no any types
+      - All API endpoints follow consistent error envelope and pagination conventions
+      - Drizzle ORM with proper migrations — no raw SQL outside of explicit queries
+      - Comprehensive test coverage: unit, integration, e2e
+      - No mock data patterns in production code
+      - Rate limiting and storage quotas enforced
+    </technical_quality>
+    <design_polish>
+      - shadcn/ui components used consistently throughout designer
+      - Canvas snap-to-grid and alignment guides work smoothly
+      - Properties panel updates reflect immediately on canvas
+      - System templates are professionally designed and print-ready
+      - All fonts are open-licence and fully embeddable
+    </design_polish>
+  </success_criteria>
+
+  <resolved_design_decisions>
+    - OQ-01: Report scheduling managed by host ERP, not the designer
+    - OQ-02: Drawn signatures required — full specification in signature system
+    - OQ-03: PDF/A-3b mandatory for all generated documents
+    - OQ-04: Email delivery managed by host ERP — no SMTP in this package
+    - OQ-05: Full expression engine with arithmetic, conditional, string, date, and numeric functions
+    - OQ-06: User-selectable save mode (edit in place vs new version)
+    - OQ-07: pdfme Cloud excluded entirely — self-hosted render service only
+    - OQ-08: Output channel awareness required for pre-printed stationery support
+  </resolved_design_decisions>
+</project_specification>

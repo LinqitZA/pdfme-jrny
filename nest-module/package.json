@@ -1,0 +1,28 @@
+{
+  "name": "@pdfme-erp/nest",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NestJS integration module for pdfme ERP Edition — TemplateService, RenderService, DataSourceRegistry, FileStorageService, controllers",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rimraf dist",
+    "test": "jest",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.0.0",
+    "@nestjs/core": "^10.0.0",
+    "@pdfme/common": "workspace:*",
+    "@pdfme/generator": "workspace:*",
+    "@pdfme-erp/schemas": "workspace:*",
+    "drizzle-orm": "^0.30.0",
+    "bullmq": "^5.0.0",
+    "cuid2": "^2.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "@types/node": "^25.3.3"
+  }
+}
