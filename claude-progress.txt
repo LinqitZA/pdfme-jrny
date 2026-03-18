@@ -2327,3 +2327,46 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 87/87 tests passing across 3 test suites
 ### Current Status: ~168/388 features passing (43.3%)
+
+---
+
+## Session - 2026-03-18 - Features #249, #250, #251 (Fields Search, Type Filter, Status Filter)
+
+### Completed Features:
+- **Feature #249**: Fields tab search with no results ✅
+  - Added fieldTabSearch state and filteredFieldTabFields memo to ErpDesigner
+  - Wired search input in Fields tab to filter by key or label (case-insensitive)
+  - Empty state shows "No matching fields" with search icon when no results
+  - Empty state only shown when search is active AND no results (not on empty search)
+  - Clearing search restores all fields
+  - 39/39 tests passing
+
+- **Feature #250**: Template list filter by type ✅
+  - TemplateList already had type filter dropdown and API support
+  - Verified type filter works end-to-end: invoice, statement, report_aged_debtors, custom
+  - Types endpoint returns available types dynamically
+  - Combined type + search filter works correctly
+  - Pagination count reflects filtered results
+  - Nonexistent type returns empty result
+  - 46/46 tests passing
+
+- **Feature #251**: Template list filter by status ✅
+  - Added statusFilter state and status-filter-dropdown to TemplateList
+  - Added Draft/Published/Archived options in dropdown
+  - Fixed backend findAll() to allow explicit archived status queries
+  - Previously: ne(status, 'archived') was always applied, conflicting with eq(status, 'archived')
+  - Now: when explicit status provided, uses eq(status, X) instead of ne(archived)
+  - Default (no status) still excludes archived
+  - Combined status + type filter works correctly
+  - 42/42 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Fields tab search with empty state
+- apps/designer-sandbox/components/TemplateList.tsx - Status filter dropdown
+- nest-module/src/template.service.ts - Fixed conditional archived exclusion in findAll()
+- tests/test-feature-249-fields-search-empty.js - 39 tests
+- tests/test-feature-250-type-filter.js - 46 tests
+- tests/test-feature-251-status-filter.js - 42 tests
+
+### Test Results: 127/127 tests passing across 3 test suites
+### Current Status: ~168/388 features passing (43.3%)
