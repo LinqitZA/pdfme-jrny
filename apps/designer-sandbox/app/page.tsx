@@ -14,6 +14,8 @@ function DesignerContent() {
   const autoSaveInterval = searchParams.get('autoSaveInterval')
     ? parseInt(searchParams.get('autoSaveInterval')!, 10)
     : 30000;
+  const canPublish = searchParams.get('canPublish') !== 'false';
+  const canExportJson = searchParams.get('canExportJson') !== 'false';
 
   // Support external prop updates via window message or global for host app integration
   const [fieldSchema, setFieldSchema] = useState<FieldSchemaEntry[] | undefined>(undefined);
@@ -42,6 +44,8 @@ function DesignerContent() {
       authToken={authToken}
       apiBase="http://localhost:3000/api/pdfme"
       autoSaveInterval={autoSaveInterval}
+      canPublish={canPublish}
+      canExportJson={canExportJson}
       fieldSchema={fieldSchema}
       brandConfig={brandConfig}
     />

@@ -4103,6 +4103,7 @@ export default function ErpDesigner({
         </button>
         <button
           data-testid="btn-save"
+          data-save-status={saveStatus}
           aria-label="Save draft (Ctrl+S)" aria-keyshortcuts="Control+S"
           onClick={handleSave}
           disabled={saveStatus === 'saving' || isReadOnly}
