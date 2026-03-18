@@ -24,6 +24,8 @@ import {
   HttpException,
   HttpStatus,
   HttpCode,
+  Res,
+  Req,
 } from '@nestjs/common';
 import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto, TemplateExportPackage } from './template.service';
 import { RenderService } from './render.service';
@@ -430,6 +432,63 @@ export class TemplateController {
     return backup;
   }
 
+  @Post('backup/export')
+  @HttpCode(HttpStatus.OK)
+  async backupExportZip(
+    @Headers('authorization') authHeader?: string,
+    @Res() res?: any,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // Fetch locale config
+    let localeConfig: { locale: string; currency: string; timezone: string } | undefined;
+    try {
+      const http = await import('http');
+      const localeData: any = await new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: 3000,
+          path: '/api/pdfme/expressions/locale',
+          method: 'GET',
+          headers: { 'Authorization': authHeader || '' },
+        }, (res: any) => {
+          let data = '';
+          res.on('data', (chunk: string) => data += chunk);
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch { resolve(null); }
+          });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+      });
+      if (localeData && localeData.locale) {
+        localeConfig = {
+          locale: localeData.locale,
+          currency: localeData.currency || 'USD',
+          timezone: localeData.timezone || 'UTC',
+        };
+      }
+    } catch {
+      // Locale config not available
+    }
+
+    const zipBuffer = await this.templateService.backupOrgAsZip(jwt.orgId, localeConfig);
+    const filename = `backup-${jwt.orgId}-${new Date().toISOString().split('T')[0]}.zip`;
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': zipBuffer.length,
+    });
+    res.send(zipBuffer);
+  }
+
   @Post('backup/import')
   @HttpCode(HttpStatus.CREATED)
   async importBackup(
@@ -485,6 +544,50 @@ export class TemplateController {
     }
 
     const result = await this.templateService.importBackup(body, jwt.orgId, jwt.sub);
+    return result;
+  }
+
+  @Post('backup/import-zip')
+  @HttpCode(HttpStatus.CREATED)
+  async importBackupZip(
+    @Body() body: any,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // Accept ZIP as base64-encoded JSON body: { "zip": "<base64>" }
+    if (!body || !body.zip || typeof body.zip !== 'string') {
+      throw new HttpException(
+        { statusCode: 422, error: 'Unprocessable Entity', message: 'Request body must be JSON with a "zip" field containing base64-encoded ZIP data' },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    let zipBuffer: Buffer;
+    try {
+      zipBuffer = Buffer.from(body.zip, 'base64');
+    } catch {
+      throw new HttpException(
+        { statusCode: 422, error: 'Unprocessable Entity', message: 'Invalid base64 encoding in zip field' },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    // Validate it's a ZIP file (PK magic bytes)
+    if (zipBuffer.length < 4 || zipBuffer[0] !== 0x50 || zipBuffer[1] !== 0x4B) {
+      throw new HttpException(
+        { statusCode: 422, error: 'Unprocessable Entity', message: 'Decoded data is not a valid ZIP file' },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    const result = await this.templateService.importBackupFromZip(zipBuffer, jwt.orgId, jwt.sub);
     return result;
   }
 
@@ -770,11 +873,15 @@ export class TemplateController {
       schema: template.schema as Record<string, unknown>,
     });
 
+    // Feature #386: Extract orphaned elements info if present
+    const orphanedElements = (errors as any).__orphanedElements || [];
+
     return {
       valid: errors.length === 0,
       errors,
       templateId: id,
       templateName: template.name,
+      ...(orphanedElements.length > 0 ? { orphanedElements } : {}),
     };
   }
 

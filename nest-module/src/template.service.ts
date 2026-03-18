@@ -461,11 +461,16 @@ export class TemplateService {
     // Validate bindings in elements
     const bindingPattern = /\{\{([^}]*)\}\}/g;
     const validBindingPattern = /^[a-zA-Z_][a-zA-Z0-9_.\[\]]*$/;
+    // Feature #386: Also detect single-curly {field} bindings for orphaned element detection
+    const singleBindingPattern = /\{([a-zA-Z_][a-zA-Z0-9_.]*)\}/g;
 
-    const walkElements = (obj: unknown, path: string) => {
+    // Track orphaned elements for Feature #386 reporting
+    const orphanedElements: Array<{ element: string; field: string; binding: string }> = [];
+
+    const walkElements = (obj: unknown, path: string, elementName?: string) => {
       if (!obj || typeof obj !== 'object') return;
       if (Array.isArray(obj)) {
-        obj.forEach((item, idx) => walkElements(item, `${path}[${idx}]`));
+        obj.forEach((item, idx) => walkElements(item, `${path}[${idx}]`, elementName));
         return;
       }
       const record = obj as Record<string, unknown>;
@@ -474,6 +479,7 @@ export class TemplateService {
       for (const [key, val] of Object.entries(record)) {
         if (typeof val === 'string') {
           let match;
+          // Check double-curly bindings {{field}}
           bindingPattern.lastIndex = 0;
           while ((match = bindingPattern.exec(val)) !== null) {
             const binding = match[1].trim();
@@ -493,10 +499,43 @@ export class TemplateService {
                 field: `${path}.${key}`,
                 message: `Unresolvable binding: {{${binding}}} - field '${binding}' is not defined in the '${template.type}' field schema`,
               });
+              // Feature #386: Track as orphaned element
+              orphanedElements.push({
+                element: elementName || path,
+                field: `${path}.${key}`,
+                binding: binding,
+              });
+            }
+          }
+
+          // Feature #386: Check single-curly bindings {field} for orphaned element detection
+          if (knownFields && key === 'content') {
+            singleBindingPattern.lastIndex = 0;
+            while ((match = singleBindingPattern.exec(val)) !== null) {
+              const binding = match[0]; // full match like {fieldName}
+              const fieldRef = match[1]; // inner field name
+
+              // Skip if this is actually inside a double-curly (already checked above)
+              const matchStart = match.index;
+              if (matchStart > 0 && val[matchStart - 1] === '{') continue;
+              if (matchStart + match[0].length < val.length && val[matchStart + match[0].length] === '}') continue;
+
+              // Check if the field reference exists in known fields
+              if (!knownFields.has(fieldRef)) {
+                errors.push({
+                  field: `${path}.${key}`,
+                  message: `Orphaned element: references field '${fieldRef}' which is not defined in the '${template.type}' field schema. This element may reference a deleted or renamed field.`,
+                });
+                orphanedElements.push({
+                  element: elementName || path,
+                  field: `${path}.${key}`,
+                  binding: fieldRef,
+                });
+              }
             }
           }
         } else if (typeof val === 'object') {
-          walkElements(val, `${path}.${key}`);
+          walkElements(val, `${path}.${key}`, elementName);
         }
       }
     };
@@ -628,7 +667,7 @@ export class TemplateService {
           }
 
           // Check for bindings in element content/value/text
-          walkElements(elem, elPath);
+          walkElements(elem, elPath, (elem.name as string) || `element[${elIdx}]`);
         });
       }
     });
@@ -640,6 +679,10 @@ export class TemplateService {
         message: 'Template has no elements across any page. Add at least one element to publish.',
       });
     }
+
+    // Feature #386: Attach orphaned elements info to the errors array for the caller
+    // Store orphanedElements on the array for the validate endpoint to access
+    (errors as any).__orphanedElements = orphanedElements;
 
     return errors;
   }
@@ -1368,6 +1411,138 @@ export class TemplateService {
     };
   }
 
+  // ─── Org Backup Export as ZIP ──────────────────────────────────────
+
+  /**
+   * Export a comprehensive backup of all org data as a ZIP archive.
+   * ZIP structure:
+   *   manifest.json          — metadata (version, exportedAt, orgId, localeConfig)
+   *   templates/             — one JSON file per template
+   *   assets/images/         — binary image files
+   *   assets/fonts/          — binary font files
+   *   signatures/            — binary signature files + index.json
+   */
+  async backupOrgAsZip(
+    orgId: string,
+    localeConfig?: { locale: string; currency: string; timezone: string },
+  ): Promise<Buffer> {
+    const archiver = (await import('archiver')).default;
+
+    const exportedAt = new Date().toISOString();
+
+    // 1. Fetch all templates for the org
+    const orgTemplates = await this.db
+      .select()
+      .from(templates)
+      .where(
+        or(eq(templates.orgId, orgId), isNull(templates.orgId)),
+      );
+
+    // 2. Create archive
+    const archive = archiver('zip', { zlib: { level: 9 } });
+    const chunks: Buffer[] = [];
+
+    const bufferPromise = new Promise<Buffer>((resolve, reject) => {
+      archive.on('data', (chunk: Buffer) => chunks.push(chunk));
+      archive.on('end', () => resolve(Buffer.concat(chunks)));
+      archive.on('error', (err: Error) => reject(err));
+    });
+
+    // 3. Add manifest
+    const manifest = {
+      version: 1,
+      exportedAt,
+      orgId,
+      templateCount: orgTemplates.length,
+      localeConfig: localeConfig || null,
+    };
+    archive.append(JSON.stringify(manifest, null, 2), { name: 'manifest.json' });
+
+    // 4. Add templates (one JSON file per template)
+    const templateIndex: Array<{ id: string; name: string; type: string; status: string; file: string }> = [];
+    for (const t of orgTemplates) {
+      const filename = `templates/${t.id}.json`;
+      const templateJson = {
+        id: t.id,
+        name: t.name,
+        type: t.type,
+        status: t.status,
+        version: t.version,
+        schema: t.schema,
+        createdAt: t.createdAt,
+        updatedAt: t.updatedAt,
+      };
+      archive.append(JSON.stringify(templateJson, null, 2), { name: filename });
+      templateIndex.push({ id: t.id, name: t.name, type: t.type, status: t.status, file: filename });
+    }
+    archive.append(JSON.stringify(templateIndex, null, 2), { name: 'templates/index.json' });
+
+    // 5. Add assets (images + fonts) as binary files
+    const assetIndex: { images: string[]; fonts: string[] } = { images: [], fonts: [] };
+
+    if (this.storage) {
+      // Images
+      try {
+        const imageFiles = await this.storage.list(`${orgId}/assets`);
+        for (const filePath of imageFiles) {
+          try {
+            const buffer = await this.storage.read(filePath);
+            const zipPath = `assets/images/${filePath.split('/').pop() || filePath}`;
+            archive.append(buffer, { name: zipPath });
+            assetIndex.images.push(zipPath);
+          } catch {
+            // Skip unreadable files
+          }
+        }
+      } catch {
+        // No images directory
+      }
+
+      // Fonts
+      try {
+        const fontFiles = await this.storage.list(`${orgId}/fonts`);
+        for (const filePath of fontFiles) {
+          try {
+            const buffer = await this.storage.read(filePath);
+            const zipPath = `assets/fonts/${filePath.split('/').pop() || filePath}`;
+            archive.append(buffer, { name: zipPath });
+            assetIndex.fonts.push(zipPath);
+          } catch {
+            // Skip unreadable files
+          }
+        }
+      } catch {
+        // No fonts directory
+      }
+    }
+    archive.append(JSON.stringify(assetIndex, null, 2), { name: 'assets/index.json' });
+
+    // 6. Add signatures
+    const orgSignatures = await this.db
+      .select()
+      .from(userSignatures)
+      .where(eq(userSignatures.orgId, orgId));
+
+    const sigIndex: Array<{ id: string; userId: string; file: string; capturedAt: Date }> = [];
+    for (const sig of orgSignatures) {
+      if (this.storage) {
+        try {
+          const buffer = await this.storage.read(sig.filePath);
+          const filename = `signatures/${sig.id}_${sig.filePath.split('/').pop() || 'sig'}`;
+          archive.append(buffer, { name: filename });
+          sigIndex.push({ id: sig.id, userId: sig.userId, file: filename, capturedAt: sig.capturedAt });
+        } catch {
+          // Skip unreadable signature files
+        }
+      }
+    }
+    archive.append(JSON.stringify(sigIndex, null, 2), { name: 'signatures/index.json' });
+
+    // 7. Finalize
+    await archive.finalize();
+    return bufferPromise;
+  }
+
   // ─── Org Backup Import ──────────────────────────────────────────────
 
   /**
@@ -1529,6 +1704,143 @@ export class TemplateService {
         errors: fontValidationErrors,
       } : undefined,
     };
+  }
+
+  // ─── Import from ZIP ────────────────────────────────────────────────
+
+  /**
+   * Import a backup from a ZIP archive.
+   * Parses the ZIP, extracts templates/assets/fonts/signatures,
+   * and delegates to the existing importBackup method.
+   */
+  async importBackupFromZip(
+    zipBuffer: Buffer,
+    targetOrgId: string,
+    importedBy: string,
+  ): Promise<{
+    templatesCreated: number;
+    assetsRestored: { images: number; fonts: number };
+    signaturesRestored: number;
+    templates: Array<{ id: string; name: string; type: string; status: string }>;
+    fontValidation?: { total: number; accepted: number; rejected: number; errors: string[] };
+  }> {
+    const AdmZip = (await import('adm-zip')).default;
+    const zip = new AdmZip(zipBuffer);
+    const entries = zip.getEntries();
+
+    // 1. Read manifest
+    const manifestEntry = zip.getEntry('manifest.json');
+    let manifest: any = {};
+    if (manifestEntry) {
+      manifest = JSON.parse(manifestEntry.getData().toString('utf8'));
+    }
+
+    // 2. Read template index and individual template files
+    const templateFiles: Array<{ id: string; name: string; type: string; status: string; version: number; schema: unknown; createdAt: Date; updatedAt: Date }> = [];
+    const tplIndexEntry = zip.getEntry('templates/index.json');
+    if (tplIndexEntry) {
+      const tplIndex = JSON.parse(tplIndexEntry.getData().toString('utf8'));
+      for (const tplRef of tplIndex) {
+        const tplEntry = zip.getEntry(tplRef.file);
+        if (tplEntry) {
+          const tplData = JSON.parse(tplEntry.getData().toString('utf8'));
+          templateFiles.push({
+            id: tplData.id,
+            name: tplData.name,
+            type: tplData.type,
+            status: tplData.status,
+            version: tplData.version || 1,
+            schema: tplData.schema,
+            createdAt: tplData.createdAt ? new Date(tplData.createdAt) : new Date(),
+            updatedAt: tplData.updatedAt ? new Date(tplData.updatedAt) : new Date(),
+          });
+        }
+      }
+    } else {
+      // Fallback: scan for template JSON files
+      for (const entry of entries) {
+        if (entry.entryName.startsWith('templates/') && entry.entryName.endsWith('.json') && entry.entryName !== 'templates/index.json') {
+          try {
+            const tplData = JSON.parse(entry.getData().toString('utf8'));
+            templateFiles.push({
+              id: tplData.id,
+              name: tplData.name,
+              type: tplData.type,
+              status: tplData.status,
+              version: tplData.version || 1,
+              schema: tplData.schema,
+              createdAt: tplData.createdAt ? new Date(tplData.createdAt) : new Date(),
+              updatedAt: tplData.updatedAt ? new Date(tplData.updatedAt) : new Date(),
+            });
+          } catch {
+            // Skip invalid JSON
+          }
+        }
+      }
+    }
+
+    // 3. Read asset binary files and convert to base64 format
+    const MIME_MAP: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.svg': 'image/svg+xml', '.webp': 'image/webp', '.gif': 'image/gif',
+      '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff2': 'font/woff2',
+    };
+
+    const images: Array<{ path: string; data: string; mimeType: string }> = [];
+    const fonts: Array<{ path: string; data: string; mimeType: string }> = [];
+
+    for (const entry of entries) {
+      if (entry.entryName.startsWith('assets/images/') && !entry.isDirectory && !entry.entryName.endsWith('index.json')) {
+        const buffer = entry.getData();
+        const ext = '.' + (entry.entryName.split('.').pop()?.toLowerCase() || '');
+        images.push({
+          path: `${targetOrgId}/assets/${entry.entryName.split('/').pop()}`,
+          data: buffer.toString('base64'),
+          mimeType: MIME_MAP[ext] || 'application/octet-stream',
+        });
+      }
+      if (entry.entryName.startsWith('assets/fonts/') && !entry.isDirectory && !entry.entryName.endsWith('index.json')) {
+        const buffer = entry.getData();
+        const ext = '.' + (entry.entryName.split('.').pop()?.toLowerCase() || '');
+        fonts.push({
+          path: `${targetOrgId}/fonts/${entry.entryName.split('/').pop()}`,
+          data: buffer.toString('base64'),
+          mimeType: MIME_MAP[ext] || 'application/octet-stream',
+        });
+      }
+    }
+
+    // 4. Read signatures
+    const signaturesData: Array<{ id: string; userId: string; filePath: string; capturedAt: Date; data: string }> = [];
+    const sigIndexEntry = zip.getEntry('signatures/index.json');
+    if (sigIndexEntry) {
+      const sigIndex = JSON.parse(sigIndexEntry.getData().toString('utf8'));
+      for (const sigRef of sigIndex) {
+        const sigEntry = zip.getEntry(sigRef.file);
+        if (sigEntry) {
+          signaturesData.push({
+            id: sigRef.id,
+            userId: sigRef.userId,
+            filePath: sigRef.file,
+            capturedAt: sigRef.capturedAt ? new Date(sigRef.capturedAt) : new Date(),
+            data: sigEntry.getData().toString('base64'),
+          });
+        }
+      }
+    }
+
+    // 5. Delegate to existing importBackup
+    const backupPackage = {
+      version: manifest.version || 1,
+      exportedAt: manifest.exportedAt || new Date().toISOString(),
+      orgId: manifest.orgId || '',
+      templates: templateFiles,
+      assets: { images, fonts },
+      signatures: signaturesData,
+      localeConfig: manifest.localeConfig || null,
+    };
+
+    return this.importBackup(backupPackage, targetOrgId, importedBy);
   }
 
   // ─── Template Locking ────────────────────────────────────────────────
