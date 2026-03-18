@@ -628,3 +628,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - nest-module/src/render.service.ts: buildPdfmeTemplate legacy→flat schema conversion
 
 ### Current Status: ~43/388 features passing
+
+---
+
+## Session - 2026-03-18 - Features #124, #125, #126 (Watermark & Calculated Field)
+
+### Completed Features:
+- **Feature #124**: Watermark overlay renders ✅
+  - Watermark plugin in packages/erp-schemas/src/watermark/index.ts
+  - applyWatermark() uses pdf-lib to draw diagonal text on every page
+  - Configurable text, opacity (0-1), rotation (degrees), color (RGB), fontSize
+  - parseHexColor() supports #RRGGBB hex strings
+  - extractWatermarkFromTemplate() scans schemas for watermark elements
+  - WatermarkController with POST /api/pdfme/watermark/preview endpoint
+  - Integrated into render pipeline: extract config → remove from schemas → generate PDF → apply watermark
+  - Multi-page support (watermark applied to every page)
+
+- **Feature #125**: Watermark controlled by template variable ✅
+  - Watermark text overridden via input variable (e.g., wm_var="DRAFT")
+  - Empty string input hides watermark entirely (returns null config)
+  - Different text values produce different PDFs (DRAFT vs COPY vs VOID)
+  - No input key → uses schema default text
+  - Watermark elements always removed from schemas before pdfme (even when hidden)
+
+- **Feature #126**: Calculated field evaluates expression ✅
+  - calculatedField plugin in packages/erp-schemas/src/calculated-field/index.ts
+  - evaluateCalculatedField() uses ExpressionEngine with context from inputs
+  - Format patterns: #,##0.00 for numbers, raw output when no format
+  - resolveCalculatedFields() converts calculatedField elements to text elements
+  - Inputs updated with calculated values (visible in inputSnapshot)
+  - Tested: qty * unitPrice = 6,252.50, subtotal + vat = 11,500.00, etc.
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/watermark/index.ts - Full watermark plugin
+- packages/erp-schemas/src/calculated-field/index.ts - Full calculated field plugin
+- nest-module/src/watermark.controller.ts - Preview endpoint
+- nest-module/src/render.service.ts - Integrated watermark + calculated field resolution
+- nest-module/src/app.module.ts - Registered WatermarkController
+
+### API Endpoints Added:
+- POST /api/pdfme/watermark/preview - Generate watermark preview PDF
+
+### Test Results: 35+ assertions across 4 test suites all passing
+
+### Current Status: ~50/388 features passing (47 + 3 new)
