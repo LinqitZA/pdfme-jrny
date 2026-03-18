@@ -7,9 +7,10 @@
  */
 
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, and, desc, lt, gte, lte } from 'drizzle-orm';
+import { eq, and, desc, lt, gte, lte, sql } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import type { PdfmeDatabase } from './db/connection';
+import { Pool } from 'pg';
 import * as schema from './db/schema';
 
 export interface CreateAuditLogDto {
@@ -34,7 +35,10 @@ export interface AuditQueryParams {
 
 @Injectable()
 export class AuditService {
-  constructor(@Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase) {}
+  constructor(
+    @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
+    @Inject('PG_POOL') private readonly pool: Pool,
+  ) {}
 
   /**
    * Append a new audit log entry. Never updates or deletes.
@@ -122,5 +126,67 @@ export class AuditService {
         hasMore,
       },
     };
+  }
+
+  /**
+   * Verify that append-only enforcement is active at the database level.
+   * Checks for the existence of the UPDATE and DELETE prevention triggers.
+   */
+  async verifyAppendOnlyEnforcement(): Promise<{
+    updateBlocked: boolean;
+    deleteBlocked: boolean;
+    triggers: string[];
+  }> {
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        `SELECT trigger_name FROM information_schema.triggers
+         WHERE event_object_table = 'audit_logs'
+         AND trigger_schema = 'public'
+         ORDER BY trigger_name`
+      );
+      const triggerNames = result.rows.map((r: any) => r.trigger_name);
+      return {
+        updateBlocked: triggerNames.includes('trg_audit_logs_no_update'),
+        deleteBlocked: triggerNames.includes('trg_audit_logs_no_delete'),
+        triggers: triggerNames,
+      };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Attempt a direct UPDATE on the audit_logs table.
+   * This should always fail due to the database trigger.
+   * Used for testing/verification only.
+   */
+  async attemptUpdate(id: string, newAction: string): Promise<{ success: boolean; error?: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('UPDATE audit_logs SET action = $1 WHERE id = $2', [newAction, id]);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Attempt a direct DELETE on the audit_logs table.
+   * This should always fail due to the database trigger.
+   * Used for testing/verification only.
+   */
+  async attemptDelete(id: string): Promise<{ success: boolean; error?: string }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('DELETE FROM audit_logs WHERE id = $1', [id]);
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    } finally {
+      client.release();
+    }
   }
 }

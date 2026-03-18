@@ -6,7 +6,7 @@
  * Results in reverse chronological order.
  */
 
-import { Controller, Get, Req, Query } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Req, Query, Param, HttpException, HttpStatus } from '@nestjs/common';
 import { AuditService } from './audit.service';
 
 @Controller('api/pdfme')
@@ -37,5 +37,40 @@ export class AuditController {
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
     });
+  }
+
+  /**
+   * Attempt to update an audit log entry - ALWAYS fails (append-only enforcement)
+   */
+  @Put('audit/:id')
+  async updateAuditLog(@Param('id') id: string) {
+    throw new HttpException(
+      { error: 'Forbidden', message: 'Audit log is append-only: UPDATE operations are not allowed' },
+      HttpStatus.FORBIDDEN,
+    );
+  }
+
+  /**
+   * Attempt to delete an audit log entry - ALWAYS fails (append-only enforcement)
+   */
+  @Delete('audit/:id')
+  async deleteAuditLog(@Param('id') id: string) {
+    throw new HttpException(
+      { error: 'Forbidden', message: 'Audit log is append-only: DELETE operations are not allowed' },
+      HttpStatus.FORBIDDEN,
+    );
+  }
+
+  /**
+   * GET /api/pdfme/audit/policy - Returns the append-only policy status
+   */
+  @Get('audit/policy')
+  async getAuditPolicy() {
+    const enforcement = await this.auditService.verifyAppendOnlyEnforcement();
+    return {
+      policy: 'append-only',
+      description: 'AuditLog table rejects UPDATE and DELETE operations',
+      enforcement,
+    };
   }
 }

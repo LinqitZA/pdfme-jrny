@@ -27,6 +27,7 @@ import { RenderService, RenderNowDto, RenderBulkDto } from './render.service';
 import { PdfaProcessor } from './pdfa-processor';
 import { RenderQueueService } from './render-queue.service';
 import { RequirePermissions } from './auth.guard';
+import { RateLimiterService } from './rate-limiter.service';
 
 @Controller('api/pdfme/render')
 export class RenderController {
@@ -34,6 +35,7 @@ export class RenderController {
     private readonly renderService: RenderService,
     private readonly pdfaProcessor: PdfaProcessor,
     private readonly renderQueueService: RenderQueueService,
+    private readonly rateLimiterService: RateLimiterService,
   ) {}
 
   @Post('now')

@@ -106,6 +106,34 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   metadata JSONB,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Enforce APPEND-ONLY on audit_logs: block UPDATE
+CREATE OR REPLACE FUNCTION audit_logs_prevent_update()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'UPDATE not allowed on audit_logs: table is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_logs_no_update ON audit_logs;
+CREATE TRIGGER trg_audit_logs_no_update
+  BEFORE UPDATE ON audit_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION audit_logs_prevent_update();
+
+-- Enforce APPEND-ONLY on audit_logs: block DELETE
+CREATE OR REPLACE FUNCTION audit_logs_prevent_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  RAISE EXCEPTION 'DELETE not allowed on audit_logs: table is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_logs_no_delete ON audit_logs;
+CREATE TRIGGER trg_audit_logs_no_delete
+  BEFORE DELETE ON audit_logs
+  FOR EACH ROW
+  EXECUTE FUNCTION audit_logs_prevent_delete();
 `;
 
 export async function runMigrations(): Promise<void> {

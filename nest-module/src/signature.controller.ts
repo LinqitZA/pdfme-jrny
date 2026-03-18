@@ -21,12 +21,17 @@ import {
   Res,
 } from '@nestjs/common';
 import { SignatureService } from './signature.service';
+import { AuditService } from './audit.service';
 import { Response, Request } from 'express';
 import type { JwtPayload } from './auth.guard';
+import { Optional } from '@nestjs/common';
 
 @Controller('api/pdfme/signatures')
 export class SignatureController {
-  constructor(private readonly signatureService: SignatureService) {}
+  constructor(
+    private readonly signatureService: SignatureService,
+    @Optional() private readonly auditService?: AuditService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -196,6 +201,9 @@ export class SignatureController {
     const orgId = user?.orgId || 'default';
     const userId = user?.sub || 'unknown';
 
+    // Get signature info before revoking for audit trail
+    const signature = await this.signatureService.getMySignature(orgId, userId);
+
     const revoked = await this.signatureService.revoke(orgId, userId);
 
     if (!revoked) {
@@ -203,6 +211,22 @@ export class SignatureController {
         { statusCode: 404, error: 'Not Found', message: 'No active signature found to revoke' },
         HttpStatus.NOT_FOUND,
       );
+    }
+
+    // Audit log for signature revocation
+    if (this.auditService && signature) {
+      await this.auditService.log({
+        orgId,
+        entityType: 'signature',
+        entityId: signature.id,
+        action: 'revoked',
+        userId,
+        metadata: {
+          signatureId: signature.id,
+          filePath: signature.filePath,
+          capturedAt: signature.capturedAt?.toISOString?.() || String(signature.capturedAt),
+        },
+      });
     }
 
     return { message: 'Signature revoked successfully' };

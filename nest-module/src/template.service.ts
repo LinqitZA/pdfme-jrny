@@ -758,7 +758,7 @@ export class TemplateService {
    * Soft-delete a template by setting status to 'archived'.
    * Only org-owned templates can be archived (not system templates).
    */
-  async softDelete(id: string, orgId?: string) {
+  async softDelete(id: string, orgId?: string, userId?: string) {
     const conditions: SQL[] = [eq(templates.id, id)];
     if (orgId) {
       conditions.push(eq(templates.orgId, orgId));
@@ -776,9 +776,9 @@ export class TemplateService {
         orgId: result.orgId || '',
         entityType: 'template',
         entityId: result.id,
-        action: 'template.archived',
-        userId: result.createdBy,
-        metadata: { name: result.name },
+        action: 'archived',
+        userId: userId || result.createdBy,
+        metadata: { name: result.name, previousStatus: 'draft' },
       });
     }
 

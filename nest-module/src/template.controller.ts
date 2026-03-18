@@ -1050,7 +1050,8 @@ export class TemplateController {
     const user = req?.user || decodeJwt(authHeader);
     const orgId = user?.orgId;
 
-    const result = await this.templateService.softDelete(id, orgId);
+    const userId = user?.sub;
+    const result = await this.templateService.softDelete(id, orgId, userId);
     if (!result) {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
