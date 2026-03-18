@@ -313,9 +313,12 @@ export default function ErpDesigner({
   // Render/PDF generation state
   const [renderStatus, setRenderStatus] = useState<'idle' | 'loading' | 'progress' | 'complete' | 'error'>('idle');
   const [renderProgress, setRenderProgress] = useState<{ completed: number; failed: number; total: number }>({ completed: 0, failed: 0, total: 0 });
-  const [renderResult, setRenderResult] = useState<{ documentId?: string; downloadUrl?: string; batchId?: string; error?: string } | null>(null);
+  const [renderResult, setRenderResult] = useState<{ documentId?: string; downloadUrl?: string; batchId?: string; error?: string; jobId?: string } | null>(null);
   const [renderMessage, setRenderMessage] = useState('');
   const sseRef = useRef<EventSource | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Async render job status for display
+  const [asyncJobStatus, setAsyncJobStatus] = useState<'queued' | 'generating' | 'done' | 'failed' | null>(null);
 
   // Template loading state
   const [isLoading, setIsLoading] = useState(!!templateId);
@@ -499,17 +502,25 @@ export default function ErpDesigner({
   }, [currentPageIndex]);
 
   // ─── Add element to canvas ───
-  const addElementToCanvas = useCallback((type: ElementType) => {
+  const addElementToCanvas = useCallback((type: ElementType, position?: { x: number; y: number }) => {
     const id = createElementId();
     const defaults = getDefaultElement(type);
-    // Offset slightly for each new element to avoid stacking
-    const existingCount = currentPage?.elements.length || 0;
-    const offset = existingCount * 20;
+    let x: number, y: number;
+    if (position) {
+      x = position.x;
+      y = position.y;
+    } else {
+      // Offset slightly for each new element to avoid stacking
+      const existingCount = currentPage?.elements.length || 0;
+      const offset = existingCount * 20;
+      x = defaults.x + offset;
+      y = defaults.y + offset;
+    }
     const newElement: DesignElement = {
       id,
       ...defaults,
-      x: defaults.x + offset,
-      y: defaults.y + offset,
+      x,
+      y,
     };
     setPages((prev) => {
       return prev.map((page, idx) => {
@@ -519,7 +530,68 @@ export default function ErpDesigner({
     });
     setSelectedElementId(id);
     setIsDirty(true);
+    return id;
   }, [currentPageIndex, currentPage]);
+
+  // ─── Block drag start handler ───
+  const handleBlockDragStart = useCallback((e: React.DragEvent, blockType: ElementType) => {
+    e.dataTransfer.setData('application/x-erp-block-type', blockType);
+    e.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
+  // ─── Field drag start handler ───
+  const handleFieldDragStart = useCallback((e: React.DragEvent, fieldKey: string) => {
+    e.dataTransfer.setData('application/x-erp-field-key', fieldKey);
+    e.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
+  // ─── Canvas drop handler for blocks and fields ───
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
+  const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Calculate drop position relative to the canvas page
+    const canvasPage = (e.currentTarget as HTMLElement).closest('[data-testid="canvas-page"]') || e.currentTarget;
+    const rect = canvasPage.getBoundingClientRect();
+    const scale = zoom / 100;
+    const dropX = Math.max(0, Math.round((e.clientX - rect.left) / scale));
+    const dropY = Math.max(0, Math.round((e.clientY - rect.top) / scale));
+
+    const blockType = e.dataTransfer.getData('application/x-erp-block-type');
+    const fieldKey = e.dataTransfer.getData('application/x-erp-field-key');
+
+    if (blockType) {
+      // Dropping a block from the Blocks tab
+      addElementToCanvas(blockType as ElementType, { x: dropX, y: dropY });
+    } else if (fieldKey) {
+      // Dropping a field from the Fields tab
+      const bindingSyntax = `{{${fieldKey}}}`;
+      // Check if we dropped on an existing element
+      const targetEl = (e.target as HTMLElement).closest('[data-element-type]');
+      if (targetEl) {
+        const elId = targetEl.getAttribute('data-testid')?.replace('canvas-element-', '');
+        if (elId) {
+          const el = currentPage?.elements.find((el) => el.id === elId);
+          if (el && (getElementCategory(el.type) === 'text' || el.type === 'qr-barcode')) {
+            updateElement(elId, { binding: bindingSyntax, content: bindingSyntax });
+            setSelectedElementId(elId);
+            return;
+          }
+        }
+      }
+      // No target element or incompatible type - create new text element with binding
+      const newId = addElementToCanvas('text', { x: dropX, y: dropY });
+      if (newId) {
+        // Update the newly created element with the binding
+        updateElement(newId, { binding: bindingSyntax, content: bindingSyntax });
+      }
+    }
+  }, [zoom, addElementToCanvas, currentPage, updateElement]);
 
   const handleSave = useCallback(async () => {
     // Call external callback if provided
@@ -980,18 +1052,131 @@ export default function ErpDesigner({
       sseRef.current.close();
       sseRef.current = null;
     }
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     setRenderStatus('idle');
     setRenderMessage('');
     setRenderResult(null);
     setRenderProgress({ completed: 0, failed: 0, total: 0 });
+    setAsyncJobStatus(null);
   }, []);
 
-  // Cleanup SSE on unmount
+  /** Async render via queue with polling for status transitions */
+  const handleAsyncRender = useCallback(async (entityId?: string) => {
+    if (!templateId) {
+      setRenderStatus('error');
+      setRenderMessage('Save the template first');
+      setRenderResult({ error: 'No template ID' });
+      return;
+    }
+
+    // Clear any existing polling
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    setRenderStatus('loading');
+    setRenderMessage('Submitting render job…');
+    setRenderResult(null);
+    setRenderProgress({ completed: 0, failed: 0, total: 1 });
+    setAsyncJobStatus(null);
+
+    try {
+      // Submit async render job
+      const response = await fetch(`${apiBase}/render/async`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          templateId,
+          entityId: entityId || 'preview',
+          channel: 'print',
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({ message: 'Async render failed' }));
+        throw new Error(errBody.message || `HTTP ${response.status}`);
+      }
+
+      const submitResult = await response.json();
+      const jobId = submitResult.jobId;
+
+      setRenderStatus('progress');
+      setRenderMessage('Render job queued…');
+      setRenderResult({ jobId });
+      setAsyncJobStatus('queued');
+
+      // Start polling for status
+      const pollStatus = async () => {
+        try {
+          const statusResponse = await fetch(`${apiBase}/render/status/${jobId}`, {
+            headers: getAuthHeaders(),
+          });
+
+          if (!statusResponse.ok) return;
+
+          const statusData = await statusResponse.json();
+          const newStatus = statusData.status as 'queued' | 'generating' | 'done' | 'failed';
+
+          setAsyncJobStatus(newStatus);
+
+          if (newStatus === 'queued') {
+            setRenderMessage('Render job queued — waiting for worker…');
+          } else if (newStatus === 'generating') {
+            setRenderMessage('Generating PDF…');
+          } else if (newStatus === 'done') {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+            setRenderStatus('complete');
+            setRenderMessage('PDF generated successfully!');
+            setRenderResult({
+              jobId,
+              documentId: statusData.result?.documentId,
+              downloadUrl: statusData.result?.filePath
+                ? `${apiBase}/render/download/${statusData.result.documentId}`
+                : undefined,
+            });
+            setRenderProgress({ completed: 1, failed: 0, total: 1 });
+          } else if (newStatus === 'failed') {
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+            setRenderStatus('error');
+            setRenderMessage(`Render failed: ${statusData.error || 'Unknown error'}`);
+            setRenderResult({ jobId, error: statusData.error || 'Unknown error' });
+          }
+        } catch {
+          // Polling failure - continue polling
+        }
+      };
+
+      // Poll immediately, then every 1 second
+      await pollStatus();
+      pollingRef.current = setInterval(pollStatus, 1000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRenderStatus('error');
+      setRenderMessage(`Async render failed: ${msg}`);
+      setRenderResult({ error: msg });
+    }
+  }, [templateId, apiBase, getAuthHeaders]);
+
+  // Cleanup SSE and polling on unmount
   useEffect(() => {
     return () => {
       if (sseRef.current) {
         sseRef.current.close();
         sseRef.current = null;
+      }
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
       }
     };
   }, []);
@@ -1963,6 +2148,21 @@ export default function ErpDesigner({
           Generate PDF
         </button>
         <button
+          data-testid="btn-async-render"
+          onClick={() => handleAsyncRender()}
+          disabled={renderStatus === 'loading' || renderStatus === 'progress'}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: '#6366f1',
+            color: '#fff',
+            fontWeight: 600,
+            opacity: (renderStatus === 'loading' || renderStatus === 'progress') ? 0.6 : 1,
+            cursor: (renderStatus === 'loading' || renderStatus === 'progress') ? 'not-allowed' : 'pointer',
+          }}
+        >
+          Async Render
+        </button>
+        <button
           data-testid="btn-save"
           onClick={handleSave}
           disabled={saveStatus === 'saving'}
@@ -2201,6 +2401,7 @@ export default function ErpDesigner({
                           key={block.id}
                           data-testid={`block-${block.id}`}
                           draggable
+                          onDragStart={(e) => handleBlockDragStart(e, block.id)}
                           onClick={() => addElementToCanvas(block.id)}
                           style={{
                             padding: '8px',
@@ -2242,7 +2443,9 @@ export default function ErpDesigner({
                         <div
                           key={field.key}
                           data-testid={`field-${field.key}`}
-                          style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'pointer' }}
+                          draggable
+                          onDragStart={(e) => handleFieldDragStart(e, field.key)}
+                          style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab' }}
                           onClick={() => {
                             if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
                               handleBindField(field.key);
@@ -2491,6 +2694,8 @@ export default function ErpDesigner({
           {/* A4 Page */}
           <div
             data-testid="canvas-page"
+            onDragOver={handleCanvasDragOver}
+            onDrop={handleCanvasDrop}
             style={{
               width: `${595 * (zoom / 100)}px`,
               height: `${842 * (zoom / 100)}px`,
@@ -2662,6 +2867,57 @@ export default function ErpDesigner({
             >
               {renderMessage}
             </div>
+
+            {/* Async job status indicator */}
+            {asyncJobStatus && (
+              <div data-testid="async-job-status" style={{ marginBottom: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', alignItems: 'center' }}>
+                  {['queued', 'generating', 'done'].map((step) => {
+                    const isActive = step === asyncJobStatus;
+                    const isPast = (step === 'queued' && (asyncJobStatus === 'generating' || asyncJobStatus === 'done'))
+                      || (step === 'generating' && asyncJobStatus === 'done');
+                    const isFailed = asyncJobStatus === 'failed';
+                    return (
+                      <React.Fragment key={step}>
+                        <div
+                          data-testid={`async-step-${step}`}
+                          style={{
+                            padding: '4px 12px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            fontWeight: isActive ? 700 : 500,
+                            backgroundColor: isFailed && isActive ? '#fef2f2'
+                              : isPast ? '#ecfdf5'
+                              : isActive ? '#eff6ff'
+                              : '#f1f5f9',
+                            color: isFailed && isActive ? '#dc2626'
+                              : isPast ? '#059669'
+                              : isActive ? '#2563eb'
+                              : '#94a3b8',
+                            border: `1px solid ${
+                              isFailed && isActive ? '#fca5a5'
+                              : isPast ? '#a7f3d0'
+                              : isActive ? '#93c5fd'
+                              : '#e2e8f0'
+                            }`,
+                          }}
+                        >
+                          {isPast ? '✓ ' : ''}{step.charAt(0).toUpperCase() + step.slice(1)}
+                        </div>
+                        {step !== 'done' && (
+                          <div style={{ width: '24px', height: '2px', backgroundColor: isPast ? '#a7f3d0' : '#e2e8f0' }} />
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+                {asyncJobStatus === 'failed' && (
+                  <div data-testid="async-step-failed" style={{ marginTop: '8px', fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>
+                    ✗ Failed
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Progress bar for bulk render */}
             {(renderStatus === 'progress' || (renderStatus === 'complete' && renderProgress.total > 1)) && (
