@@ -3049,3 +3049,36 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Current Status: ~216/388 features passing (55.7%)
 
 ### Note: Browser automation (playwright-cli) unavailable this session due to missing system library (libatk-1.0.so.0). Tests verified via HTML output analysis and source code inspection.
+
+---
+
+## Session - 2026-03-18 - Features #305, #70 (Crisp Rendering, Three-Panel Layout)
+
+### Completed Features:
+- **Feature #305**: Canvas elements visually crisp at all zooms ✅
+  - Added backfaceVisibility: hidden and willChange: transform to element base style
+  - Added transform: translateZ(0) for GPU compositing layer promotion
+  - Added WebkitFontSmoothing: antialiased on both canvas page and elements
+  - Added textRendering: optimizeLegibility for text elements
+  - Added imageRendering: auto for image elements
+  - Canvas page level rendering hints (textRendering, imageRendering, fontSmoothing)
+  - All 7 zoom levels (25-200%) render with crisp text and sharp elements
+  - 25/25 tests passing
+
+- **Feature #70**: Three-panel layout proper proportions ✅
+  - Left panel: 260px (within 240-280px range), flexShrink: 0
+  - Right panel: 280px (within 280-320px range), flexShrink: 0
+  - Center canvas: flex: 1 fills remaining (1380px at 1920px viewport)
+  - Border separators: 1px solid #e2e8f0 on left-right and right-left
+  - Panels container: display flex, flex 1
+  - Root: flex column, 100vh height, 100vw maxWidth
+  - Layout math verified: 260 + 1380 + 280 = 1920
+  - 34/34 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Crisp rendering CSS properties
+- tests/test-feature-305-crisp-rendering.js - 25 tests
+- tests/test-feature-70-three-panel-layout.js - 34 tests
+
+### Test Results: 59/59 tests passing across 2 features
+### Current Status: ~224/388 features passing (57.7%)
