@@ -3,10 +3,11 @@
  *
  * Built on expr-eval (MIT) with custom extensions:
  * - Arithmetic with field references
- * - String: LEFT, RIGHT, MID, UPPER, LOWER, TRIM, CONCAT, LEN
- * - Conditional: IF (nested), AND, OR, NOT
+ * - String: LEFT, RIGHT, MID, UPPER, LOWER, TRIM, CONCAT, LEN,
+ *           PADLEFT, PADRIGHT, REPLACE, SUBSTITUTE, SPLIT, FIND
+ * - Conditional: IF (nested), AND, OR, NOT, SWITCH
  * - Date: FORMAT, DATEDIFF, TODAY, YEAR, MONTH, DAY
- * - Numeric: FORMAT, ROUND, ABS
+ * - Numeric: FORMAT, ROUND, ABS, FLOOR, CEIL, MIN, MAX, SUM
  * - Locale-aware: FORMAT_CURRENCY, FORMAT_DATE, FORMAT_NUMBER
  * - Sandboxed: no Node.js globals, no require(), no eval()
  */
@@ -265,6 +266,59 @@ export class ExpressionEngine {
     this.parser.functions.LEN = (str: unknown): number => {
       return toStr(str).length;
     };
+
+    // PADLEFT(str, length, padChar) - pad string on the left to target length
+    // padChar defaults to ' ' if omitted. E.g., PADLEFT('123', 8, '0') → '00000123'
+    this.parser.functions.PADLEFT = (str: unknown, length: number, padChar?: unknown): string => {
+      const s = toStr(str);
+      const pad = padChar !== undefined && padChar !== null ? toStr(padChar) : ' ';
+      return s.padStart(length, pad || ' ');
+    };
+
+    // PADRIGHT(str, length, padChar) - pad string on the right to target length
+    // padChar defaults to ' ' if omitted
+    this.parser.functions.PADRIGHT = (str: unknown, length: number, padChar?: unknown): string => {
+      const s = toStr(str);
+      const pad = padChar !== undefined && padChar !== null ? toStr(padChar) : ' ';
+      return s.padEnd(length, pad || ' ');
+    };
+
+    // REPLACE(str, search, replacement) - replace first occurrence of search with replacement
+    this.parser.functions.REPLACE = (str: unknown, search: unknown, replacement: unknown): string => {
+      const s = toStr(str);
+      const searchStr = toStr(search);
+      const replaceStr = toStr(replacement);
+      if (searchStr === '') return s;
+      const idx = s.indexOf(searchStr);
+      if (idx === -1) return s;
+      return s.substring(0, idx) + replaceStr + s.substring(idx + searchStr.length);
+    };
+
+    // SUBSTITUTE(str, search, replacement) - replace ALL occurrences (like Excel SUBSTITUTE)
+    this.parser.functions.SUBSTITUTE = (str: unknown, search: unknown, replacement: unknown): string => {
+      const s = toStr(str);
+      const searchStr = toStr(search);
+      const replaceStr = toStr(replacement);
+      if (searchStr === '') return s;
+      return s.split(searchStr).join(replaceStr);
+    };
+
+    // SPLIT(str, delimiter, index) - split string by delimiter and return element at index (0-based)
+    this.parser.functions.SPLIT = (str: unknown, delimiter: unknown, index: number): string => {
+      const s = toStr(str);
+      const delim = toStr(delimiter);
+      const parts = s.split(delim);
+      if (index < 0 || index >= parts.length) return '';
+      return parts[index];
+    };
+
+    // FIND(searchStr, withinStr) - return 1-based position of searchStr in withinStr, or 0 if not found
+    this.parser.functions.FIND = (searchStr: unknown, withinStr: unknown): number => {
+      const search = toStr(searchStr);
+      const within = toStr(withinStr);
+      const idx = within.indexOf(search);
+      return idx === -1 ? 0 : idx + 1; // 1-based like Excel
+    };
   }
 
   /**
@@ -289,6 +343,24 @@ export class ExpressionEngine {
     // NOT(value) - logical NOT
     this.parser.functions.NOT = (value: unknown): boolean => {
       return !value;
+    };
+
+    // SWITCH(expr, case1, val1, case2, val2, ..., default) - multi-way conditional
+    // Like Excel SWITCH: matches expr against case values and returns the corresponding val.
+    // If no match found and odd number of remaining args, the last arg is the default.
+    this.parser.functions.SWITCH = (...args: unknown[]): unknown => {
+      if (args.length < 3) return '';
+      const expr = args[0];
+      // Process pairs: (case, value)
+      for (let i = 1; i + 1 < args.length; i += 2) {
+        // eslint-disable-next-line eqeqeq
+        if (args[i] == expr) return args[i + 1];
+      }
+      // If odd number of remaining args (after expr), last arg is default
+      if ((args.length - 1) % 2 === 1) {
+        return args[args.length - 1];
+      }
+      return '';
     };
   }
 
@@ -477,6 +549,53 @@ export class ExpressionEngine {
     this.parser.functions.ABS = (value: number): number => {
       if (typeof value !== 'number') value = Number(value);
       return Math.abs(value);
+    };
+
+    // FLOOR(value) - round down to nearest integer
+    this.parser.functions.FLOOR = (value: number): number => {
+      if (typeof value !== 'number') value = Number(value);
+      if (isNaN(value)) return 0;
+      return Math.floor(value);
+    };
+
+    // CEIL(value) - round up to nearest integer
+    this.parser.functions.CEIL = (value: number): number => {
+      if (typeof value !== 'number') value = Number(value);
+      if (isNaN(value)) return 0;
+      return Math.ceil(value);
+    };
+
+    // MIN(a, b, ...) - return minimum value (variadic)
+    this.parser.functions.MIN = (...args: unknown[]): number => {
+      const nums = args.map(a => {
+        if (a instanceof NullSentinel || a === null || a === undefined) return 0;
+        const n = Number(a);
+        return isNaN(n) ? 0 : n;
+      });
+      if (nums.length === 0) return 0;
+      return Math.min(...nums);
+    };
+
+    // MAX(a, b, ...) - return maximum value (variadic)
+    this.parser.functions.MAX = (...args: unknown[]): number => {
+      const nums = args.map(a => {
+        if (a instanceof NullSentinel || a === null || a === undefined) return 0;
+        const n = Number(a);
+        return isNaN(n) ? 0 : n;
+      });
+      if (nums.length === 0) return 0;
+      return Math.max(...nums);
+    };
+
+    // SUM(a, b, ...) - sum all arguments (variadic)
+    this.parser.functions.SUM = (...args: unknown[]): number => {
+      let total = 0;
+      for (const a of args) {
+        if (a instanceof NullSentinel || a === null || a === undefined) continue;
+        const n = Number(a);
+        if (!isNaN(n)) total += n;
+      }
+      return total;
     };
   }
 

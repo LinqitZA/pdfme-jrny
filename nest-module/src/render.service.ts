@@ -409,9 +409,11 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
 
     // 3. Resolve inputs - use provided inputs or create empty inputs
+    // Always merge with empty defaults to prevent undefined values crashing text plugins
+    const emptyDefaults = this.buildEmptyInputs(pdfmeTemplate);
     let inputs = dto.inputs && dto.inputs.length > 0
-      ? dto.inputs
-      : [this.buildEmptyInputs(pdfmeTemplate)];
+      ? dto.inputs.map(inp => ({ ...emptyDefaults, ...inp }))
+      : [emptyDefaults];
 
     // 3-ds. If a DataSource is registered for this template type and no explicit inputs,
     //       resolve data from the DataSource
