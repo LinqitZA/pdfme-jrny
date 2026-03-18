@@ -199,3 +199,40 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Health endpoint needs @Public() decorator or JWT token
 
 ### Current Status: 12/388 features passing (sessions 1-4 combined)
+
+---
+
+## Session 5 - 2026-03-18 - Features #44, #64, #65 (Designer Pages)
+
+### Completed Features:
+- **Feature #44**: Designer Pages tab shows thumbnails ✅
+  - Multi-page state with 3 default pages (Page 1, Page 2, Page 3)
+  - Each page has a thumbnail preview area showing miniature content
+  - Current page highlighted with blue border and background
+  - Page indicator in toolbar: "Page X / Y"
+  - Click thumbnail to switch active page
+
+- **Feature #64**: Pages drag reorder works ✅
+  - All page thumbnails are HTML5 draggable
+  - Drag feedback: source opacity 0.5, drop target dashed blue border
+  - Drop reorders pages array and updates canvas to follow selected page
+  - Handles all index edge cases (drag before/after current)
+
+- **Feature #65**: Pages context menu duplicate/delete ✅
+  - Right-click on page thumbnail opens context menu
+  - Duplicate: creates copy of page with "(Copy)" suffix, inserted after source
+  - Delete: removes page (disabled if only 1 page remains)
+  - Menu auto-closes on outside click
+  - Add Page button at bottom of pages list
+
+### Key Changes:
+- apps/designer-sandbox/components/ErpDesigner.tsx: Added multi-page state, drag reorder, context menu
+- TemplatePage interface: id, label, elements array
+- No new dependencies added - pure HTML5 drag-and-drop
+
+### Current Status: ~18/388 features passing (sessions 1-5 combined)
+
+### Notes for next session:
+- Chromium/Playwright still unavailable (missing libatk-1.0.so.0)
+- Verification done via curl + JS bundle inspection
+- Designer sandbox runs on port 3002
