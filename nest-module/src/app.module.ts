@@ -5,6 +5,7 @@
  */
 
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as path from 'path';
@@ -15,13 +16,17 @@ import { TemplateController } from './template.controller';
 import { TemplateService } from './template.service';
 import { AssetController } from './asset.controller';
 import { AssetService } from './asset.service';
+import { SignatureController } from './signature.controller';
+import { SignatureService } from './signature.service';
 import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
+import { JwtAuthGuard } from './auth.guard';
+import { RenderController } from './render.controller';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -48,9 +53,14 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
         return new LocalDiskStorageAdapter(STORAGE_ROOT, STORAGE_TEMP);
       },
     },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
     TemplateService,
     AssetService,
+    SignatureService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService, SignatureService],
 })
 export class AppModule {}

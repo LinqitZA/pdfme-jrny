@@ -7,8 +7,10 @@
 
 import { Controller, Get, Inject } from '@nestjs/common';
 import { Pool } from 'pg';
+import { Public } from './auth.guard';
 
 @Controller('api/pdfme')
+@Public()
 export class HealthController {
   constructor(@Inject('PG_POOL') private readonly pool: Pool) {}
 

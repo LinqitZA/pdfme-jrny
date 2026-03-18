@@ -6,6 +6,7 @@
  * - POST   /api/pdfme/templates              (create)
  * - GET    /api/pdfme/templates/:id          (get by ID)
  * - PUT    /api/pdfme/templates/:id          (update)
+ * - PUT    /api/pdfme/templates/:id/draft   (save draft changes)
  * - DELETE /api/pdfme/templates/:id          (soft delete / archive)
  */
 
@@ -23,7 +24,7 @@ import {
   HttpStatus,
   HttpCode,
 } from '@nestjs/common';
-import { TemplateService, CreateTemplateDto, UpdateTemplateDto } from './template.service';
+import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto } from './template.service';
 
 /**
  * Extract orgId and userId from JWT token (simple decode for now).
@@ -109,6 +110,49 @@ export class TemplateController {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
         HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
+  }
+
+  @Put(':id/draft')
+  async saveDraft(
+    @Param('id') id: string,
+    @Body() body: SaveDraftDto,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const result = await this.templateService.saveDraft(id, body, orgId);
+    if (!result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
+  }
+
+  @Post(':id/publish')
+  async publish(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const result = await this.templateService.publish(id, orgId);
+    if (!result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    if ('error' in result) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: result.error },
+        HttpStatus.BAD_REQUEST,
       );
     }
     return result;
