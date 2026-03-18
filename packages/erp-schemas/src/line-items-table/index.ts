@@ -14,6 +14,7 @@
 
 import type {
   ColumnDefinition,
+  RowCondition,
   RowStyle,
   MaxRowsPerPage,
 } from '../types';
@@ -51,6 +52,26 @@ export interface FooterRowConfig {
   labelColSpan?: number;
 }
 
+/** Configuration for a conditional sub-row that appears beneath a primary row */
+export interface SubRowConfig {
+  /** Unique identifier for this sub-row template */
+  id: string;
+  /** Condition that must be met for this sub-row to render */
+  condition: RowCondition;
+  /**
+   * Cell definitions for the sub-row.
+   * Maps column keys to content strings (may contain {{field.key}} bindings).
+   * Columns not specified will be empty.
+   */
+  cells: Record<string, string>;
+  /** Optional style for the sub-row */
+  style?: RowStyle;
+  /** Number of columns to span for the content (colSpan) */
+  colSpan?: number;
+  /** Which column key to start the colSpan from */
+  startColumnKey?: string;
+}
+
 /** Schema definition for a lineItemsTable element */
 export interface LineItemsTableSchema {
   type: 'lineItemsTable';
@@ -66,6 +87,8 @@ export interface LineItemsTableSchema {
   repeatHeader?: boolean;
   /** Footer row configurations */
   footerRows?: FooterRowConfig[];
+  /** Sub-row templates that render conditionally beneath each line item */
+  subRows?: SubRowConfig[];
   /** Maximum rows per page */
   maxRowsPerPage?: MaxRowsPerPage;
   /** Alternating row shading */
@@ -82,6 +105,104 @@ export interface LineItemsTableSchema {
 
 /** A single line item data record */
 export type LineItemRecord = Record<string, string | number | null | undefined>;
+
+/**
+ * Evaluate whether a RowCondition is met for a given line item.
+ *
+ * @param condition - The condition to evaluate
+ * @param item - The line item data record
+ * @returns true if the condition is met
+ */
+export function evaluateRowCondition(
+  condition: RowCondition,
+  item: LineItemRecord,
+): boolean {
+  switch (condition.type) {
+    case 'fieldNonEmpty': {
+      if (!condition.field) return false;
+      const val = item[condition.field];
+      if (val === null || val === undefined) return false;
+      if (typeof val === 'string' && val.trim() === '') return false;
+      return true;
+    }
+
+    case 'expression': {
+      if (!condition.expression) return false;
+      // Simple expression evaluation for common patterns
+      // Supports: field > 0, field != '', field == 'value'
+      const expr = condition.expression.trim();
+
+      // Try field reference comparison: field.key > 0
+      const compMatch = expr.match(/^([a-zA-Z0-9_.]+)\s*(>|<|>=|<=|==|!=)\s*(.+)$/);
+      if (compMatch) {
+        const [, fieldKey, op, rawRight] = compMatch;
+        const leftVal = item[fieldKey];
+        const rightStr = rawRight.trim().replace(/^['"]|['"]$/g, '');
+        const leftNum = typeof leftVal === 'number' ? leftVal : parseFloat(String(leftVal || '0'));
+        const rightNum = parseFloat(rightStr);
+
+        if (!isNaN(leftNum) && !isNaN(rightNum)) {
+          switch (op) {
+            case '>': return leftNum > rightNum;
+            case '<': return leftNum < rightNum;
+            case '>=': return leftNum >= rightNum;
+            case '<=': return leftNum <= rightNum;
+            case '==': return leftNum === rightNum;
+            case '!=': return leftNum !== rightNum;
+          }
+        }
+
+        // String comparison
+        const leftStr = String(leftVal || '');
+        switch (op) {
+          case '==': return leftStr === rightStr;
+          case '!=': return leftStr !== rightStr;
+          default: return false;
+        }
+      }
+
+      // Simple truthy check: just a field name
+      const val = item[expr];
+      return val !== null && val !== undefined && val !== '' && val !== 0;
+    }
+
+    default:
+      return false;
+  }
+}
+
+/**
+ * Build a sub-row cell array for a given line item, using the sub-row config.
+ *
+ * @param item - The line item data record
+ * @param subRow - The sub-row configuration
+ * @param columns - The column definitions
+ * @returns Array of cell strings for this sub-row
+ */
+export function buildSubRowCells(
+  item: LineItemRecord,
+  subRow: SubRowConfig,
+  columns: ColumnDefinition[],
+): string[] {
+  const cells: string[] = [];
+
+  for (const col of columns) {
+    const cellTemplate = subRow.cells[col.key];
+    if (cellTemplate) {
+      // Resolve {{field.key}} bindings in the cell content
+      const resolved = cellTemplate.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => {
+        const val = item[key.trim()];
+        if (val === null || val === undefined) return '';
+        return String(val);
+      });
+      cells.push(resolved);
+    } else {
+      cells.push('');
+    }
+  }
+
+  return cells;
+}
 
 /**
  * Compute footer row values based on the line items data and footer config.
@@ -244,17 +365,30 @@ export function resolveLineItemsTableData(
     head.push(columns.map((col) => col.header));
   }
 
-  // Build body rows from line items
-  const bodyRows: string[][] = lineItems.map((item) =>
-    columns.map((col) => {
+  // Build body rows from line items, with conditional sub-rows
+  const bodyRows: string[][] = [];
+  const subRowConfigs = schema.subRows || [];
+
+  for (const item of lineItems) {
+    // Primary row
+    const primaryRow = columns.map((col) => {
       const val = item[col.key];
       if (val === null || val === undefined) return '';
       if (typeof val === 'number' && col.format) {
         return formatNumber(val, col.format);
       }
       return String(val);
-    }),
-  );
+    });
+    bodyRows.push(primaryRow);
+
+    // Conditional sub-rows: evaluate each sub-row config against this item
+    for (const subRow of subRowConfigs) {
+      if (evaluateRowCondition(subRow.condition, item)) {
+        const subRowCells = buildSubRowCells(item, subRow, columns);
+        bodyRows.push(subRowCells);
+      }
+    }
+  }
 
   // Compute and append footer rows
   const footerStartIndex = bodyRows.length;
@@ -484,4 +618,14 @@ export const lineItemsTable = {
    * Format a number with an optional format string.
    */
   formatNumber,
+
+  /**
+   * Evaluate a row condition against a line item.
+   */
+  evaluateRowCondition,
+
+  /**
+   * Build sub-row cells from a sub-row config and line item data.
+   */
+  buildSubRowCells,
 };
