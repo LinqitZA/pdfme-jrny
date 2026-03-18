@@ -956,3 +956,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-autosave-145.js - 26 tests for auto-save functionality
 
 ### Current Status: ~67/388 features passing (17.3%)
+
+---
+
+## Session - 2026-03-18 - Features #146, #149, #150 (Verify, DataSource, Font Upload)
+
+### Completed Features:
+- **Feature #146**: Render verify endpoint checks hash ✅
+  - GET /api/pdfme/render/verify/:documentId compares stored SHA-256 with file on disk
+  - Returns {verified: true, status: 'intact'} when hashes match
+  - Returns {verified: false, status: 'tampered'} when PDF modified on disk
+  - Returns 404 for non-existent documents, 401 without auth
+  - 14/14 tests passing
+
+- **Feature #149**: DataSource registry resolves template type ✅
+  - Enhanced DataSourceRegistry with @Injectable() decorator
+  - resolve() throws descriptive Error for unregistered types (lists registered types)
+  - Added getRegisteredTypes() and unregister() methods
+  - Created DataSourceController with GET /api/pdfme/datasources, GET :type, POST :type/resolve
+  - Registered in AppModule as provider and export
+  - 21/21 tests passing (unit + API)
+
+- **Feature #150**: Font management upload and validation ✅
+  - Created FontController with POST /api/pdfme/fonts/upload endpoint
+  - Validates font format via magic bytes (TTF: 00010000, OTF: OTTO, WOFF2: wOF2)
+  - Reads OS/2 table fsType field from TTF/OTF to check embedding permissions
+  - Rejects fonts with restricted fsType (0x0002) - cannot be embedded in documents
+  - Accepts installable (0x0000), editable (0x0008), preview/print (0x0004) embedding
+  - Rejects files >10MB, wrong extensions (.txt etc), and invalid magic bytes
+  - Stores accepted fonts in {orgId}/fonts/ directory via FileStorageService
+  - GET /api/pdfme/fonts lists org fonts, GET :fontId downloads, DELETE :fontId removes
+  - 21/21 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/render.service.ts - Added verifyDocument() method
+- nest-module/src/render.controller.ts - Added GET verify/:documentId endpoint
+- nest-module/src/datasource.registry.ts - Enhanced with @Injectable, error throwing, getRegisteredTypes, unregister
+- nest-module/src/datasource.controller.ts - New controller for DataSource management
+- nest-module/src/font.controller.ts - New controller for font upload with validation
+- nest-module/src/app.module.ts - Registered DataSourceRegistry, DataSourceController, FontController
+- tests/test-verify-endpoint.js - 14 tests for verify endpoint
+- tests/test-datasource-registry.js - 21 tests for datasource registry
+- tests/test-font-upload.js - 21 tests for font upload
+
+### Current Status: 75/388 features passing (19.3%)
