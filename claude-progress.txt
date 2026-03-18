@@ -2582,3 +2582,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 78/78 tests passing across 3 test suites
 ### Current Status: ~179/388 features passing (46.1%)
+
+---
+
+## Session - 2026-03-18 - Features #267, #268, #269 (Publish Validation)
+
+### Completed Features:
+- **Feature #267**: Expression validation on publish ✅
+  - Enhanced validateTemplateForPublish() to parse and evaluate expressions
+  - Uses expr-eval Parser with known functions registered as stubs
+  - Catches unknown functions (INVALID()), syntax errors (((, IF(,,,))
+  - Validates expressions in calculated/calculated-field elements
+  - Validates conditionalVisibility expressions
+  - Pure bindings ({{field}}) in calculated fields skipped (not expression-validated)
+  - 25/25 tests passing
+
+- **Feature #268**: Binding validation on publish ✅
+  - Injected FieldSchemaRegistry into TemplateService
+  - getKnownFieldKeys() collects all registered field keys for a template type
+  - {{nonexistent.field}} rejected with specific error naming the field
+  - Error includes template type name for context
+  - Custom type (no field schema registered) allows any bindings
+  - Statement type validates against its own field schema
+  - Line items array fields (lineItems[].description) correctly recognized
+  - Multiple bad bindings all individually reported
+  - 17/17 tests passing
+
+- **Feature #269**: Column sum validation on line items table ✅
+  - Validates column widths sum against element width for table elements
+  - Supports line-items-table, lineItemsTable, line_items_table, grouped-table types
+  - Error message includes actual sum and expected width
+  - 0.5mm tolerance for floating point rounding
+  - Supports both 'width' and 'w' element properties
+  - Tables without columns array not checked
+  - Non-table elements not affected
+  - 16/16 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - Added validateExpression(), getKnownFieldKeys(), enhanced validateTemplateForPublish()
+- tests/test-expression-validation-267.js - 25 tests
+- tests/test-binding-validation-268.js - 17 tests
+- tests/test-column-width-validation-269.js - 16 tests
+
+### Test Results: 58/58 tests passing across 3 test suites
+### Current Status: ~188/388 features passing (48.5%)
