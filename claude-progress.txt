@@ -1,3 +1,49 @@
+## Session - 2026-03-18 - Features #397, #398, #399 (Docker Build TypeScript Fixes)
+
+### Completed Features:
+- **Feature #398**: Fix expr-eval type error in erp-schemas expression engine ✅
+  - Imported Value type from expr-eval
+  - Changed flatContext type from Record<string, unknown> to Record<string, Value>
+  - Cast NullSentinel assignments through unknown as Value
+  - Removed '2>/dev/null || true' from erp-schemas Dockerfile build step
+  - erp-schemas compiles cleanly with npx tsc --noEmit
+
+- **Feature #399**: Refactor nest-module relative imports to use package imports ✅
+  - Replaced 12 relative imports (../../packages/erp-schemas/src/...) with @pdfme-erp/schemas
+  - Updated render.service.ts (8 imports), expression.controller.ts, watermark.controller.ts, grouped-table.controller.ts
+  - Added all needed exports to packages/erp-schemas/src/index.ts
+  - All TS6059 rootDir errors eliminated
+
+- **Feature #397**: Add missing @types/express and @types/multer to nest-module ✅
+  - Added @types/express and @types/multer to devDependencies
+  - Added "multer" to tsconfig.json types array
+  - Fixed additional TS errors: Drizzle schema index syntax (v0.30 object format), useBodyParser cast, Uint8Array/Buffer casts, adm-zip ts-ignore, type assertion casts
+  - nest-module compiles cleanly with 0 TypeScript errors
+  - Docker build succeeds for both api and designer images
+  - API starts successfully in Docker container and passes health check
+
+### Key Files Modified:
+- packages/erp-schemas/src/expression-engine/index.ts - Value type import and flatContext typing
+- packages/erp-schemas/src/index.ts - Added all needed re-exports
+- nest-module/src/render.service.ts - Package imports, type casts
+- nest-module/src/expression.controller.ts - Package imports
+- nest-module/src/watermark.controller.ts - Package imports
+- nest-module/src/grouped-table.controller.ts - Package imports, Buffer.from cast
+- nest-module/src/db/schema.ts - Drizzle index syntax (array → object)
+- nest-module/src/main.ts - useBodyParser cast
+- nest-module/src/render.controller.ts - Type assertion casts
+- nest-module/src/signature.controller.ts - Null safety fix
+- nest-module/src/template.service.ts - adm-zip ts-ignore
+- nest-module/tsconfig.json - Added multer to types
+- nest-module/package.json - Added @types/express, @types/multer
+- nest-module/Dockerfile - Removed error suppression, added node_modules copy
+- apps/designer-sandbox/Dockerfile - Fixed COPY syntax, removed error suppression
+
+### Test Results: All 3 features passing
+### Current Status: 395/399 features passing
+
+---
+
 ## Session - 2026-03-18 - Feature #395 (Printer Selection UI in Designer)
 
 ### Completed Feature:
