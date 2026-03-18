@@ -1878,3 +1878,75 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-216-entityids-validation.js - 24 tests
 
 ### Current Status: ~135/388 features passing (34.8%)
+
+---
+
+## Session - 2026-03-18 - Features #208, #209, #210 (API Error Handling)
+
+### Completed Features:
+- **Feature #208**: API handles unknown endpoints with 404 ✅
+  - NestJS + GlobalExceptionFilter already handles this correctly
+  - All HTTP methods (GET, POST, PUT, DELETE, PATCH) on unknown routes return 404
+  - Proper JSON error envelope: {statusCode, error, message, timestamp, path}
+  - No stack traces exposed, Content-Type is application/json
+  - 22/22 tests passing
+
+- **Feature #209**: Cursor pagination handles invalid cursor ✅
+  - Changed template.service.ts findAll() to throw BadRequestException on invalid cursor
+  - Previously silently ignored invalid cursors (started from beginning)
+  - Now validates: base64 decode, JSON parse, required fields (createdAt, id), valid date
+  - Returns 400 with clear "Invalid cursor parameter" message
+  - Normal pagination still works after invalid cursor attempts
+  - 22/22 tests passing
+
+- **Feature #210**: API endpoint with deleted entity returns 404 ✅
+  - Added archived status check in template.controller.ts getById()
+  - Added archived check in saveDraft() before lock conflict check
+  - GET /templates/:id returns 404 for archived templates
+  - PUT /templates/:id/draft returns 404 for archived templates
+  - Nonexistent assets, documents, previews all return proper 404
+  - No stack traces in error responses
+  - 23/23 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - BadRequestException on invalid cursor
+- nest-module/src/template.controller.ts - Archived template checks in getById and saveDraft
+- tests/test-unknown-endpoints-208.js - 22 tests
+- tests/test-invalid-cursor-209.js - 22 tests
+- tests/test-deleted-entity-404-210.js - 23 tests
+
+### Current Status: ~130/388 features passing (33.5%)
+
+---
+
+## Session - 2026-03-18 - Features #217, #218, #219 (Asset Validation, Signature Uniqueness, Concurrent Save)
+
+### Completed Features:
+- **Feature #217**: Asset upload validates file type ✅
+  - Disallowed types (.exe, .bat, .js, .html, .pdf, .php, double extensions) rejected with 400
+  - Allowed image types (.png, .jpg, .jpeg, .svg, .webp, .gif) accepted with 201
+  - Allowed font types (.ttf, .otf, .woff2) accepted with 201
+  - Proper metadata returned (id, category, storagePath, mimeType, size)
+  - Images stored in /assets/, fonts stored in /fonts/
+  - 37/37 tests passing
+
+- **Feature #218**: Signature endpoint prevents multiple active ✅
+  - Upload replaces existing signature (old record deleted, old file removed)
+  - Only one active signature per user+org at any time
+  - Different users maintain independent signatures
+  - Revoke+re-upload cycle works correctly
+  - Repeated uploads always replace, never accumulate
+  - 29/29 tests passing
+
+- **Feature #219**: Concurrent save requests don't corrupt data ✅
+  - 2 concurrent saves: both succeed, last writer wins, no corruption
+  - 5 concurrent burst saves: all succeed, schema integrity preserved
+  - Concurrent name+schema updates: both succeed independently
+  - Sequential rapid saves (double-click): all succeed, last persists
+  - Large concurrent saves (20-30 elements): no partial writes
+  - Multiple concurrent reads return identical data
+  - PostgreSQL atomic UPDATE ensures data consistency
+  - 38/38 tests passing
+
+### Test Results: 104/104 tests passing across 3 test suites
+### Current Status: ~140/388 features passing (36.1%)
