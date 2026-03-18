@@ -49,6 +49,8 @@ export interface RenderNowDto {
   entityType?: string;
   channel: string;
   inputs?: Record<string, string>[];
+  /** When true, store full input snapshot on GeneratedDocument for audit reproduction */
+  storeInputSnapshot?: boolean;
 }
 
 export interface RenderBulkDto {
@@ -382,7 +384,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             status: 'failed',
             outputChannel: dto.channel,
             triggeredBy: userId,
-            inputSnapshot: dto.inputs || null,
+            inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
             errorMessage: `DataSource error: ${errorMessage}`,
           })
           .returning();
@@ -413,7 +415,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           status: 'failed',
           outputChannel: dto.channel,
           triggeredBy: userId,
-          inputSnapshot: dto.inputs || null,
+          inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage,
         })
         .returning();
@@ -550,7 +552,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           status: 'failed',
           outputChannel: dto.channel,
           triggeredBy: userId,
-          inputSnapshot: dto.inputs || null,
+          inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage: errorMessage,
         })
         .returning();
@@ -638,7 +640,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           status: 'failed',
           outputChannel: dto.channel,
           triggeredBy: userId,
-          inputSnapshot: inputs || dto.inputs || null,
+          inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
           errorMessage: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`,
         })
         .returning();
@@ -664,7 +666,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         status: 'done',
         outputChannel: dto.channel,
         triggeredBy: userId,
-        inputSnapshot: inputs || dto.inputs || null,
+        inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
       })
       .returning();
 
@@ -2235,10 +2237,51 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         outputChannel: generatedDocuments.outputChannel,
         createdAt: generatedDocuments.createdAt,
         pdfHash: generatedDocuments.pdfHash,
+        inputSnapshot: generatedDocuments.inputSnapshot,
       })
       .from(generatedDocuments)
       .where(and(...conditions));
-    return docs;
+    return docs.map(d => ({
+      ...d,
+      hasInputSnapshot: d.inputSnapshot != null,
+    }));
+  }
+
+  /**
+   * Get the input snapshot for a specific generated document.
+   * Returns the full JSON snapshot used for audit/reproduction.
+   */
+  async getDocumentSnapshot(documentId: string, orgId: string): Promise<{
+    documentId: string;
+    hasSnapshot: boolean;
+    inputSnapshot: unknown;
+  } | { error: string }> {
+    const [doc] = await this.db
+      .select({
+        id: generatedDocuments.id,
+        inputSnapshot: generatedDocuments.inputSnapshot,
+        templateId: generatedDocuments.templateId,
+        entityId: generatedDocuments.entityId,
+        entityType: generatedDocuments.entityType,
+        createdAt: generatedDocuments.createdAt,
+      })
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.id, documentId),
+          eq(generatedDocuments.orgId, orgId),
+        ),
+      );
+
+    if (!doc) {
+      return { error: 'Document not found' };
+    }
+
+    return {
+      documentId: doc.id,
+      hasSnapshot: doc.inputSnapshot != null,
+      inputSnapshot: doc.inputSnapshot,
+    };
   }
 
   /**

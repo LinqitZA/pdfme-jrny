@@ -437,6 +437,34 @@ export class RenderController {
     res.send(result.buffer);
   }
 
+  /**
+   * Get the input snapshot for a generated document (for audit/reproduction)
+   */
+  @Get('document/:documentId/snapshot')
+  async getDocumentSnapshot(
+    @Param('documentId') documentId: string,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.renderService.getDocumentSnapshot(documentId, user.orgId);
+
+    if ('error' in result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: result.error },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return result;
+  }
+
   @Get('download/:previewId')
   async downloadPreview(
     @Param('previewId') previewId: string,
