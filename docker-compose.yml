@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pdfme_erp
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: nest-module/Dockerfile
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: '3001'
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/pdfme_erp
+      REDIS_HOST: redis
+      REDIS_PORT: '6379'
+      PDFME_STORAGE_ROOT: /app/storage
+      HASH_ALGORITHM: sha256
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./storage:/app/storage
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:3001/api/pdfme/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  designer:
+    build:
+      context: .
+      dockerfile: apps/designer-sandbox/Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:3001/api/pdfme
+      PORT: '3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:

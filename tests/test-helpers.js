@@ -6,7 +6,7 @@
 const crypto = require('crypto');
 
 const DEV_JWT_SECRET = process.env.JWT_SECRET || 'pdfme-dev-secret';
-const API_BASE = process.env.API_BASE || 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 /**
  * Create a properly signed JWT token for testing.

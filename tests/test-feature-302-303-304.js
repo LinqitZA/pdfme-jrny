@@ -333,7 +333,7 @@ async function runTests() {
 
   // 42. API health check
   try {
-    const healthRes = await httpGet('http://localhost:3000/api/pdfme/health');
+    const healthRes = await httpGet('http://localhost:3001/api/pdfme/health');
     const health = JSON.parse(healthRes.body);
     assert(health.status === 'ok', '#304: API health check passes');
   } catch (e) {

@@ -5,7 +5,7 @@
 # #133: Render pipeline resolveConditions
 
 JWT="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6InRlc3Qtb3JnIiwicm9sZXMiOlsiYWRtaW4iXX0.fakesig"
-BASE_URL="http://localhost:3000/api/pdfme"
+BASE_URL="http://localhost:3001/api/pdfme"
 PASS=0
 FAIL=0
 

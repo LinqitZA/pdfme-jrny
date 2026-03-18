@@ -9,7 +9,7 @@
 const http = require('http');
 
 const DESIGNER_PORT = 3001;
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function fetch(url, options = {}) {
   return new Promise((resolve, reject) => {

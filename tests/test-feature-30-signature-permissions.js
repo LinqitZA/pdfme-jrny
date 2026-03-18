@@ -14,7 +14,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const JWT_SECRET = 'pdfme-dev-secret';
 
 let passed = 0;
@@ -206,7 +206,7 @@ async function run() {
   // 8. Verify direct file path is not a public URL
   // Try to access storage path directly - should fail
   const directPath = uploadRes.body.filePath;
-  const directRes = await rawRequest('GET', `http://localhost:3000/${directPath}`);
+  const directRes = await rawRequest('GET', `http://localhost:3001/${directPath}`);
   assert('Direct file path not publicly accessible', directRes.status === 404 || directRes.status === 401);
 
   // 9. Verify different org cannot access signature file

@@ -24,7 +24,7 @@ function assert(condition, msg) {
 async function go() {
   process.stdout.write('=== Feature #267: Expression validation on publish ===\n\n');
 
-  const BASE = 'http://localhost:3000/api/pdfme/templates';
+  const BASE = 'http://localhost:3001/api/pdfme/templates';
 
   // 1. Create template with INVALID() expression (unknown function)
   const invalidExprSchema = {

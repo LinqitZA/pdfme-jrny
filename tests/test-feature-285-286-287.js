@@ -8,7 +8,7 @@
 const { signJwt } = require('./create-signed-token');
 const http = require('http');
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const FRONTEND_URL = 'http://localhost:3001';
 const TOKEN = signJwt({ sub: 'user-test-285', orgId: 'org-test-285', roles: ['template:edit', 'template:publish', 'render:trigger', 'template:view'] });
 

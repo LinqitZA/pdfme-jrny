@@ -8,7 +8,7 @@
  * 4. Verify messages are actionable
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const AUTH = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEiLCJvcmdJZCI6Im9yZy0xIiwicm9sZXMiOlsiYWRtaW4iXSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjk5OTk5OTk5OTl9.FqVQ5e2jMECKPYMWmI5TSxOYdOH46sswNQLMqlZeHaU';
 
 async function getErr(path) {

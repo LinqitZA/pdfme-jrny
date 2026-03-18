@@ -9,7 +9,7 @@ const fs = require('fs');
 const zlib = require('zlib');
 const pathModule = require('path');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const JWT = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6InRlc3Qtb3JnIiwicm9sZXMiOlsiYWRtaW4iXX0.fakesig';
 
 let passed = 0;

@@ -13,7 +13,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.API_BASE || 'http://localhost:3001';
 let PASS = 0;
 let FAIL = 0;
 

@@ -9,7 +9,7 @@
  * 4. Navigation flow: filters preserved across page navigation
  */
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const FRONTEND_BASE = 'http://localhost:3002';
 
 // Helper: create auth headers with proper HMAC JWT

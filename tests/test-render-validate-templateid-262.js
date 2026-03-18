@@ -26,7 +26,7 @@ async function go() {
 
   // === Test 1: POST render/now with nonexistent templateId -> 404 ===
   console.log('--- Test: render/now with nonexistent templateId ---');
-  const r1 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r1 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: 'nonexistent-template-id-xyz',
     entityId: 'entity-1',
     channel: 'email'
@@ -39,7 +39,7 @@ async function go() {
 
   // === Test 2: render/now with empty string templateId -> 400 ===
   console.log('\n--- Test: render/now with empty templateId ---');
-  const r2 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r2 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: '',
     entityId: 'entity-1',
     channel: 'email'
@@ -48,7 +48,7 @@ async function go() {
 
   // === Test 3: render/now without templateId -> 400 ===
   console.log('\n--- Test: render/now without templateId ---');
-  const r3 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r3 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     entityId: 'entity-1',
     channel: 'email'
   });
@@ -57,7 +57,7 @@ async function go() {
 
   // === Test 4: render/now with random UUID-like templateId -> 404 ===
   console.log('\n--- Test: render/now with UUID-like nonexistent templateId ---');
-  const r4 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r4 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: 'a1b2c3d4e5f6g7h8i9j0k1l2',
     entityId: 'entity-1',
     channel: 'email'
@@ -72,7 +72,7 @@ async function go() {
     basePdf: { width: 210, height: 297, padding: [10, 10, 10, 10] },
     schemas: [[{ name: 'field1', type: 'text', position: { x: 10, y: 10 }, width: 50, height: 10, content: 'Hello' }]]
   };
-  const createRes = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const createRes = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Render Validate Test 262',
     type: 'invoice',
     schema: validSchema,
@@ -82,11 +82,11 @@ async function go() {
   console.log('  Template ID: ' + tid);
 
   // Publish the template
-  const pubRes = await req('POST', 'http://localhost:3000/api/pdfme/templates/' + tid + '/publish', {});
+  const pubRes = await req('POST', 'http://localhost:3001/api/pdfme/templates/' + tid + '/publish', {});
   assert(pubRes.s === 200 || pubRes.s === 201, 'Published template: ' + pubRes.s);
 
   // Render with valid template
-  const r5 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r5 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: tid,
     entityId: 'entity-262',
     channel: 'email'
@@ -97,7 +97,7 @@ async function go() {
 
   // === Test 6: render/now with draft (unpublished) template -> 404 ===
   console.log('\n--- Test: render/now with draft template ---');
-  const draftRes = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const draftRes = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Draft Only Test 262',
     type: 'invoice',
     schema: validSchema,
@@ -105,7 +105,7 @@ async function go() {
   assert(draftRes.s === 201, 'Created draft template');
   const draftTid = draftRes.b.id;
 
-  const r6 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r6 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: draftTid,
     entityId: 'entity-1',
     channel: 'email'
@@ -115,10 +115,10 @@ async function go() {
 
   // === Test 7: render/now with archived template -> 404 ===
   console.log('\n--- Test: render/now with archived template ---');
-  const archiveRes = await req('DELETE', 'http://localhost:3000/api/pdfme/templates/' + draftTid, null);
+  const archiveRes = await req('DELETE', 'http://localhost:3001/api/pdfme/templates/' + draftTid, null);
   assert(archiveRes.s === 200, 'Archived draft template');
 
-  const r7 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r7 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: draftTid,
     entityId: 'entity-1',
     channel: 'email'
@@ -127,7 +127,7 @@ async function go() {
 
   // === Test 8: bulk render with nonexistent templateId -> 404 or appropriate error ===
   console.log('\n--- Test: bulk render with nonexistent templateId ---');
-  const r8 = await req('POST', 'http://localhost:3000/api/pdfme/render/bulk', {
+  const r8 = await req('POST', 'http://localhost:3001/api/pdfme/render/bulk', {
     templateId: 'nonexistent-bulk-template',
     entityIds: ['e1', 'e2'],
     channel: 'email'
@@ -138,7 +138,7 @@ async function go() {
   // === Test 9: Error message identifies the missing template ===
   console.log('\n--- Test: Error message identifies missing template ---');
   const badId = 'definitely-not-a-real-template-id';
-  const r9 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r9 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: badId,
     entityId: 'entity-1',
     channel: 'email'
@@ -148,7 +148,7 @@ async function go() {
   console.log('  Error message: ' + r9.b.message);
 
   // Cleanup
-  await req('DELETE', 'http://localhost:3000/api/pdfme/templates/' + tid, null);
+  await req('DELETE', 'http://localhost:3001/api/pdfme/templates/' + tid, null);
 
   console.log('\n=== Results: ' + pass + '/' + (pass + fail) + ' passing ===');
   if (fail > 0) process.exit(1);

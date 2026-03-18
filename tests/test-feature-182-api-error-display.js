@@ -9,7 +9,7 @@
  * 5. Verify user can retry
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function makeToken(sub, orgId, roles = ['template:edit', 'template:publish']) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');

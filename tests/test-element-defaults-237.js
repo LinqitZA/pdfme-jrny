@@ -12,7 +12,7 @@
 const http = require('http');
 const { signJwt } = require('./create-signed-token');
 
-const BASE_API = 'http://localhost:3000';
+const BASE_API = process.env.API_BASE || 'http://localhost:3001';
 const BASE_UI = 'http://localhost:3001';
 const ORG_ID = 'org-defaults-237';
 

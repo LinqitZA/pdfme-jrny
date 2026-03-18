@@ -6,7 +6,7 @@
 const http = require('http');
 const { signJwt } = require('./create-signed-token');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const token = signJwt({ sub: 'user-256', orgId: 'org-256', roles: ['template:edit', 'template:publish'] });
 
 let passed = 0;

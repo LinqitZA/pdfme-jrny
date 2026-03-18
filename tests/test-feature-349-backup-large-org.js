@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const http = require('http');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const secret = process.env.JWT_SECRET || 'pdfme-dev-secret';
 const ORG_ID = 'org-349-large-backup';
 

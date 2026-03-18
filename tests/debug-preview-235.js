@@ -5,7 +5,7 @@ const token = signJwt({ sub: 'u1', orgId: 'org-purge-test', roles: ['template:ed
 
 function request(method, path, body) {
   return new Promise((resolve, reject) => {
-    const url = new URL(path, 'http://localhost:3000');
+    const url = new URL(path, process.env.API_BASE || 'http://localhost:3001');
     const opts = {
       hostname: url.hostname,
       port: url.port,

@@ -5,7 +5,7 @@
 
 const { signJwt } = require('./create-signed-token');
 
-const BASE = 'http://localhost:3000/api/pdfme/field-schema';
+const BASE = 'http://localhost:3001/api/pdfme/field-schema';
 const token = signJwt({ sub: 'test-user-212', orgId: 'org-212', roles: ['admin'] });
 const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
 
@@ -63,7 +63,7 @@ function run() {
     assert(res.status === 404, 'GET /field-schema/bad%20type returns 404');
 
     // Test 6: Verify no 500 errors - server is still healthy
-    return fetch('http://localhost:3000/api/pdfme/health');
+    return fetch('http://localhost:3001/api/pdfme/health');
   })
   .then(function(res) {
     assert(res.status === 200, 'Server still healthy after unknown type requests');

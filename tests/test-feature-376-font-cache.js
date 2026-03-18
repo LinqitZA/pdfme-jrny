@@ -13,7 +13,7 @@ const http = require('http');
 const crypto = require('crypto');
 const assert = require('assert');
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const JWT_SECRET = process.env.JWT_SECRET || 'pdfme-dev-secret';
 
 function generateToken(orgId = 'org-font-cache-376', userId = 'user-376') {

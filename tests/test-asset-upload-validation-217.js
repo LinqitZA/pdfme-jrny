@@ -12,7 +12,7 @@
 const http = require('http');
 const { signJwt } = require('./create-signed-token');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const TOKEN = signJwt({ sub: 'user1', orgId: 'test-asset-validation', roles: ['admin'] });
 
 let passed = 0;

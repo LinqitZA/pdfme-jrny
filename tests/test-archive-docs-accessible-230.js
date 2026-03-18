@@ -29,7 +29,7 @@ function assert(condition, message) {
 
 function request(method, urlPath, body, extraHeaders) {
   return new Promise((resolve, reject) => {
-    const url = new URL(urlPath, 'http://localhost:3000');
+    const url = new URL(urlPath, process.env.API_BASE || 'http://localhost:3001');
     const headers = {
       authorization: AUTH,
       ...(body ? { 'content-type': 'application/json' } : {}),

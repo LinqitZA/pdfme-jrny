@@ -10,7 +10,7 @@
 
 const http = require('http');
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const header = Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url');
 const payload = Buffer.from(JSON.stringify({sub:'user-shrink-test',orgId:'org-shrink-test',roles:['template:edit','template:publish','render:trigger','template:import']})).toString('base64url');
 const TOKEN = header+'.'+payload+'.testsig';

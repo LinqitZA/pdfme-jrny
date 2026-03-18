@@ -11,7 +11,7 @@
  */
 
 const { signJwt } = require('./create-signed-token');
-const API = 'http://localhost:3000/api/pdfme';
+const API = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 const token = signJwt({ sub: 'user-289', orgId: 'org-289', roles: ['template:edit', 'template:publish', 'render:trigger'] });
 const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };

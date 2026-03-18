@@ -9,7 +9,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const ORG_ID = 'org-cursor-test-328';
 
 function generateToken(sub, orgId) {

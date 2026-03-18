@@ -17,7 +17,7 @@ function makeToken(orgId) {
 
 function req(method, path, token, body) {
   return new Promise(function(resolve, reject) {
-    const url = new URL('http://localhost:3000' + path);
+    const url = new URL(process.env.API_BASE || 'http://localhost:3001' + path);
     const opts = { hostname: url.hostname, port: url.port, path: url.pathname, method: method, headers: { 'Content-Type': 'application/json' } };
     if (token) opts.headers['Authorization'] = 'Bearer ' + token;
     const r = http.request(opts, function(res) {

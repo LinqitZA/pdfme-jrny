@@ -13,7 +13,7 @@ function SignatureContent() {
     <div style={{ padding: 20 }}>
       <h1 style={{ marginBottom: 20 }}>Signature Manager</h1>
       <SignatureManager
-        apiBase="http://localhost:3000/api/pdfme"
+        apiBase={process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api/pdfme"}
         authToken={authToken}
         orgId={orgId}
         onSave={(result) => console.log('Signature saved:', result)}

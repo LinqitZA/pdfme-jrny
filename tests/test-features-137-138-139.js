@@ -7,7 +7,7 @@
 
 const http = require('http');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLXRlc3QiLCJvcmdJZCI6Im9yZy10ZXN0Iiwicm9sZXMiOlsidGVtcGxhdGU6ZWRpdCIsInRlbXBsYXRlOnB1Ymxpc2giLCJyZW5kZXI6dHJpZ2dlciIsInRlbXBsYXRlOmltcG9ydCJdfQ.testsig';
 
 let passed = 0;

@@ -14,7 +14,7 @@ const http = require('http');
 const crypto = require('crypto');
 const assert = require('assert');
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function apiRequest(method, path, body = null) {
   return new Promise((resolve, reject) => {

@@ -30,7 +30,7 @@ interface TemplateListProps {
 }
 
 export default function TemplateList({
-  apiBase = 'http://localhost:3000/api/pdfme',
+  apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3001/api/pdfme',
   authToken,
   orgId,
   onSelectTemplate,

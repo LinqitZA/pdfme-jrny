@@ -5,7 +5,7 @@
 
 const http = require('http');
 
-const API_URL = 'http://localhost:3000/api/pdfme';
+const API_URL = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const AUTH_TOKEN = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEiLCJvcmdJZCI6Im9yZy0xIiwicm9sZSI6ImFkbWluIiwiaWF0IjoxNzAwMDAwMDAwfQ.abc123';
 
 let passed = 0;

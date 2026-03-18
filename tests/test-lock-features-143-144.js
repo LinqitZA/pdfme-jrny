@@ -4,7 +4,7 @@
 
 const http = require('http');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const TOKEN1 = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLWxvY2stMSIsIm9yZ0lkIjoib3JnLWxvY2stdGVzdCIsInJvbGVzIjpbImFkbWluIl19.fakesig';
 const TOKEN2 = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLWxvY2stMiIsIm9yZ0lkIjoib3JnLWxvY2stdGVzdCIsInJvbGVzIjpbImFkbWluIl19.fakesig';
 

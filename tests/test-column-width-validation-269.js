@@ -24,7 +24,7 @@ function assert(condition, msg) {
 async function go() {
   process.stdout.write('=== Feature #269: Column sum validation on line items table ===\n\n');
 
-  var BASE = 'http://localhost:3000/api/pdfme/templates';
+  var BASE = 'http://localhost:3001/api/pdfme/templates';
 
   // 1. Create template with column widths that DON'T sum to element width
   var wrongSumSchema = {

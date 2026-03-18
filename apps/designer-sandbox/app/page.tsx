@@ -42,7 +42,7 @@ function DesignerContent() {
       templateName={templateName}
       orgId={orgId}
       authToken={authToken}
-      apiBase="http://localhost:3000/api/pdfme"
+      apiBase={process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api/pdfme"}
       autoSaveInterval={autoSaveInterval}
       canPublish={canPublish}
       canExportJson={canExportJson}

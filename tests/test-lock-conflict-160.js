@@ -7,7 +7,7 @@
  * 4. Verify message identifies lock holder
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 // Create JWT tokens for two different users in the same org
 function makeJwt(sub, orgId = 'org-lock-test') {

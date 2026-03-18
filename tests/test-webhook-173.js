@@ -11,7 +11,7 @@
 
 const http = require('http');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.API_BASE || 'http://localhost:3001';
 const WEBHOOK_PORT = 19876;
 let PASS = 0;
 let FAIL = 0;

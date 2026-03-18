@@ -8,7 +8,7 @@ const http = require('http');
 const jwt = require('jsonwebtoken');
 const { Buffer } = require('buffer');
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.API_BASE || 'http://localhost:3001';
 let passed = 0;
 let failed = 0;
 

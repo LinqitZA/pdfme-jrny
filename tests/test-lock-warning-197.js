@@ -8,7 +8,7 @@
  * 4. Verify lock holder identified
  */
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 // Two different user tokens to simulate two tabs
 const TOKEN_USER_A = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiAidXNlci1hbGljZSIsICJvcmdJZCI6ICJ0ZXN0LW9yZyIsICJyb2xlcyI6IFsidGVtcGxhdGU6ZWRpdCIsICJ0ZW1wbGF0ZTp2aWV3IiwgInRlbXBsYXRlOnB1Ymxpc2giLCAidGVtcGxhdGU6ZGVsZXRlIl19.sig';

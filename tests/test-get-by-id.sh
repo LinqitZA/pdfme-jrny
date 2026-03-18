@@ -4,7 +4,7 @@ TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6
 echo "=== Create template with complex schema ==="
 COMPLEX_SCHEMA='{"basePdf":"BLANK_PDF","schemas":[[{"name":{"type":"text","position":{"x":10,"y":10},"width":100,"height":20}},{"logo":{"type":"image","position":{"x":150,"y":10},"width":50,"height":50}},{"items":{"type":"table","position":{"x":10,"y":80},"width":180,"height":100,"columns":["desc","qty","price","total"]}}]],"columns":["desc","qty","price","total"],"sampledata":[{"name":"Test Invoice","logo":"data:image/png;base64,abc","items":[["Widget",2,10.00,20.00]]}]}'
 
-CREATE_RESP=$(curl -s -X POST http://localhost:3000/api/pdfme/templates \
+CREATE_RESP=$(curl -s -X POST http://localhost:3001/api/pdfme/templates \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"Complex Schema Test\",\"type\":\"invoice\",\"schema\":$COMPLEX_SCHEMA}")
@@ -15,7 +15,7 @@ echo "$CREATE_RESP" | jq .
 TEMPLATE_ID=$(echo "$CREATE_RESP" | jq -r '.id')
 echo ""
 echo "=== GET by ID: $TEMPLATE_ID ==="
-GET_RESP=$(curl -s "http://localhost:3000/api/pdfme/templates/$TEMPLATE_ID" \
+GET_RESP=$(curl -s "http://localhost:3001/api/pdfme/templates/$TEMPLATE_ID" \
   -H "Authorization: Bearer $TOKEN")
 
 echo "GET response:"
@@ -40,5 +40,5 @@ echo "createdBy: $(echo "$GET_RESP" | jq -r '.createdBy')"
 
 echo ""
 echo "=== Cleanup ==="
-curl -s -X DELETE "http://localhost:3000/api/pdfme/templates/$TEMPLATE_ID" \
+curl -s -X DELETE "http://localhost:3001/api/pdfme/templates/$TEMPLATE_ID" \
   -H "Authorization: Bearer $TOKEN" | jq .

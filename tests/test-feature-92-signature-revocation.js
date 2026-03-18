@@ -10,7 +10,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const SECRET = process.env.JWT_SECRET || 'pdfme-dev-secret';
 const ORG_ID = 'test-sig-revoke-org-92';
 

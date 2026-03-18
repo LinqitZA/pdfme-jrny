@@ -10,7 +10,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const ORG_ID = 'org-maxrows-384';
 const USER_ID = 'maxrows-test-user';
 

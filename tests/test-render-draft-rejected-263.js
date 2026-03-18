@@ -31,7 +31,7 @@ async function go() {
 
   // === Step 1: Create a draft template ===
   console.log('--- Step 1: Create draft template ---');
-  const createRes = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const createRes = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Draft Render Test 263',
     type: 'invoice',
     schema: validSchema,
@@ -43,7 +43,7 @@ async function go() {
 
   // === Step 2: POST render/now with draft templateId -> error (422 or 400) ===
   console.log('\n--- Step 2: Render draft template -> error ---');
-  const r1 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r1 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: tid,
     entityId: 'entity-263',
     channel: 'email'
@@ -55,7 +55,7 @@ async function go() {
 
   // === Step 3: Verify error is distinguishable from 404 ===
   console.log('\n--- Step 3: Draft error differs from non-existent error ---');
-  const r2 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r2 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: 'totally-nonexistent-id-xxx',
     entityId: 'entity-1',
     channel: 'email'
@@ -69,12 +69,12 @@ async function go() {
 
   // === Step 5: Publish template ===
   console.log('\n--- Step 5: Publish template ---');
-  const pubRes = await req('POST', 'http://localhost:3000/api/pdfme/templates/' + tid + '/publish', {});
+  const pubRes = await req('POST', 'http://localhost:3001/api/pdfme/templates/' + tid + '/publish', {});
   assert(pubRes.s === 200 || pubRes.s === 201, 'Published template: ' + pubRes.s);
 
   // === Step 6: POST render/now with published template -> succeeds ===
   console.log('\n--- Step 6: Render published template -> success ---');
-  const r3 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r3 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: tid,
     entityId: 'entity-263-pub',
     channel: 'email'
@@ -85,8 +85,8 @@ async function go() {
 
   // === Step 7: Archive template, then try to render ===
   console.log('\n--- Step 7: Archived template render -> error ---');
-  await req('DELETE', 'http://localhost:3000/api/pdfme/templates/' + tid, null);
-  const r4 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  await req('DELETE', 'http://localhost:3001/api/pdfme/templates/' + tid, null);
+  const r4 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: tid,
     entityId: 'entity-263-arch',
     channel: 'email'
@@ -97,7 +97,7 @@ async function go() {
 
   // === Step 8: Create another draft, try render via bulk ===
   console.log('\n--- Step 8: Bulk render with draft template ---');
-  const draft2 = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const draft2 = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Draft Bulk Test 263',
     type: 'invoice',
     schema: validSchema,
@@ -105,7 +105,7 @@ async function go() {
   const draft2Id = draft2.b.id;
 
   // Re-verify single render with new draft
-  const r5 = await req('POST', 'http://localhost:3000/api/pdfme/render/now', {
+  const r5 = await req('POST', 'http://localhost:3001/api/pdfme/render/now', {
     templateId: draft2Id,
     entityId: 'entity-bulk',
     channel: 'email'
@@ -113,7 +113,7 @@ async function go() {
   assert(r5.s === 422 || r5.s === 400, 'Another draft template render returns 422/400, got ' + r5.s);
 
   // Cleanup
-  await req('DELETE', 'http://localhost:3000/api/pdfme/templates/' + draft2Id, null);
+  await req('DELETE', 'http://localhost:3001/api/pdfme/templates/' + draft2Id, null);
 
   // === Step 9: Verify the previous published render's document exists ===
   console.log('\n--- Step 9: Previous render document exists ---');

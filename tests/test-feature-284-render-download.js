@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const JWT_SECRET = process.env.JWT_SECRET || 'pdfme-dev-secret';
 
 function makeToken(sub, orgId, roles) {

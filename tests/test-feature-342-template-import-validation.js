@@ -8,7 +8,7 @@
 var http = require('http');
 var crypto = require('crypto');
 
-var BASE = 'http://localhost:3000';
+var BASE = process.env.API_BASE || 'http://localhost:3001';
 var passed = 0;
 var failed = 0;
 

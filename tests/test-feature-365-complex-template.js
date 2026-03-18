@@ -1,7 +1,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 const SECRET = 'pdfme-dev-secret';
 
 function makeToken(sub, orgId) {
@@ -253,7 +253,7 @@ async function run() {
   // Step 7: Verify server health after complex renders
   process.stdout.write('\nVerifying server health...\n');
   const healthRes = await new Promise((resolve, reject) => {
-    http.get('http://localhost:3000/api/pdfme/health', (res) => {
+    http.get('http://localhost:3001/api/pdfme/health', (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {

@@ -4,7 +4,7 @@
 
 set -e
 
-BASE="http://localhost:3000/api/pdfme"
+BASE="http://localhost:3001/api/pdfme"
 TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6InRlc3Qtb3JnIiwicm9sZXMiOlsiYWRtaW4iXX0.fakesig"
 AUTH="Authorization: Bearer $TOKEN"
 CT="Content-Type: application/json"

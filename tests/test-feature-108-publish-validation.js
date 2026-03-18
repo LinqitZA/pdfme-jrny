@@ -5,7 +5,7 @@
 
 const crypto = require('crypto');
 const secret = 'pdfme-dev-secret';
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function signJwt(payload) {
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');

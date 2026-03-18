@@ -6,7 +6,7 @@
 const { signJwt } = require('./create-signed-token');
 const crypto = require('crypto');
 
-const BASE = 'http://localhost:3000/api/pdfme/health';
+const BASE = 'http://localhost:3001/api/pdfme/health';
 
 var passed = 0;
 var failed = 0;

@@ -11,7 +11,7 @@ import { runMigrations } from './db/migrate';
 import { GlobalExceptionFilter } from './global-exception.filter';
 
 async function bootstrap() {
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = parseInt(process.env.PORT || '3001', 10);
 
   // Run migrations first
   console.log('[pdfme-erp] Starting pdfme ERP Edition server...');

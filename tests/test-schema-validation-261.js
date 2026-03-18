@@ -26,7 +26,7 @@ async function go() {
 
   // Create a template to test PUT endpoints against
   const validSchema = { pages: [{ elements: [{ type: 'text', position: { x: 10, y: 10 }, width: 50, height: 10, content: 'Hello' }] }] };
-  const createRes = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const createRes = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Schema Validation Test 261',
     type: 'invoice',
     schema: validSchema,
@@ -37,7 +37,7 @@ async function go() {
 
   // === Test 1: PUT /templates/:id with schema as string (malformed) -> 400 ===
   console.log('\n--- Test: PUT update with schema as string ---');
-  const r1 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r1 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: 'this is not json'
   });
   assert(r1.s === 400, 'PUT with string schema returns 400, got ' + r1.s);
@@ -47,7 +47,7 @@ async function go() {
 
   // === Test 2: PUT /templates/:id/draft with schema as string -> 400 ===
   console.log('\n--- Test: PUT draft with schema as string ---');
-  const r2 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid + '/draft', {
+  const r2 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid + '/draft', {
     schema: '{"broken json'
   });
   assert(r2.s === 400, 'PUT draft with string schema returns 400, got ' + r2.s);
@@ -56,7 +56,7 @@ async function go() {
 
   // === Test 3: PUT with schema as array -> 400 ===
   console.log('\n--- Test: PUT with schema as array ---');
-  const r3 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r3 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: [1, 2, 3]
   });
   assert(r3.s === 400, 'PUT with array schema returns 400, got ' + r3.s);
@@ -64,21 +64,21 @@ async function go() {
 
   // === Test 4: PUT with schema as number -> 400 ===
   console.log('\n--- Test: PUT with schema as number ---');
-  const r4 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r4 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: 42
   });
   assert(r4.s === 400, 'PUT with number schema returns 400, got ' + r4.s);
 
   // === Test 5: PUT with schema as boolean -> 400 ===
   console.log('\n--- Test: PUT with schema as boolean ---');
-  const r5 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r5 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: true
   });
   assert(r5.s === 400, 'PUT with boolean schema returns 400, got ' + r5.s);
 
   // === Test 6: PUT with schema as null -> 400 ===
   console.log('\n--- Test: PUT with schema as null ---');
-  const r6 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r6 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: null
   });
   assert(r6.s === 400, 'PUT with null schema returns 400, got ' + r6.s);
@@ -86,7 +86,7 @@ async function go() {
 
   // === Test 7: PUT with valid JSON but wrong structure (pages not array) -> 422 ===
   console.log('\n--- Test: PUT with valid JSON but pages as string ---');
-  const r7 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r7 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: { pages: 'not-an-array' }
   });
   assert(r7.s === 422, 'PUT with pages as string returns 422, got ' + r7.s);
@@ -96,7 +96,7 @@ async function go() {
 
   // === Test 8: PUT draft with valid JSON but wrong structure -> 422 ===
   console.log('\n--- Test: PUT draft with pages as number ---');
-  const r8 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid + '/draft', {
+  const r8 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid + '/draft', {
     schema: { pages: 123 }
   });
   assert(r8.s === 422, 'PUT draft with pages as number returns 422, got ' + r8.s);
@@ -104,7 +104,7 @@ async function go() {
 
   // === Test 9: PUT with pages containing non-object entries -> 422 ===
   console.log('\n--- Test: PUT with pages containing non-objects ---');
-  const r9 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r9 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: { pages: ['not-an-object', 123] }
   });
   assert(r9.s === 422, 'PUT with non-object pages returns 422, got ' + r9.s);
@@ -112,7 +112,7 @@ async function go() {
 
   // === Test 10: PUT with valid schema -> 200 ===
   console.log('\n--- Test: PUT with valid schema ---');
-  const r10 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r10 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: { pages: [{ elements: [{ type: 'text', position: { x: 20, y: 20 }, width: 100, height: 20, content: 'Updated' }] }] }
   });
   assert(r10.s === 200, 'PUT with valid schema returns 200, got ' + r10.s);
@@ -120,28 +120,28 @@ async function go() {
 
   // === Test 11: PUT draft with valid schema -> 200 ===
   console.log('\n--- Test: PUT draft with valid schema ---');
-  const r11 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid + '/draft', {
+  const r11 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid + '/draft', {
     schema: { pages: [{ elements: [] }] }
   });
   assert(r11.s === 200, 'PUT draft with valid schema returns 200, got ' + r11.s);
 
   // === Test 12: PUT with empty object schema (no pages) -> 200 (valid JSON object, no structural issues) ===
   console.log('\n--- Test: PUT with empty object schema (no pages key) ---');
-  const r12 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r12 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: {}
   });
   assert(r12.s === 200, 'PUT with empty object schema returns 200 (pages not required for draft), got ' + r12.s);
 
   // === Test 13: PUT with schemas key (alternative to pages) -> 200 ===
   console.log('\n--- Test: PUT with schemas key instead of pages ---');
-  const r13 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r13 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: { schemas: [[{ name: 'f1', type: 'text', position: { x: 10, y: 10 }, width: 50, height: 10 }]] }
   });
   assert(r13.s === 200, 'PUT with schemas key returns 200, got ' + r13.s);
 
   // === Test 14: PUT with basePdf as invalid type -> 422 ===
   console.log('\n--- Test: PUT with basePdf as number ---');
-  const r14 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r14 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     schema: { basePdf: 42, pages: [{ elements: [] }] }
   });
   assert(r14.s === 422, 'PUT with basePdf as number returns 422, got ' + r14.s);
@@ -149,7 +149,7 @@ async function go() {
 
   // === Test 15: PUT update without schema field -> 200 (no validation needed) ===
   console.log('\n--- Test: PUT with no schema field (name only) ---');
-  const r15 = await req('PUT', 'http://localhost:3000/api/pdfme/templates/' + tid, {
+  const r15 = await req('PUT', 'http://localhost:3001/api/pdfme/templates/' + tid, {
     name: 'Renamed Template'
   });
   assert(r15.s === 200, 'PUT without schema field returns 200, got ' + r15.s);
@@ -157,7 +157,7 @@ async function go() {
 
   // === Test 16: POST create with string schema -> 400 ===
   console.log('\n--- Test: POST create with string schema ---');
-  const r16 = await req('POST', 'http://localhost:3000/api/pdfme/templates', {
+  const r16 = await req('POST', 'http://localhost:3001/api/pdfme/templates', {
     name: 'Bad Schema Test',
     type: 'invoice',
     schema: 'not a json object'
@@ -166,12 +166,12 @@ async function go() {
 
   // === Test 17: Verify original template data integrity ===
   console.log('\n--- Test: Verify template data integrity after all tests ---');
-  const r17 = await req('GET', 'http://localhost:3000/api/pdfme/templates/' + tid, null);
+  const r17 = await req('GET', 'http://localhost:3001/api/pdfme/templates/' + tid, null);
   assert(r17.s === 200, 'Template still accessible after all tests');
   assert(r17.b.name === 'Renamed Template', 'Template name reflects last valid update');
 
   // Cleanup
-  await req('DELETE', 'http://localhost:3000/api/pdfme/templates/' + tid, null);
+  await req('DELETE', 'http://localhost:3001/api/pdfme/templates/' + tid, null);
 
   console.log('\n=== Results: ' + pass + '/' + (pass + fail) + ' passing ===');
   if (fail > 0) process.exit(1);

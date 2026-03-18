@@ -7,7 +7,7 @@
  * 4. Verify 413 response
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function makeJwt(sub = 'test-user-162', orgId = 'org-payload-162') {
   const payload = { sub, orgId, roles: ['user'] };

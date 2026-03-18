@@ -8,7 +8,7 @@
  * 4. If fails all 3 - moved to DLQ
  */
 
-const BASE = 'http://localhost:3000/api/pdfme/queue';
+const BASE = 'http://localhost:3001/api/pdfme/queue';
 
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {

@@ -98,7 +98,30 @@ else
 fi
 
 echo ""
-echo "--- Starting NestJS API server ---"
+echo "--- Starting NestJS API server on port 3001 ---"
+# Kill any existing server on port 3001
+if lsof -ti :3001 > /dev/null 2>&1; then
+    echo "Stopping existing server on port 3001..."
+    kill $(lsof -ti :3001) 2>/dev/null || true
+    sleep 2
+fi
+
+# Start the NestJS server in background (default port is now 3001)
+PORT=3001 npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts > /tmp/pdfme-server.log 2>&1 &
+SERVER_PID=$!
+echo "API server starting (PID: $SERVER_PID)..."
+sleep 10
+
+# Verify server is running
+if curl -s http://localhost:3001/api/pdfme/health > /dev/null 2>&1; then
+    echo "API server is running on http://localhost:3001"
+    echo "Health: $(curl -s http://localhost:3001/api/pdfme/health)"
+else
+    echo "WARNING: API server may not have started. Check /tmp/pdfme-server.log"
+fi
+
+echo ""
+echo "--- Starting Designer Sandbox on port 3000 ---"
 # Kill any existing server on port 3000
 if lsof -ti :3000 > /dev/null 2>&1; then
     echo "Stopping existing server on port 3000..."
@@ -106,19 +129,13 @@ if lsof -ti :3000 > /dev/null 2>&1; then
     sleep 2
 fi
 
-# Start the NestJS server in background
-npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts > /tmp/pdfme-server.log 2>&1 &
-SERVER_PID=$!
-echo "Server starting (PID: $SERVER_PID)..."
-sleep 10
-
-# Verify server is running
-if curl -s http://localhost:3000/api/pdfme/health > /dev/null 2>&1; then
-    echo "Server is running on http://localhost:3000"
-    echo "Health: $(curl -s http://localhost:3000/api/pdfme/health)"
-else
-    echo "WARNING: Server may not have started. Check /tmp/pdfme-server.log"
-fi
+# Start the Next.js designer in background
+cd apps/designer-sandbox
+NEXT_PUBLIC_API_BASE=http://localhost:3001/api/pdfme PORT=3000 npx next dev -p 3000 > /tmp/pdfme-designer.log 2>&1 &
+DESIGNER_PID=$!
+cd ../..
+echo "Designer starting (PID: $DESIGNER_PID)..."
+sleep 5
 
 echo ""
 echo "==========================================="
@@ -134,11 +151,17 @@ echo ""
 echo "Key commands:"
 echo "  npm run build          - Build all packages"
 echo "  npm test               - Run all tests"
+echo "  docker compose up      - Start all services (containerised)"
+echo ""
+echo "Services:"
+echo "  Designer:  http://localhost:3000              (Next.js sandbox)"
+echo "  API:       http://localhost:3001/api/pdfme    (NestJS)"
+echo "  Health:    http://localhost:3001/api/pdfme/health"
 echo ""
 echo "API endpoints:"
-echo "  GET  http://localhost:3000/api/pdfme/health     - Health check"
-echo "  GET  http://localhost:3000/api/pdfme/templates   - List templates"
-echo "  POST http://localhost:3000/api/pdfme/templates   - Create template"
+echo "  GET  http://localhost:3001/api/pdfme/health     - Health check"
+echo "  GET  http://localhost:3001/api/pdfme/templates   - List templates"
+echo "  POST http://localhost:3001/api/pdfme/templates   - Create template"
 echo ""
 echo "Required services (running via Docker):"
 echo "  PostgreSQL 15+ on localhost:5432"

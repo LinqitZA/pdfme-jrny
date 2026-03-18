@@ -15,12 +15,12 @@ function req(m, p, b) {
 }
 
 async function go() {
-  const t = await req('POST', 'http://localhost:3000/api/pdfme/templates', { name: 'test-fmt', type: 'invoice', schema: { basePdf: { width: 210, height: 297, padding: [10, 10, 10, 10] }, schemas: [[{ name: 'f1', type: 'text', position: { x: 10, y: 10 }, width: 50, height: 10, content: 'Hi' }]] } });
+  const t = await req('POST', 'http://localhost:3001/api/pdfme/templates', { name: 'test-fmt', type: 'invoice', schema: { basePdf: { width: 210, height: 297, padding: [10, 10, 10, 10] }, schemas: [[{ name: 'f1', type: 'text', position: { x: 10, y: 10 }, width: 50, height: 10, content: 'Hi' }]] } });
   console.log('CREATE TPL:', JSON.stringify(t.b).substring(0, 200));
   const tid = t.b.id;
-  const pub = await req('POST', 'http://localhost:3000/api/pdfme/templates/' + tid + '/publish', {});
+  const pub = await req('POST', 'http://localhost:3001/api/pdfme/templates/' + tid + '/publish', {});
   console.log('PUBLISH:', JSON.stringify(pub.b).substring(0, 200));
-  const rr = await req('POST', 'http://localhost:3000/api/pdfme/render/now', { templateId: tid, entityId: 'e1', channel: 'email' });
+  const rr = await req('POST', 'http://localhost:3001/api/pdfme/render/now', { templateId: tid, entityId: 'e1', channel: 'email' });
   console.log('RENDER:', JSON.stringify(rr.b).substring(0, 300));
 }
 

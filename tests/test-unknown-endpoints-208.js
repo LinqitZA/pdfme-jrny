@@ -3,7 +3,7 @@
  * Verifies that nonexistent routes return 404 (not 500) with proper error envelope
  */
 
-const BASE = process.env.API_URL || 'http://localhost:3000';
+const BASE = process.env.API_URL || process.env.API_BASE || 'http://localhost:3001';
 
 let passed = 0;
 let failed = 0;

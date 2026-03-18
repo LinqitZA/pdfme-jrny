@@ -2,7 +2,7 @@
 # Test script for Feature #146: Render verify endpoint checks hash
 set -e
 
-BASE_URL="http://localhost:3000/api/pdfme"
+BASE_URL="http://localhost:3001/api/pdfme"
 PASS=0
 FAIL=0
 

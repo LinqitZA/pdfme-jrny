@@ -4,7 +4,7 @@
 
 const http = require('http');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const TOKEN_A = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLUEiLCJvcmdJZCI6Im9yZy1leHBvcnQtdGVzdCIsInJvbGVzIjpbInRlbXBsYXRlOmVkaXQiLCJ0ZW1wbGF0ZTp2aWV3Il19.sig';
 const TOKEN_B = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLUIiLCJvcmdJZCI6Im9yZy1leHBvcnQtdGVzdCIsInJvbGVzIjpbInRlbXBsYXRlOnZpZXciXX0.sig';
 

@@ -4,7 +4,7 @@
  */
 const http = require('http');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const AUTH_HEADER = 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMSIsIm9yZ0lkIjoib3JnMSIsInJvbGVzIjpbInRlbXBsYXRlOmVkaXQiLCJ0ZW1wbGF0ZTpwdWJsaXNoIiwicmVuZGVyOnRyaWdnZXIiXSwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjk5OTk5OTk5OTl9.2ZGHiSlXXmMzlGjmwUbN5bN3vZTlVmKZm9lEkQ_YNHY';
 
 let passed = 0;

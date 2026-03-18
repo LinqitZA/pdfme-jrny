@@ -5,7 +5,7 @@
 const http = require('http');
 const crypto = require('crypto');
 
-const API_BASE = 'http://localhost:3000/api/pdfme';
+const API_BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 function generateToken(orgId, userId) {
   const secret = 'pdfme-dev-secret';

@@ -12,7 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const SECRET = process.env.JWT_SECRET || 'pdfme-dev-secret';
 const ORG_ID = 'test-asset-delete-org-89';
 

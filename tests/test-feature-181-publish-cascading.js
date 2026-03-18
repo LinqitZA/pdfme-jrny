@@ -9,7 +9,7 @@
  * 4. Check audit log - publish entry
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 // Generate a dev JWT token
 function makeToken(sub, orgId, roles = ['template:edit', 'template:publish']) {

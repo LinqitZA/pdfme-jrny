@@ -5,7 +5,7 @@ const TOKEN = header + '.' + payload + '.testsig';
 
 async function run() {
   // Create a template
-  const createRes = await fetch('http://localhost:3000/api/pdfme/templates', {
+  const createRes = await fetch('http://localhost:3001/api/pdfme/templates', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -19,7 +19,7 @@ async function run() {
   console.log('Template ID:', template.id);
 
   // Publish
-  const pubRes = await fetch(`http://localhost:3000/api/pdfme/templates/${template.id}/publish`, {
+  const pubRes = await fetch(`http://localhost:3001/api/pdfme/templates/${template.id}/publish`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
   });
@@ -28,7 +28,7 @@ async function run() {
   console.log('Publish data:', JSON.stringify(pubData).slice(0, 200));
 
   // Republish
-  const repub = await fetch(`http://localhost:3000/api/pdfme/templates/${template.id}/publish`, {
+  const repub = await fetch(`http://localhost:3001/api/pdfme/templates/${template.id}/publish`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${TOKEN}`, 'Content-Type': 'application/json' },
   });

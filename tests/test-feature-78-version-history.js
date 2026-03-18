@@ -12,7 +12,7 @@
 const crypto = require('crypto');
 const http = require('http');
 
-const BASE = 'http://localhost:3000';
+const BASE = process.env.API_BASE || 'http://localhost:3001';
 const ORG_ID = 'org-version-78';
 const USER_ID = 'user-version-78';
 

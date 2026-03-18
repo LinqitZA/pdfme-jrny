@@ -8,7 +8,7 @@
  * 4. Non-transient errors are NOT retried
  */
 
-const BASE = 'http://localhost:3000/api/pdfme';
+const BASE = process.env.API_BASE || 'http://localhost:3001/api/pdfme';
 
 async function post(path, body) {
   const res = await fetch(`${BASE}${path}`, {

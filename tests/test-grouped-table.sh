@@ -2,7 +2,7 @@
 # Test script for grouped table features #121, #122, #123
 # Tests: groupBy rendering, subtotals, multi-level nesting
 
-BASE_URL="http://localhost:3000/api/pdfme"
+BASE_URL="http://localhost:3001/api/pdfme"
 JWT="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6InRlc3Qtb3JnIiwicm9sZXMiOlsiYWRtaW4iXX0.fakesig"
 PASS=0
 FAIL=0
