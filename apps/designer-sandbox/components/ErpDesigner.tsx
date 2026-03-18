@@ -432,6 +432,7 @@ export default function ErpDesigner({
 
             setPages(loadedPages);
             setCurrentPageIndex(0);
+            clearUndoHistory(); // Reset undo/redo on new template load
           }
         }
 
@@ -510,6 +511,85 @@ export default function ErpDesigner({
   ]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
+  // ─── Undo/Redo history ───
+  const MAX_UNDO_HISTORY = 50;
+  const undoStackRef = useRef<TemplatePage[][]>([]);
+  const redoStackRef = useRef<TemplatePage[][]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const [redoCount, setRedoCount] = useState(0);
+  const isUndoRedoRef = useRef(false);
+
+  /** Push current state to undo stack before a mutation */
+  const pushUndoState = useCallback((currentPages: TemplatePage[]) => {
+    if (isUndoRedoRef.current) return; // Don't push during undo/redo operations
+    const snapshot = JSON.parse(JSON.stringify(currentPages));
+    undoStackRef.current.push(snapshot);
+    if (undoStackRef.current.length > MAX_UNDO_HISTORY) {
+      undoStackRef.current.shift(); // Remove oldest entry
+    }
+    // Clear redo stack on new action
+    redoStackRef.current = [];
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(0);
+  }, []);
+
+  /** Wrap setPages to capture undo history */
+  const setPagesWithHistory = useCallback((updater: React.SetStateAction<TemplatePage[]>) => {
+    if (isUndoRedoRef.current) {
+      // During undo/redo, just set pages directly without pushing to history
+      setPages(updater);
+      return;
+    }
+    // Push current state to undo stack before applying the update
+    setPages((prevPages) => {
+      pushUndoState(prevPages);
+      if (typeof updater === 'function') {
+        return updater(prevPages);
+      }
+      return updater;
+    });
+  }, [pushUndoState]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStackRef.current.length === 0) return;
+    const previousState = undoStackRef.current.pop()!;
+    // Save current state to redo stack
+    setPages((currentPages) => {
+      redoStackRef.current.push(JSON.parse(JSON.stringify(currentPages)));
+      return previousState;
+    });
+    isUndoRedoRef.current = true;
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+    setIsDirty(true);
+    // Reset flag after state update
+    setTimeout(() => { isUndoRedoRef.current = false; }, 0);
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    if (redoStackRef.current.length === 0) return;
+    const nextState = redoStackRef.current.pop()!;
+    // Save current state to undo stack
+    setPages((currentPages) => {
+      undoStackRef.current.push(JSON.parse(JSON.stringify(currentPages)));
+      return nextState;
+    });
+    isUndoRedoRef.current = true;
+    setUndoCount(undoStackRef.current.length);
+    setRedoCount(redoStackRef.current.length);
+    setIsDirty(true);
+    // Reset flag after state update
+    setTimeout(() => { isUndoRedoRef.current = false; }, 0);
+  }, []);
+
+  /** Clear undo/redo history (called on new template load) */
+  const clearUndoHistory = useCallback(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setUndoCount(0);
+    setRedoCount(0);
+  }, []);
+
   // Drag reorder state
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
@@ -549,7 +629,7 @@ export default function ErpDesigner({
 
   // ─── Element update helper ───
   const updateElement = useCallback((elementId: string, updates: Partial<DesignElement>) => {
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       const next = prev.map((page, idx) => {
         if (idx !== currentPageIndex) return page;
         return {
@@ -562,7 +642,7 @@ export default function ErpDesigner({
       return next;
     });
     setIsDirty(true);
-  }, [currentPageIndex]);
+  }, [currentPageIndex, setPagesWithHistory]);
 
   // ─── Add element to canvas ───
   const addElementToCanvas = useCallback((type: ElementType, position?: { x: number; y: number }) => {
@@ -585,7 +665,7 @@ export default function ErpDesigner({
       x,
       y,
     };
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       return prev.map((page, idx) => {
         if (idx !== currentPageIndex) return page;
         return { ...page, elements: [...page.elements, newElement] };
@@ -594,7 +674,7 @@ export default function ErpDesigner({
     setSelectedElementId(id);
     setIsDirty(true);
     return id;
-  }, [currentPageIndex, currentPage]);
+  }, [currentPageIndex, currentPage, setPagesWithHistory]);
 
   // ─── Block drag start handler ───
   const handleBlockDragStart = useCallback((e: React.DragEvent, blockType: ElementType) => {
@@ -704,6 +784,8 @@ export default function ErpDesigner({
         setSaveStatus('error');
         setSaveError(errorMsg);
         // DO NOT clear isDirty - unsaved changes preserved for retry
+        // Flag for auto-retry on reconnection
+        if (!navigator.onLine) setPendingRetrySave(true);
       }
     } else {
       // No templateId - just clear dirty flag (local-only mode)
@@ -790,10 +872,14 @@ export default function ErpDesigner({
         setTimeout(() => setAutoSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
       } else {
         setAutoSaveStatus('error');
+        // Flag for reconnection retry if network is down
+        if (!navigator.onLine) setPendingRetrySave(true);
         setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
       }
     } catch {
       setAutoSaveStatus('error');
+      // Flag for reconnection retry - network likely down
+      if (!navigator.onLine) setPendingRetrySave(true);
       setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
     }
   }, [templateId, authToken, apiBase, name, pageSize, pages]);
@@ -842,6 +928,110 @@ export default function ErpDesigner({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [templateId, performAutoSave]);
+
+  // ─── Network connectivity detection & session recovery ───
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      // If there are unsaved changes (dirty state or previous save error), retry auto-save
+      if (isDirtyRef.current && templateId && !isReadOnly) {
+        setPendingRetrySave(true);
+        saveRetryCountRef.current = 0;
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      // Clear any pending retry timers
+      if (reconnectRetryRef.current) {
+        clearTimeout(reconnectRetryRef.current);
+        reconnectRetryRef.current = null;
+      }
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (reconnectRetryRef.current) {
+        clearTimeout(reconnectRetryRef.current);
+        reconnectRetryRef.current = null;
+      }
+    };
+  }, [templateId, isReadOnly]);
+
+  // ─── Reconnection auto-save retry with exponential backoff ───
+  useEffect(() => {
+    if (!pendingRetrySave || !isOnline || !templateId || isReadOnly) return;
+
+    const attemptRetrySave = async () => {
+      if (!isDirtyRef.current) {
+        // No longer dirty - no need to retry
+        setPendingRetrySave(false);
+        saveRetryCountRef.current = 0;
+        return;
+      }
+
+      setAutoSaveStatus('saving');
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+
+        const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            name,
+            schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+          }),
+        });
+
+        if (response.ok) {
+          setAutoSaveStatus('saved');
+          setLastAutoSave(new Date());
+          setIsDirty(false);
+          isDirtyRef.current = false;
+          setPendingRetrySave(false);
+          saveRetryCountRef.current = 0;
+          // Also clear manual save error if there was one
+          if (saveStatus === 'error') {
+            setSaveStatus('idle');
+            setSaveError(null);
+          }
+          setTimeout(() => setAutoSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
+        } else {
+          throw new Error(`Server error (${response.status})`);
+        }
+      } catch {
+        saveRetryCountRef.current += 1;
+        if (saveRetryCountRef.current < MAX_RECONNECT_RETRIES && isOnline) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const delay = Math.min(1000 * Math.pow(2, saveRetryCountRef.current - 1), 16000);
+          setAutoSaveStatus('error');
+          reconnectRetryRef.current = setTimeout(() => {
+            attemptRetrySave();
+          }, delay);
+        } else {
+          // Exhausted retries
+          setAutoSaveStatus('error');
+          setPendingRetrySave(false);
+          saveRetryCountRef.current = 0;
+        }
+      }
+    };
+
+    // Start first retry after a brief delay to let the connection stabilize
+    reconnectRetryRef.current = setTimeout(attemptRetrySave, 500);
+
+    return () => {
+      if (reconnectRetryRef.current) {
+        clearTimeout(reconnectRetryRef.current);
+        reconnectRetryRef.current = null;
+      }
+    };
+  }, [pendingRetrySave, isOnline, templateId, isReadOnly, authToken, apiBase, name, pageSize, pages, saveStatus]);
 
   // ─── Render / PDF generation handlers ───
 
@@ -1278,18 +1468,41 @@ export default function ErpDesigner({
     };
   }, []);
 
+  // ─── Keyboard shortcuts for undo/redo ───
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip if user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
   // ─── Page management ───
 
   const addPage = useCallback(() => {
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       const newPage = createPage(`Page ${prev.length + 1}`);
       return [...prev, newPage];
     });
     setIsDirty(true);
-  }, []);
+  }, [setPagesWithHistory]);
 
   const duplicatePage = useCallback((index: number) => {
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       const source = prev[index];
       const dup: TemplatePage = {
         ...createPage(`${source.label} (Copy)`),
@@ -1301,10 +1514,10 @@ export default function ErpDesigner({
     });
     setIsDirty(true);
     setContextMenu((prev) => ({ ...prev, visible: false }));
-  }, []);
+  }, [setPagesWithHistory]);
 
   const deletePage = useCallback((index: number) => {
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       if (prev.length <= 1) return prev;
       const next = prev.filter((_, i) => i !== index);
       return next;
@@ -1316,7 +1529,7 @@ export default function ErpDesigner({
     });
     setIsDirty(true);
     setContextMenu((prev) => ({ ...prev, visible: false }));
-  }, [pages.length]);
+  }, [pages.length, setPagesWithHistory]);
 
   // ─── Drag handlers for page reorder ───
 
@@ -1336,7 +1549,7 @@ export default function ErpDesigner({
       setDragOverIndex(null);
       return;
     }
-    setPages((prev) => {
+    setPagesWithHistory((prev) => {
       const next = [...prev];
       const [moved] = next.splice(dragIndex, 1);
       next.splice(dropIndex, 0, moved);
@@ -1982,7 +2195,7 @@ export default function ErpDesigner({
               backgroundColor: '#fef2f2',
             }}
             onClick={() => {
-              setPages((prev) => prev.map((page, idx) => {
+              setPagesWithHistory((prev) => prev.map((page, idx) => {
                 if (idx !== currentPageIndex) return page;
                 return { ...page, elements: page.elements.filter((el) => el.id !== selectedElementId) };
               }));
@@ -2200,8 +2413,8 @@ export default function ErpDesigner({
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Undo / Redo */}
-        <button data-testid="btn-undo" title="Undo" style={toolbarBtnStyle} disabled>&#8617;</button>
-        <button data-testid="btn-redo" title="Redo" style={toolbarBtnStyle} disabled>&#8618;</button>
+        <button data-testid="btn-undo" title="Undo" style={{ ...toolbarBtnStyle, opacity: undoCount > 0 ? 1 : 0.4 }} disabled={undoCount === 0} onClick={handleUndo}>&#8617;</button>
+        <button data-testid="btn-redo" title="Redo" style={{ ...toolbarBtnStyle, opacity: redoCount > 0 ? 1 : 0.4 }} disabled={redoCount === 0} onClick={handleRedo}>&#8618;</button>
 
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
@@ -2236,6 +2449,46 @@ export default function ErpDesigner({
         </span>
 
         <div style={{ flex: 1 }} />
+
+        {/* Connection status indicator */}
+        {templateId && !isOnline && (
+          <span
+            data-testid="connection-status"
+            style={{
+              fontSize: '11px',
+              color: '#ef4444',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              backgroundColor: '#fef2f2',
+              borderRadius: '4px',
+              border: '1px solid #fecaca',
+            }}
+          >
+            <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', backgroundColor: '#ef4444' }} />
+            Offline — changes will save when reconnected
+          </span>
+        )}
+        {templateId && isOnline && pendingRetrySave && (
+          <span
+            data-testid="connection-status-reconnecting"
+            style={{
+              fontSize: '11px',
+              color: '#f59e0b',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '2px 8px',
+              backgroundColor: '#fffbeb',
+              borderRadius: '4px',
+              border: '1px solid #fde68a',
+            }}
+          >
+            <span data-testid="reconnect-spinner" style={{ display: 'inline-block', width: 8, height: 8, border: '2px solid #f59e0b', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            Reconnected — saving changes…
+          </span>
+        )}
 
         {/* Auto-save status indicator */}
         {templateId && (
