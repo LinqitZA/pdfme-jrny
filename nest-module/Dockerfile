@@ -23,7 +23,7 @@ RUN npm run build:converter 2>/dev/null || true
 RUN npm run build:schemas 2>/dev/null || true
 RUN npm run build:generator 2>/dev/null || true
 # Build erp-schemas
-RUN cd packages/erp-schemas && npx tsc 2>/dev/null || true
+RUN cd packages/erp-schemas && npx tsc
 # Build nest-module
 RUN cd nest-module && npx tsc
 
@@ -36,6 +36,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/nest-module/dist ./nest-module/dist
 COPY --from=builder /app/nest-module/package.json ./nest-module/package.json
+COPY --from=builder /app/nest-module/node_modules ./nest-module/node_modules
 COPY --from=builder /app/package.json ./package.json
 
 ENV PORT=3001

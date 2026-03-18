@@ -15,14 +15,22 @@ import { FileStorageService } from './file-storage.service';
 import { SignatureService } from './signature.service';
 import { AuditService } from './audit.service';
 import { EventEmitter } from 'events';
-import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-items-table';
-import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
-import { resolveRichText, applyRichText, RichTextRenderInfo } from '../../packages/erp-schemas/src/rich-text';
-import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
-import { resolveErpImages, generatePlaceholderImage } from '../../packages/erp-schemas/src/erp-image';
-import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
-import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
-import { resolveCurrencyFields } from '../../packages/erp-schemas/src/currency-field';
+import {
+  resolveLineItemsTables,
+  extractWatermarkFromTemplate,
+  applyWatermark,
+  resolveRichText,
+  applyRichText,
+  resolveQrBarcodes,
+  resolveErpImages,
+  generatePlaceholderImage,
+  resolveSignatureBlocks,
+  applySignatureBlocks,
+  resolveCalculatedFields,
+  resolveCurrencyFields,
+  ExpressionEngine,
+} from '@pdfme-erp/schemas';
+import type { RichTextRenderInfo, SignatureBlockRenderInfo } from '@pdfme-erp/schemas';
 import { PdfaProcessor } from './pdfa-processor';
 import { DataSourceRegistry } from './datasource.registry';
 import { OrgSettingsService } from './org-settings.service';
@@ -449,6 +457,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     // 3a. Resolve field bindings with fallbackValue for missing/empty inputs
     this.resolveFieldBindings(pdfmeTemplate, inputs);
 
+    // 3a2. Resolve expressions in all text-containing schema element values
+    this.resolveExpressions(pdfmeTemplate, inputs);
+
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
     try {
       await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
@@ -583,7 +594,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       }
 
       pdfBuffer = await generate({
-        template: pdfmeTemplate,
+        template: pdfmeTemplate as any,
         inputs,
         plugins,
         options: generateOptions,
@@ -692,7 +703,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 5. Compute document hash (algorithm configurable via module config)
-    const pdfHash = this.hashService.computeHash(pdfBuffer);
+    const pdfHash = this.hashService.computeHash(Buffer.from(pdfBuffer));
 
     // 5b. Check document storage quota before storing
     const quotaCheck = await this.checkDocumentStorageQuota(orgId, pdfBuffer.length);
@@ -944,7 +955,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         entityId,
         entityType: dto.entityType,
         channel: dto.channel,
-        inputs: dto.inputs ? [dto.inputs] : undefined,
+        inputs: dto.inputs || undefined,
       };
 
       const result = await this.renderNow(renderDto, orgId, userId);
@@ -1371,6 +1382,110 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           if (!(name in inputRecord) || inputRecord[name] === '' || inputRecord[name] === undefined || inputRecord[name] === null) {
             const fallback = fallbackMap.get(name);
             inputRecord[name] = fallback !== undefined ? fallback : '';
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Expression pattern detection regex.
+   * Matches values containing function calls (e.g. CONCAT(...), IF(...), FORMAT_DATE(...))
+   * or arithmetic operators between non-whitespace tokens (e.g. "100 + 200", "qty * price").
+   * Simple values like "INV-001" or "Hello World" will NOT match.
+   */
+  private static readonly EXPRESSION_PATTERN = /(?:[A-Z_][A-Z0-9_]*\s*\()|(?:(?:^|[^a-zA-Z])\d+(?:\.\d+)?\s*[+\-*\/]\s*\d)|(?:\w+\s*[+\-*\/]\s*\w+)/i;
+
+  /**
+   * Types that should be skipped during expression resolution.
+   * calculatedField has its own expression evaluation pipeline.
+   * image/drawnSignature/erpImage contain binary data, not text expressions.
+   */
+  private static readonly EXPRESSION_SKIP_TYPES = new Set([
+    'calculatedField', 'image', 'drawnSignature', 'erpImage',
+  ]);
+
+  /**
+   * Resolve expressions in all text-containing schema element values.
+   * Runs AFTER resolveFieldBindings() so {{field}} placeholders are already substituted.
+   * For each input value, if it contains expression syntax (function calls like CONCAT(),
+   * IF(), arithmetic operators, etc.), evaluate via ExpressionEngine with the full data context.
+   *
+   * Skips calculatedField schemas (they have their own evaluation in resolveCalculatedFields).
+   * Simple {{field}} placeholder values (already resolved to plain text) pass through unchanged.
+   */
+  private resolveExpressions(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    inputs: Record<string, string>[],
+  ): void {
+    if (!Array.isArray(pdfmeTemplate.schemas) || inputs.length === 0) return;
+
+    // Build a set of element names that should be skipped (calculatedField, image, etc.)
+    const skipNames = new Set<string>();
+    for (const page of pdfmeTemplate.schemas) {
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (!element || typeof element !== 'object') continue;
+        const el = element as Record<string, unknown>;
+        const elType = el.type as string | undefined;
+        const elName = el.name as string | undefined;
+        if (elName && elType && RenderService.EXPRESSION_SKIP_TYPES.has(elType)) {
+          skipNames.add(elName);
+        }
+      }
+    }
+
+    // Build a set of all element names that are text-containing schemas
+    const textElementNames = new Set<string>();
+    for (const page of pdfmeTemplate.schemas) {
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (!element || typeof element !== 'object') continue;
+        const el = element as Record<string, unknown>;
+        const elName = el.name as string | undefined;
+        if (elName && !skipNames.has(elName)) {
+          textElementNames.add(elName);
+        }
+      }
+    }
+
+    if (textElementNames.size === 0) return;
+
+    const engine = new ExpressionEngine({ onError: '#ERROR' });
+
+    for (const inputRecord of inputs) {
+      // Build the evaluation context from ALL input values
+      // Try to parse numeric values for arithmetic support
+      const context: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(inputRecord)) {
+        if (value === '' || value === undefined || value === null) {
+          context[key] = value;
+          continue;
+        }
+        const num = Number(value);
+        context[key] = (value !== '' && !isNaN(num)) ? num : value;
+      }
+
+      // Scan text element values for expression patterns
+      for (const fieldName of textElementNames) {
+        const value = inputRecord[fieldName];
+        if (!value || typeof value !== 'string') continue;
+
+        // Skip values that are clearly not expressions:
+        // - Empty strings
+        // - Data URIs (base64 images)
+        // - Very short values unlikely to be expressions
+        if (value.startsWith('data:') || value.length < 3) continue;
+
+        // Check if the value contains expression syntax
+        if (RenderService.EXPRESSION_PATTERN.test(value)) {
+          try {
+            const result = engine.evaluate(value, context);
+            inputRecord[fieldName] = String(result ?? '');
+          } catch {
+            // If expression evaluation fails, leave the original value unchanged
+            // This ensures backward compatibility — plain text with coincidental
+            // pattern matches won't break rendering
           }
         }
       }
@@ -2033,6 +2148,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     // 3a. Resolve field bindings with fallbackValue
     this.resolveFieldBindings(pdfmeTemplate, inputs);
 
+    // 3a2. Resolve expressions in all text-containing schema element values
+    this.resolveExpressions(pdfmeTemplate, inputs);
+
     // 3b. Resolve drawnSignature fields
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
 
@@ -2135,7 +2253,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     }
 
     pdfBuffer = await generate({
-      template: pdfmeTemplate,
+      template: pdfmeTemplate as any,
       inputs,
       plugins,
       options: previewGenerateOptions,

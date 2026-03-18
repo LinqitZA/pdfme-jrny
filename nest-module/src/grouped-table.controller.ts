@@ -15,8 +15,8 @@ import {
   HttpStatus,
   Inject,
 } from '@nestjs/common';
-import { GroupedTable } from '../../packages/erp-schemas/src/grouped-table';
-import type { GroupedTableConfig } from '../../packages/erp-schemas/src/grouped-table';
+import { GroupedTable } from '@pdfme-erp/schemas';
+import type { GroupedTableConfig } from '@pdfme-erp/schemas';
 import { createId } from '@paralleldrive/cuid2';
 import { templates, generatedDocuments } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
@@ -261,9 +261,10 @@ export class GroupedTableController {
 
       // Store PDF
       const docId = createId();
-      const pdfHash = this.hashService.computeHash(pdfBuffer);
+      const pdfBuf = Buffer.from(pdfBuffer);
+      const pdfHash = this.hashService.computeHash(pdfBuf);
       const filePath = `${user.orgId}/documents/grouped_${docId}.pdf`;
-      await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
+      await this.fileStorage.write(filePath, pdfBuf);
 
       // Create or find an ad-hoc grouped-table template for document records
       let adhocTemplateId: string;

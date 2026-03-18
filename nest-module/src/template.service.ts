@@ -1870,6 +1870,7 @@ export class TemplateService {
     templates: Array<{ id: string; name: string; type: string; status: string }>;
     fontValidation?: { total: number; accepted: number; rejected: number; errors: string[] };
   }> {
+    // @ts-ignore - adm-zip has no type declarations
     const AdmZip = (await import('adm-zip')).default;
     const zip = new AdmZip(zipBuffer);
     const entries = zip.getEntries();
@@ -2142,7 +2143,7 @@ export class TemplateService {
       });
     }
 
-    return { released: true, forceReleased: wasForceRelease || false };
+    return { released: true };
   }
 
   /**

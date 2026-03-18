@@ -101,7 +101,7 @@ export class RenderController {
           HttpStatus.BAD_REQUEST,
         );
       }
-      const layout = body.layout as Record<string, unknown>;
+      const layout = body.layout as unknown as Record<string, unknown>;
       if (layout.type !== 'sheet') {
         throw new HttpException(
           {
@@ -333,7 +333,7 @@ export class RenderController {
     // Validate onFailure parameter (must be continue or abort)
     {
       const VALID_ON_FAILURE = ['continue', 'abort'];
-      if (body.onFailure !== undefined && body.onFailure !== null && body.onFailure !== '') {
+      if (body.onFailure !== undefined && body.onFailure !== null && (body.onFailure as string) !== '') {
         if (!VALID_ON_FAILURE.includes(body.onFailure as string)) {
           throw new HttpException(
             {
@@ -1021,7 +1021,7 @@ export class RenderController {
       orgId: user.orgId,
       channel: body.channel,
       triggeredBy: user.sub || 'anonymous',
-      inputs: body.inputs as Record<string, unknown>,
+      inputs: body.inputs as unknown as Record<string, unknown>,
     });
 
     return {

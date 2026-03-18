@@ -35,9 +35,9 @@ export const templates = pgTable(
     lockedBy: text('locked_by'),
     lockedAt: timestamp('locked_at', { withTimezone: true }),
   },
-  (table) => [
-    index('idx_templates_org_type_status').on(table.orgId, table.type, table.status),
-  ],
+  (table) => ({
+    orgTypeStatusIdx: index('idx_templates_org_type_status').on(table.orgId, table.type, table.status),
+  }),
 );
 
 // ─── GeneratedDocument ───────────────────────────────────────────────
@@ -71,9 +71,9 @@ export const userSignatures = pgTable(
     capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
   },
-  (table) => [
-    uniqueIndex('idx_user_signatures_org_user').on(table.orgId, table.userId),
-  ],
+  (table) => ({
+    orgUserIdx: uniqueIndex('idx_user_signatures_org_user').on(table.orgId, table.userId),
+  }),
 );
 
 // ─── RenderBatch ─────────────────────────────────────────────────────
@@ -107,9 +107,9 @@ export const templateVersions = pgTable('template_versions', {
   savedBy: text('saved_by').notNull(), // userId
   savedAt: timestamp('saved_at', { withTimezone: true }).notNull().defaultNow(),
   changeNote: text('change_note'), // optional description of change
-}, (table) => [
-  index('idx_template_versions_template').on(table.templateId),
-]);
+}, (table) => ({
+  templateIdx: index('idx_template_versions_template').on(table.templateId),
+}));
 
 // ─── Printers ───────────────────────────────────────────────────────
 export const printers = pgTable('printers', {
@@ -144,10 +144,10 @@ export const printJobs = pgTable(
     completedAt: timestamp('completed_at', { withTimezone: true }),
     createdBy: text('created_by').notNull(),
   },
-  (table) => [
-    index('idx_print_jobs_org_status').on(table.orgId, table.status),
-    index('idx_print_jobs_created_at').on(table.createdAt),
-  ],
+  (table) => ({
+    orgStatusIdx: index('idx_print_jobs_org_status').on(table.orgId, table.status),
+    createdAtIdx: index('idx_print_jobs_created_at').on(table.createdAt),
+  }),
 );
 
 // ─── AuditLog ────────────────────────────────────────────────────────

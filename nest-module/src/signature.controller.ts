@@ -235,11 +235,12 @@ export class SignatureController {
     }
 
     // Get updated signature to include revokedAt in response
-    const revokedSig = await this.signatureService.getSignatureById(orgId, signature.id);
+    const sigId = signature?.id;
+    const revokedSig = sigId ? await this.signatureService.getSignatureById(orgId, sigId) : null;
 
     return {
       message: 'Signature revoked successfully',
-      id: signature.id,
+      id: sigId || 'unknown',
       userId,
       orgId,
       revokedAt: revokedSig?.revokedAt || new Date().toISOString(),

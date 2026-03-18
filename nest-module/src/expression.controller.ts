@@ -10,7 +10,8 @@
  */
 
 import { Controller, Post, Get, Body, BadRequestException, Req } from '@nestjs/common';
-import { ExpressionEngine, ExpressionEngineOptions } from '../../packages/erp-schemas/src/expression-engine';
+import { ExpressionEngine } from '@pdfme-erp/schemas';
+import type { ExpressionEngineOptions } from '@pdfme-erp/schemas';
 
 /** In-memory locale config per org (in production, this would be stored in DB) */
 const orgLocaleConfigs: Map<string, { locale: string; currency: string; timezone: string }> = new Map();

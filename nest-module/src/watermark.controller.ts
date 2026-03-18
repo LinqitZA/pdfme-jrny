@@ -15,7 +15,8 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Response } from 'express';
-import { applyWatermark, WatermarkConfig, WATERMARK_DEFAULTS, parseHexColor } from '../../packages/erp-schemas/src/watermark';
+import { applyWatermark, WATERMARK_DEFAULTS, parseHexColor } from '@pdfme-erp/schemas';
+import type { WatermarkConfig } from '@pdfme-erp/schemas';
 
 interface WatermarkPreviewDto {
   text?: string;

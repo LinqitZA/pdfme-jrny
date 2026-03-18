@@ -11,7 +11,7 @@
  * - Sandboxed: no Node.js globals, no require(), no eval()
  */
 
-import { Parser } from 'expr-eval';
+import { Parser, Value } from 'expr-eval';
 
 export type ExpressionErrorMode = 'emptyString' | '#ERROR' | 'fail';
 
@@ -118,7 +118,7 @@ export class ExpressionEngine {
       const exprVars = parsed.variables({ withMembers: false });
       for (const v of exprVars) {
         if (!(v in flatContext)) {
-          flatContext[v] = NULL_VALUE;
+          flatContext[v] = NULL_VALUE as unknown as Value;
         }
       }
 
@@ -153,8 +153,8 @@ export class ExpressionEngine {
   private resolveFieldReferences(
     expression: string,
     context: Record<string, unknown>,
-  ): { processedExpr: string; flatContext: Record<string, unknown> } {
-    const flatContext: Record<string, unknown> = {};
+  ): { processedExpr: string; flatContext: Record<string, Value> } {
+    const flatContext: Record<string, Value> = {};
 
     // Flatten nested context objects
     const flatten = (obj: Record<string, unknown>, prefix = '') => {
@@ -163,7 +163,7 @@ export class ExpressionEngine {
         if (value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Date)) {
           flatten(value as Record<string, unknown>, fullKey);
         } else {
-          flatContext[fullKey] = value;
+          flatContext[fullKey] = value as Value;
         }
       }
     };
@@ -199,7 +199,7 @@ export class ExpressionEngine {
     for (const key of Object.keys(flatContext)) {
       const val = flatContext[key];
       if (val === null || val === undefined) {
-        flatContext[key] = NULL_VALUE;
+        flatContext[key] = NULL_VALUE as unknown as Value;
       } else if (val instanceof Date) {
         flatContext[key] = val.getTime();
       }

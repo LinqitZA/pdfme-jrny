@@ -26,10 +26,10 @@ async function bootstrap() {
   app.enableCors();
 
   // Set global body size limit (50MB for JSON payloads like template import)
-  app.useBodyParser('json', { limit: '50mb' });
+  (app as any).useBodyParser('json', { limit: '50mb' });
 
   // Enable raw body parser for ZIP file uploads (backup import)
-  app.useBodyParser('raw', { limit: '100mb', type: ['application/zip', 'application/octet-stream'] });
+  (app as any).useBodyParser('raw', { limit: '100mb', type: ['application/zip', 'application/octet-stream'] });
 
   // Register global exception filter to sanitize error responses
   app.useGlobalFilters(new GlobalExceptionFilter());
