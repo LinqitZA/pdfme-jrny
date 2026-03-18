@@ -869,3 +869,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - POST /api/pdfme/templates/:id/preview - Generate preview PDF with sample data and PREVIEW watermark
 
 ### Current Status: ~66/388 features passing
+
+---
+
+## Session - 2026-03-18 - Features #137, #138, #139 (PDF/A and Template Import)
+
+### Completed Features:
+- **Feature #137**: PDF/A-3b conversion via Ghostscript ✅
+  - Full PdfaProcessor class in nest-module/src/pdfa-processor.ts
+  - Two-strategy approach: Ghostscript (when available) or pdf-lib fallback
+  - pdf-lib fallback injects XMP metadata block, OutputIntents, document info
+  - XMP contains pdfaid:part=3, pdfaid:conformance=B for PDF/A-3b identification
+  - OutputIntent with sRGB IEC61966-2.1 color profile reference
+  - Integrated into RenderService pipeline (step 4d, after watermark, before hash)
+  - Verified: generated PDFs have XMP metadata and OutputIntents
+
+- **Feature #138**: PDF/A validation via veraPDF ✅
+  - veraPDF validation when binary available, basic fallback otherwise
+  - Basic validation checks: XMP metadata presence, OutputIntents, font embedding
+  - Inspects PDF structure for system font references
+  - POST /api/pdfme/render/validate-pdfa endpoint
+  - Returns: valid, method, errors[], fontsEmbedded, noSystemFontRefs, xmpPresent
+  - Verified: all checks pass on converted PDFs
+
+- **Feature #139**: Template import validates and creates draft ✅
+  - POST /api/pdfme/templates/import accepts TemplateExportPackage JSON
+  - Font validation: TTF/OTF/WOFF2 magic byte verification
+  - Invalid fonts rejected with error messages, valid fonts stored
+  - Image assets extracted and stored in org-specific directory
+  - Template always created as draft (regardless of source status)
+  - Version reset to 1 for imported templates
+  - Response includes fontValidation and assetsExtracted details
+  - Data persists across server restart (verified)
+
+### Key Files Created/Modified:
+- nest-module/src/pdfa-processor.ts - Full PdfaProcessor (was stub)
+- nest-module/src/app.module.ts - Registered PdfaProcessor
+- nest-module/src/render.service.ts - Integrated PDF/A conversion step
+- nest-module/src/render.controller.ts - Added validate-pdfa endpoint
+- nest-module/src/template.service.ts - Added validateFontData(), enhanced importTemplate()
+- tests/test-features-137-138-139.js - 32 automated tests
+
+### API Endpoints Added/Modified:
+- POST /api/pdfme/render/validate-pdfa - Validate PDF against PDF/A-3b requirements
+- POST /api/pdfme/templates/import - Enhanced with font validation
+
+### Test Results: 32/32 tests passing
+### Current Status: Features #137, #138, #139 marked passing
