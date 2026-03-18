@@ -1567,3 +1567,57 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-tab-switch-state-195.js - 35 tests
 
 ### Current Status: 118/388 features passing (30.4%)
+
+---
+
+## Session - 2026-03-18 - Features #196, #197, #198 (Draft Preservation, Lock Warning, Back Navigation)
+
+### Completed Features:
+- **Feature #196**: Refresh mid-form preserves draft ✅
+  - Verified auto-save saves to PUT /api/pdfme/templates/:id/draft
+  - On refresh, loadTemplate() fetches from GET /api/pdfme/templates/:id
+  - All schema properties preserved: pages, elements, positions, fonts, bindings, complex types
+  - Multiple saves preserve only latest state
+  - Empty pages and elements preserved correctly
+  - Complex properties (columns, showHeader, borderStyle, opacity, lineHeight) all persist
+  - 51/51 tests passing
+
+- **Feature #197**: Multi-tab editing shows lock warning ✅
+  - Designer acquires edit lock (POST /templates/:id/lock) on template load
+  - If lock acquired: normal editing mode
+  - If 409 conflict: sets isReadOnly=true, shows lock warning banner
+  - Warning banner shows lock holder name and lock expiry time
+  - Save/Publish buttons disabled in read-only mode
+  - Auto-save skips when read-only
+  - Lock released on component unmount
+  - Template name input read-only when locked
+  - Same user can refresh lock (heartbeat), different user gets conflict
+  - Lock release allows other user to acquire
+  - 40/40 tests passing
+
+- **Feature #198**: Back button after save navigates correctly ✅
+  - Added "← Templates" button (data-testid="btn-back-to-templates") in toolbar
+  - Back button navigates to /templates with orgId/authToken preserved
+  - Unsaved changes trigger confirm dialog before navigation
+  - history.replaceState called after successful save (prevents re-submit on back)
+  - Multiple sequential saves are idempotent
+  - Template list shows saved data correctly
+  - Re-opening template after back loads all saved data
+  - 32/32 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx
+  - Added isReadOnly, lockHolder, lockExpiresAt state
+  - Added lock acquisition in loadTemplate useEffect
+  - Added lock release on unmount
+  - Added read-only warning banner (lock-warning-banner)
+  - Added "Back to Templates" button
+  - Added history.replaceState after save
+  - Disabled save/publish when read-only
+  - Auto-save skips when read-only
+- tests/test-refresh-draft-196.js - 51 tests
+- tests/test-lock-warning-197.js - 40 tests
+- tests/test-back-button-198.js - 32 tests
+
+### Test Results: 123/123 tests passing across 3 test suites
+### Current Status: ~116/388 features passing (29.9%)
