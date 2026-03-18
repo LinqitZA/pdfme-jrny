@@ -4705,3 +4705,41 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-33-bulk-batch-size-limit.js - 14 tests
 
 ### Test Results: 49/49 tests passing across 3 features
+
+---
+
+## Session - 2026-03-18 - Features #28, #29, #30 (Audit and Security)
+
+### Completed Features:
+- **Feature #28**: Audit log is append-only no updates or deletes
+  - Created PostgreSQL triggers to block UPDATE and DELETE on audit_logs table
+  - API PUT/DELETE endpoints on /audit/:id return 403 Forbidden
+  - GET /audit/policy endpoint reports enforcement status with trigger verification
+  - Database-level enforcement confirmed via direct SQL testing
+  - 32/32 tests passing
+
+- **Feature #29**: All state-changing actions create audit entries
+  - template.created, template.updated, template.published, template.archived, template.forked, document.rendered
+  - Added audit logging to saveDraft method (template.updated)
+  - Added fork template endpoint and audit logging (template.forked)
+  - Fixed archived action name to template.archived for consistency
+  - 33/33 tests passing
+
+- **Feature #30**: Signature files stored with restricted permissions
+  - Directories created with 0700 (owner-only) permissions
+  - Files written with 0600 (owner read/write) permissions
+  - No static file serving - only authenticated API access
+  - GET /signatures/storage-info reports permission status
+  - Cross-org and unauthenticated access blocked
+  - 21/21 tests passing
+
+### Key Files Modified:
+- nest-module/src/db/migrate.ts - audit_logs UPDATE/DELETE prevention triggers
+- nest-module/src/audit.service.ts - verifyAppendOnlyEnforcement method
+- nest-module/src/audit.controller.ts - PUT/DELETE rejection, /audit/policy endpoint
+- nest-module/src/template.service.ts - forkTemplate method, saveDraft audit logging
+- nest-module/src/template.controller.ts - POST /templates/:id/fork endpoint
+- nest-module/src/local-disk-storage.adapter.ts - 0700/0600 permissions for signatures
+- nest-module/src/signature.controller.ts - GET /signatures/storage-info endpoint
+
+### Test Results: 86/86 tests passing across 3 features
