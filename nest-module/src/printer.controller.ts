@@ -318,14 +318,15 @@ export class PrinterController {
         jobId: id,
         status: updatedJob?.status || 'unknown',
         pdfSize: result.pdfSize,
-        reprinted: true,
+        reprinted: !result.printError,
         pageRange: options.fromPage ? { from: options.fromPage, to: options.toPage || job.totalLabels } : 'full',
+        ...(result.printError ? { error: result.printError } : {}),
       };
     } catch (err: any) {
       if (err.message === 'PRINT_JOB_NOT_FOUND') {
         throw new HttpException({ statusCode: 404, error: 'Not Found', message: 'Print job not found' }, HttpStatus.NOT_FOUND);
       }
-      // If print fails, return the updated status
+      // If something unexpected fails, return error info
       const updatedJob = await this.printJobService.findById(user.orgId, id);
       return {
         jobId: id,

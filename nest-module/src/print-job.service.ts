@@ -261,6 +261,7 @@ export class PrintJobService {
     await this.updateStatus(jobId, 'printing');
 
     // Try to send to printer (if printer exists and is reachable)
+    let printError: string | null = null;
     if (printer) {
       try {
         await this.printerService.sendToPrinter(printer.host, printer.port, pdfData);
@@ -269,19 +270,20 @@ export class PrintJobService {
           completedAt: new Date(),
         });
       } catch (err: any) {
+        printError = err.message;
         await this.updateStatus(jobId, 'failed', {
           errorMessage: err.message,
         });
-        throw err;
+        // Don't throw - return the result with error info so caller can still report pdfSize
       }
     } else {
-      // Printer not found - mark as failed but return the PDF data
+      printError = 'Printer not found or removed';
       await this.updateStatus(jobId, 'failed', {
-        errorMessage: 'Printer not found or removed',
+        errorMessage: printError,
       });
     }
 
-    return { job, pdfData, pdfSize: pdfData.length };
+    return { job, pdfData, pdfSize: pdfData.length, printError };
   }
 
   /**
