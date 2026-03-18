@@ -4359,3 +4359,55 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 110/110 tests passing across 3 features
 ### Current Status: ~308/388 features passing (79.4%)
+
+
+---
+
+## Session - 2026-03-18 - Features #388, #67, #78 (Designer Props, Page Simulator, Version History)
+
+### Completed Features:
+- **Feature #388**: Designer handles concurrent prop updates ✅
+  - Added FieldSchemaEntry and BrandConfig interfaces to ErpDesignerProps
+  - fieldSchema prop: external field schemas merged with built-in DATA_FIELDS
+  - brandConfig prop: CSS custom properties (--brand-primary, etc) applied to root
+  - useEffect hooks safely absorb rapid prop changes without crashes
+  - useRef counters track update frequency for debugging
+  - useMemo for brandStyles and mergedDataFields prevents unnecessary re-renders
+  - page.tsx supports postMessage API for host app integration
+  - Error handling for invalid prop values (non-array, non-object)
+  - Data attributes expose state: data-field-schema-count, data-brand-config-updates, etc.
+  - 46/46 tests passing
+
+- **Feature #67**: Page simulator 1/2/3 page toggle ✅
+  - Added pageSimulatorCount state (1 | 2 | 3 | null)
+  - Toolbar buttons: 1p, 2p, 3p with active/inactive styling
+  - Click toggles on/off (same button = toggle off)
+  - Clear button to reset simulator
+  - isElementVisibleInSimulation callback handles all pageScope values
+  - scope all: always visible; first: page 0 only; last: last page only; notFirst: pages 1+
+  - Hidden elements shown at 15% opacity with pointer-events: none
+  - Smooth 0.2s transition animation
+  - data-sim-hidden and data-page-scope attributes for testing
+  - aria-pressed for accessibility
+  - 43/43 tests passing
+
+- **Feature #78**: Template version history returns list ✅
+  - GET /api/pdfme/templates/:id/versions returns version list
+  - Each version has: version, status, savedBy, savedAt, id, schema, changeNote
+  - Versions in reverse chronological order (newest first)
+  - GET specific version by number works
+  - Invalid version numbers return 400, non-existent return 404
+  - Tenant isolation: other org cannot see version history
+  - changeNote distinguishes Draft save vs New version save
+  - Independent templates have independent version histories
+  - 37/37 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - fieldSchema, brandConfig props, page simulator
+- apps/designer-sandbox/app/page.tsx - postMessage integration for prop updates
+- tests/test-feature-388-concurrent-prop-updates.js - 46 tests
+- tests/test-feature-67-page-simulator.js - 43 tests
+- tests/test-feature-78-version-history.js - 37 tests
+
+### Test Results: 126/126 tests passing across 3 features
+### Current Status: ~310/388 features passing (79.9%)
