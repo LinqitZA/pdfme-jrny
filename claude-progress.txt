@@ -5598,3 +5598,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - nest-module/Dockerfile - Removed error suppression from 5 upstream build steps
 
 ### Current Status: 401/405 features passing (99.0%)
+
+---
+
+## Session - 2026-03-18 - Features #401, #402, #403 (Expression Engine Enhancements)
+
+### Completed Features:
+- **Feature #401**: Enable expression evaluation for all schema types ✅
+  - Added resolveExpressions() pipeline step in render.service.ts
+  - Runs AFTER resolveFieldBindings() but BEFORE schema-specific resolvers
+  - Detects expression patterns (function calls, arithmetic operators) in input values
+  - Evaluates via ExpressionEngine with full data context
+  - Skips calculatedField, image, drawnSignature, erpImage schemas
+  - Graceful error handling: if evaluation fails, original value preserved
+  - Added to both render and preview pipelines
+  - Fixed erp-schemas tsconfig to output CJS for Node.js compatibility
+  - 46/46 tests passing
+
+- **Feature #403**: Expression support for all barcode types ✅
+  - Verified that #401 pipeline covers Code128, QR, and other barcode types
+  - CONCAT, UPPER, IF, arithmetic, field references all work in barcode content
+  - Static barcode content unchanged (backward compatible)
+  - Error handling prevents render failures from bad expressions
+  - Mixed text+barcode templates with expressions work correctly
+  - 33/33 tests passing
+
+- **Feature #402**: Add additional string and math functions to expression engine ✅
+  - String: PADLEFT(str, len, padChar), PADRIGHT(str, len, padChar)
+  - String: REPLACE(str, search, repl), SUBSTITUTE(str, search, repl)
+  - String: SPLIT(str, delim, idx), FIND(search, within)
+  - Numeric: FLOOR(value), CEIL(value)
+  - Numeric: MIN(a,b,...), MAX(a,b,...), SUM(a,b,...)
+  - Conditional: SWITCH(expr, case1, val1, ..., default)
+  - All functions handle NullSentinel consistently
+  - Updated expression engine documentation comments
+  - 53/53 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.service.ts - resolveExpressions() pipeline step, ExpressionEngine import
+- packages/erp-schemas/src/expression-engine/index.ts - 12 new functions
+- packages/erp-schemas/tsconfig.json - Added module:commonjs for CJS output
+- tests/test-feature-401-expression-all-schemas.js - 46 tests
+- tests/test-feature-402-additional-functions.js - 53 tests
+- tests/test-feature-403-barcode-expressions.js - 33 tests
+
+### Test Results: 132/132 tests passing across 3 features
+### Current Status: 401/404 features passing (99.3%)
