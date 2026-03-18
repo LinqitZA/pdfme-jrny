@@ -9,11 +9,18 @@ import { Controller, Get, Post, Body, Inject, HttpException, HttpStatus, Query }
 import { Pool } from 'pg';
 import { Public } from './auth.guard';
 import { withDbRetry, isTransientError } from './db/db-retry';
+import { FileStorageService } from './file-storage.service';
+import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Controller('api/pdfme')
 @Public()
 export class HealthController {
-  constructor(@Inject('PG_POOL') private readonly pool: Pool) {}
+  constructor(
+    @Inject('PG_POOL') private readonly pool: Pool,
+    @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
+  ) {}
 
   @Get('health')
   async getHealth() {
@@ -214,5 +221,60 @@ export class HealthController {
       default:
         throw new HttpException('Unknown error type. Use ?type=unhandled|internal-path|http-400|http-500|db-error|stack-in-message|node-modules|duplicate-key', HttpStatus.BAD_REQUEST);
     }
+  }
+
+  /**
+   * Get storage directory structure information.
+   * Returns which directories exist and their paths.
+   */
+  @Get('health/storage-structure')
+  async getStorageStructure(@Query('orgId') orgId?: string) {
+    const adapter = this.fileStorage as LocalDiskStorageAdapter;
+    const rootDir = adapter.getRootDir();
+    const tempDir = adapter.getTempDir();
+
+    const checkDir = (dirPath: string) => {
+      try {
+        return fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory();
+      } catch {
+        return false;
+      }
+    };
+
+    const structure: Record<string, { path: string; exists: boolean }> = {
+      'system/fonts': {
+        path: path.join(rootDir, 'system', 'fonts'),
+        exists: checkDir(path.join(rootDir, 'system', 'fonts')),
+      },
+      'tempDir/previews': {
+        path: path.join(tempDir, 'previews'),
+        exists: checkDir(path.join(tempDir, 'previews')),
+      },
+    };
+
+    if (orgId) {
+      structure[`${orgId}/documents`] = {
+        path: path.join(rootDir, orgId, 'documents'),
+        exists: checkDir(path.join(rootDir, orgId, 'documents')),
+      };
+      structure[`${orgId}/assets`] = {
+        path: path.join(rootDir, orgId, 'assets'),
+        exists: checkDir(path.join(rootDir, orgId, 'assets')),
+      };
+      structure[`${orgId}/fonts`] = {
+        path: path.join(rootDir, orgId, 'fonts'),
+        exists: checkDir(path.join(rootDir, orgId, 'fonts')),
+      };
+      structure[`${orgId}/signatures`] = {
+        path: path.join(rootDir, orgId, 'signatures'),
+        exists: checkDir(path.join(rootDir, orgId, 'signatures')),
+      };
+    }
+
+    return {
+      rootDir,
+      tempDir,
+      structure,
+    };
   }
 }

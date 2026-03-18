@@ -341,6 +341,22 @@ export class FontController {
   }
 
   /**
+   * Font cache configuration for browser clients.
+   * Returns recommended cache settings (cache name, TTL).
+   * The actual caching is done client-side using the browser Cache API.
+   */
+  @Get('cache/config')
+  getFontCacheConfig() {
+    return {
+      cacheName: 'pdfme-font-cache-v1',
+      ttlMs: 24 * 60 * 60 * 1000, // 24 hours
+      ttlHours: 24,
+      strategy: 'cache-first',
+      description: 'Browser Cache API with 24h TTL for font files',
+    };
+  }
+
+  /**
    * Download a font by ID.
    */
   @Get(':fontId')
@@ -381,6 +397,8 @@ export class FontController {
 
     res.setHeader('Content-Type', mimeMap[ext] || 'application/octet-stream');
     res.setHeader('Content-Length', buffer.length);
+    // Cache-Control: allow browser caching for 24 hours (complements Cache API)
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
     res.send(buffer);
   }
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import { fetchFontWithCache, getFontCacheStats, clearFontCache, pruneExpiredFonts, isCacheApiAvailable } from './fontCache';
 
 /**
  * ErpDesigner - Three-panel WYSIWYG template designer for ERP documents.
@@ -391,6 +392,12 @@ export default function ErpDesigner({
   const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
   const [assetUploadProgress, setAssetUploadProgress] = useState<number>(0);
   const assetFileInputRef = useRef<HTMLInputElement>(null);
+
+  // ─── Font cache state ───
+  const [fontCacheLoaded, setFontCacheLoaded] = useState(false);
+  const [fontCacheEntries, setFontCacheEntries] = useState(0);
+  const [fontCacheFromCache, setFontCacheFromCache] = useState<string[]>([]);
+  const [fontCacheFromNetwork, setFontCacheFromNetwork] = useState<string[]>([]);
 
   // Template status (draft/published/archived) - shown in UI
   const [templateStatus, setTemplateStatus] = useState<'draft' | 'published' | 'archived' | null>(null);
@@ -1385,6 +1392,72 @@ export default function ErpDesigner({
       loadAssets();
     }
   }, [loadAssets, authToken]);
+
+  // ─── Font cache: load org fonts with Cache API caching ───
+  useEffect(() => {
+    if (!authToken || !apiBase) return;
+
+    let cancelled = false;
+
+    async function loadFontsWithCache() {
+      try {
+        // First prune expired entries
+        await pruneExpiredFonts();
+
+        const headers: Record<string, string> = {};
+        if (authToken) {
+          headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+        }
+
+        // Fetch font list from API
+        const response = await fetch(`${apiBase}/fonts`, { headers });
+        if (!response.ok || cancelled) return;
+
+        const result = await response.json();
+        const fontFiles: string[] = result.data || [];
+
+        const fromCache: string[] = [];
+        const fromNetwork: string[] = [];
+
+        // Load each font via Cache API
+        for (const fontPath of fontFiles) {
+          if (cancelled) return;
+          try {
+            const fontUrl = `${apiBase}/assets/${encodeURIComponent(fontPath)}`;
+            const fetchHeaders: Record<string, string> = {};
+            if (authToken) {
+              fetchHeaders['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+            }
+
+            const result = await fetchFontWithCache(fontUrl, { headers: fetchHeaders });
+            if (result.fromCache) {
+              fromCache.push(fontPath);
+            } else {
+              fromNetwork.push(fontPath);
+            }
+          } catch {
+            // Skip individual font errors
+          }
+        }
+
+        if (!cancelled) {
+          setFontCacheFromCache(fromCache);
+          setFontCacheFromNetwork(fromNetwork);
+
+          // Update cache stats
+          const stats = await getFontCacheStats();
+          setFontCacheEntries(stats.entryCount);
+          setFontCacheLoaded(true);
+        }
+      } catch {
+        // Font caching is an optimization, not critical
+        if (!cancelled) setFontCacheLoaded(true);
+      }
+    }
+
+    loadFontsWithCache();
+    return () => { cancelled = true; };
+  }, [authToken, apiBase]);
 
   // ─── Asset upload handler ───
   const handleAssetUpload = useCallback(async (file: File) => {
@@ -3036,6 +3109,11 @@ export default function ErpDesigner({
     <div
       className="erp-designer"
       data-testid="erp-designer-root"
+      data-font-cache-loaded={fontCacheLoaded ? 'true' : 'false'}
+      data-font-cache-entries={String(fontCacheEntries)}
+      data-font-cache-available={isCacheApiAvailable() ? 'true' : 'false'}
+      data-font-cache-from-cache={fontCacheFromCache.join(',')}
+      data-font-cache-from-network={fontCacheFromNetwork.join(',')}
       style={{
         display: 'flex',
         flexDirection: 'column',

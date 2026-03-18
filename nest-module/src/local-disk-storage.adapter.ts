@@ -24,6 +24,9 @@ export class LocalDiskStorageAdapter extends FileStorageService {
     // Ensure root and temp directories exist
     fs.mkdirSync(this.rootDir, { recursive: true });
     fs.mkdirSync(this.tempDir, { recursive: true });
+    // Ensure specified directory structure per FileStorageService spec
+    fs.mkdirSync(path.join(this.rootDir, 'system', 'fonts'), { recursive: true });
+    fs.mkdirSync(path.join(this.tempDir, 'previews'), { recursive: true });
   }
 
   /**
@@ -109,6 +112,14 @@ export class LocalDiskStorageAdapter extends FileStorageService {
     }
     const stats = fs.statSync(fullPath);
     return { size: stats.size, modifiedAt: stats.mtime };
+  }
+
+  getRootDir(): string {
+    return this.rootDir;
+  }
+
+  getTempDir(): string {
+    return this.tempDir;
   }
 
   async usage(orgId: string): Promise<{ documents: number; assets: number; total: number }> {
