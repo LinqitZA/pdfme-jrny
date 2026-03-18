@@ -5043,3 +5043,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 107/107 tests passing across 3 features
 ### Current Status: ~359/388 features passing (92.5%)
+
+---
+
+## Session - 2026-03-18 - Features #57, #58, #59 (Canvas Page Boundary, Rulers, Snap-to-Grid)
+
+### Completed Features:
+- **Feature #57**: Canvas page boundary with shadow ✅
+  - A4 shows correct proportions (595x842pt)
+  - Page size selector switches between A4/Letter/Legal/A3/A5
+  - Multi-layer drop shadow visible (3 shadow layers)
+  - Border for crisp page edge
+  - data-aspect-ratio attribute calculated dynamically
+  - White paper on gray canvas background
+  - 29/29 tests passing
+
+- **Feature #58**: Canvas rulers display and scale ✅
+  - Horizontal ruler with mm tick marks (major every 10mm, minor every 5mm)
+  - Vertical ruler with mm tick marks (writing-mode: vertical-lr)
+  - Both rulers scale with zoom level via data-zoom attribute
+  - Ruler width/height matches page dimensions at current zoom
+  - Rulers positioned in canvas-ruler-container wrapping the page
+  - Rulers have aria-labels for accessibility
+  - 29/29 tests passing
+
+- **Feature #59**: Canvas snap-to-grid configurable ✅
+  - Default 5mm grid (14.17pt)
+  - Grid size selector in toolbar with options: Off, 1mm, 2mm, 5mm, 10mm, 15mm, 20mm, 25mm
+  - SVG grid pattern overlay scales with zoom
+  - snapToGrid function applied to element drag positions
+  - Grid overlay hidden when grid size is 0 (Off)
+  - MM_TO_PT conversion constant (2.83465)
+  - data-grid-size-mm attribute on canvas-page
+  - 31/31 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Rulers, enhanced page boundary, grid overlay, snap-to-grid
+- tests/test-feature-57-canvas-page-boundary.js - 29 tests
+- tests/test-feature-58-canvas-rulers.js - 29 tests
+- tests/test-feature-59-canvas-snap-to-grid.js - 31 tests
+
+### Test Results: 89/89 tests passing across 3 features
+### Current Status: ~351/388 features passing (90.5%)
