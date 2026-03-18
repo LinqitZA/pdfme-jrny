@@ -4997,3 +4997,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-53-export-json.js - 30 tests
 
 ### Test Results: 76/76 tests passing across 3 features
+
+---
+
+## Session - 2026-03-18 - Features #60, #61, #62 (Canvas Interactions)
+
+### Completed Features:
+- **Feature #60**: Canvas alignment guides between elements ✅
+  - Added alignmentGuides state and SNAP_THRESHOLD (5px)
+  - calculateAlignmentGuides computes guides for edge/center alignment
+  - Vertical guides: left-edge, right-edge, center, edge-snap
+  - Horizontal guides: top-edge, bottom-edge, center, edge-snap
+  - Mouse-based element drag with snap-to-guide behavior
+  - Guide lines rendered as red (#ef4444) overlays with z-index 1001
+  - data-testid, data-guide-type, data-guide-position, data-guide-label attributes
+  - Guides cleared on mouse up, respect zoom scale
+  - 42/42 tests passing
+
+- **Feature #61**: Canvas multi-select with modifier key ✅
+  - selectedElementIds state array for multi-selection
+  - handleElementClick with Ctrl/Cmd modifier detection
+  - Modifier+click toggles element in/out of selection
+  - Single click (no modifier) selects only one element
+  - handleCanvasBackgroundClick deselects all
+  - Visual feedback: blue border, subtle background, selection handles
+  - Multi-select indicator shows "N selected" badge
+  - data-selected, data-multi-selected, aria-selected attributes
+  - Delete key removes all multi-selected elements
+  - 35/35 tests passing
+
+- **Feature #62**: Canvas arrow nudge 1px and shift 10px ✅
+  - Arrow keys nudge selected element(s): 1px default, 10px with Shift
+  - All four directions: ArrowUp, ArrowDown, ArrowLeft, ArrowRight
+  - Position clamped to minimum 0 (no negative)
+  - Multi-select nudge: all selected elements move together
+  - Falls back to single selectedElementId if no multi-select
+  - preventDefault stops page scroll
+  - 30/30 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - alignment guides, multi-select, mouse drag
+- tests/test-feature-60-alignment-guides.js - 42 tests
+- tests/test-feature-61-multi-select.js - 35 tests
+- tests/test-feature-62-arrow-nudge.js - 30 tests
+
+### Test Results: 107/107 tests passing across 3 features
+### Current Status: ~359/388 features passing (92.5%)
