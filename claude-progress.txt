@@ -2542,3 +2542,43 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 57/57 tests passing across 3 test suites
 ### Current Status: ~183/388 features passing (47.2%)
+
+---
+
+## Session - 2026-03-18 - Features #258, #259, #260 (Filter Persistence, Name/Type Validation)
+
+### Completed Features:
+- **Feature #258**: Filter persistence within session ✅
+  - Added sessionStorage persistence for type, status, and search filters in TemplateList
+  - useState lazy initializers read from sessionStorage on mount (SSR-safe with typeof window check)
+  - handleTypeChange/handleStatusChange/handleSearchChange save to sessionStorage
+  - Consistent key names: tpl_filter_type, tpl_filter_status, tpl_filter_search
+  - Filters survive full page navigation (window.location.href) between template list and designer
+  - 30/30 tests passing
+
+- **Feature #259**: Template name required on create ✅
+  - Name already validated with !body.name check
+  - Added whitespace-only name validation (trim check)
+  - Empty string, null, undefined, whitespace-only all return 400
+  - Proper error envelope with details array listing missing fields
+  - Valid names (including with spaces) accepted and create 201
+  - 21/21 tests passing
+
+- **Feature #260**: Template type required and validated ✅
+  - Added VALID_TEMPLATE_TYPES array: invoice, statement, purchase_order, delivery_note, credit_note, report_aged_debtors, report_stock_on_hand, report_sales_summary, report, custom
+  - Type is now required (not optional) - missing/empty/whitespace returns 400
+  - Invalid type values rejected with 400 and helpful error listing valid types
+  - Case-sensitive validation (INVOICE, Invoice both rejected)
+  - SQL injection attempts in type field return 400
+  - All valid types create successfully (201)
+  - 27/27 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/TemplateList.tsx - sessionStorage filter persistence
+- nest-module/src/template.controller.ts - name whitespace validation, type required + enum validation
+- tests/test-feature-258-filter-persistence.js - 30 tests
+- tests/test-feature-259-name-required.js - 21 tests
+- tests/test-feature-260-type-validated.js - 27 tests
+
+### Test Results: 78/78 tests passing across 3 test suites
+### Current Status: ~179/388 features passing (46.1%)
