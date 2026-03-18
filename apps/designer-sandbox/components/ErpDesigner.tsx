@@ -369,6 +369,19 @@ export default function ErpDesigner({
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // ─── Accessible status announcements (ARIA live regions) ───
+  const [statusAnnouncement, setStatusAnnouncement] = useState('');
+  const [errorAnnouncement, setErrorAnnouncement] = useState('');
+  const announceStatus = useCallback((message: string) => {
+    // Clear first to ensure re-announcement of same message
+    setStatusAnnouncement('');
+    requestAnimationFrame(() => setStatusAnnouncement(message));
+  }, []);
+  const announceError = useCallback((message: string) => {
+    setErrorAnnouncement('');
+    requestAnimationFrame(() => setErrorAnnouncement(message));
+  }, []);
+
   // Preview mode state - substitutes binding placeholders with example values
   const [previewMode, setPreviewMode] = useState(false);
 
@@ -854,6 +867,7 @@ export default function ErpDesigner({
           setIsDirty(false);
           isDirtyRef.current = false;
           addToast('success', 'Draft saved successfully', 3000);
+          announceStatus('Draft saved successfully');
           // Replace current history entry to prevent re-submit on back button
           if (typeof window !== 'undefined') {
             window.history.replaceState({ saved: true, templateId }, '', window.location.href);
@@ -865,6 +879,7 @@ export default function ErpDesigner({
           setSaveStatus('error');
           setSaveError(errorMsg);
           addToast('error', errorMsg, 8000);
+          announceError(`Save error: ${errorMsg}`);
           // DO NOT clear isDirty - unsaved changes preserved for retry
         }
       } catch (err: unknown) {
@@ -876,6 +891,7 @@ export default function ErpDesigner({
         setSaveStatus('error');
         setSaveError(errorMsg);
         addToast('error', errorMsg, 8000);
+        announceError(`Save error: ${errorMsg}`);
         // DO NOT clear isDirty - unsaved changes preserved for retry
         // Flag for auto-retry on reconnection
         if (!navigator.onLine) setPendingRetrySave(true);
@@ -917,6 +933,7 @@ export default function ErpDesigner({
         setPublishStatus('published');
         setTemplateStatus('published');
         addToast('success', 'Template published successfully', 4000);
+        announceStatus('Template published successfully');
         setTimeout(() => setPublishStatus((prev) => prev === 'published' ? 'idle' : prev), 5000);
       } else {
         const errBody = await response.json().catch(() => ({ message: `Publish failed with status ${response.status}` }));
@@ -944,15 +961,18 @@ export default function ErpDesigner({
           setPublishError('Template validation failed');
           setPublishErrors(enrichedErrors);
           addToast('error', `Publish failed: ${enrichedErrors.length} validation error(s)`, 8000);
+          announceError(`Publish failed: ${enrichedErrors.length} validation errors`);
         } else if (response.status === 409) {
           setPublishStatus('error');
           setPublishError(errBody.message || 'Template is locked by another user');
           addToast('error', errBody.message || 'Template is locked by another user', 8000);
+          announceError(`Publish error: ${errBody.message || 'Template is locked by another user'}`);
         } else {
           const errorMsg = errBody.message || `Publish failed with status ${response.status}`;
           setPublishStatus('error');
           setPublishError(errorMsg);
           addToast('error', errorMsg, 8000);
+          announceError(`Publish error: ${errorMsg}`);
         }
       }
     } catch (err: unknown) {
@@ -2243,10 +2263,10 @@ export default function ErpDesigner({
           <div data-testid="properties-text-overflow" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Text Overflow</label>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Overflow Strategy</span>
+              <label htmlFor="prop-text-overflow" style={{ fontSize: '11px', color: '#64748b' }}>Overflow Strategy</label>
               <select
+                id="prop-text-overflow"
                 data-testid="prop-text-overflow"
-                aria-label="Text overflow strategy"
                 style={propInputStyle}
                 value={selectedElement.textOverflow || 'clip'}
                 onChange={(e) => updateElement(selectedElement.id, { textOverflow: e.target.value as DesignElement['textOverflow'] })}
@@ -2265,11 +2285,11 @@ export default function ErpDesigner({
             <label style={labelStyle}>Image Options</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Source URL</span>
+                <label htmlFor="prop-src" style={{ fontSize: '11px', color: '#64748b' }}>Source URL</label>
                 <input
+                  id="prop-src"
                   data-testid="prop-src"
                   type="text"
-                  aria-label="Image source URL"
                   style={propInputStyle}
                   placeholder="Image URL or asset reference"
                   value={selectedElement.src || ''}
@@ -2277,10 +2297,10 @@ export default function ErpDesigner({
                 />
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Object Fit</span>
+                <label htmlFor="prop-object-fit" style={{ fontSize: '11px', color: '#64748b' }}>Object Fit</label>
                 <select
+                  id="prop-object-fit"
                   data-testid="prop-object-fit"
-                  aria-label="Object fit"
                   style={propInputStyle}
                   value={selectedElement.objectFit || 'contain'}
                   onChange={(e) => updateElement(selectedElement.id, { objectFit: e.target.value as 'contain' | 'cover' | 'fill' })}
@@ -2291,11 +2311,11 @@ export default function ErpDesigner({
                 </select>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Opacity (%)</span>
+                <label htmlFor="prop-opacity" style={{ fontSize: '11px', color: '#64748b' }}>Opacity (%)</label>
                 <input
+                  id="prop-opacity"
                   data-testid="prop-opacity"
                   type="number"
-                  aria-label="Opacity percentage"
                   min="0"
                   max="100"
                   style={propInputStyle}
@@ -2304,11 +2324,11 @@ export default function ErpDesigner({
                 />
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Alt Text (Accessibility)</span>
+                <label htmlFor="prop-alt-text" style={{ fontSize: '11px', color: '#64748b' }}>Alt Text (Accessibility)</label>
                 <input
+                  id="prop-alt-text"
                   data-testid="prop-alt-text"
                   type="text"
-                  aria-label="Alternative text for accessibility"
                   style={propInputStyle}
                   placeholder="Describe this image for screen readers"
                   value={selectedElement.altText || ''}
@@ -2329,19 +2349,19 @@ export default function ErpDesigner({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
+                  id="prop-show-header"
                   data-testid="prop-show-header"
                   type="checkbox"
-                  aria-label="Show header row"
                   checked={selectedElement.showHeader ?? true}
                   onChange={(e) => updateElement(selectedElement.id, { showHeader: e.target.checked })}
                 />
-                <span style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</span>
+                <label htmlFor="prop-show-header" style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</label>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Border Style</span>
+                <label htmlFor="prop-border-style" style={{ fontSize: '11px', color: '#64748b' }}>Border Style</label>
                 <select
+                  id="prop-border-style"
                   data-testid="prop-border-style"
-                  aria-label="Border style"
                   style={propInputStyle}
                   value={selectedElement.borderStyle || 'solid'}
                   onChange={(e) => updateElement(selectedElement.id, { borderStyle: e.target.value as 'solid' | 'dashed' | 'none' })}
@@ -2352,7 +2372,7 @@ export default function ErpDesigner({
                 </select>
               </div>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Columns</span>
+                <label style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Columns</label>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
                   {(selectedElement.columns || []).map((col, colIdx) => (
                     <div
@@ -2429,12 +2449,12 @@ export default function ErpDesigner({
             <label style={labelStyle}>Data Binding</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Bound Field</span>
+                <label htmlFor="prop-binding" style={{ fontSize: '11px', color: '#64748b' }}>Bound Field</label>
                 <div style={{ display: 'flex', gap: '4px' }}>
                   <input
+                    id="prop-binding"
                     data-testid="prop-binding"
                     type="text"
-                    aria-label="Data binding field"
                     style={{ ...propInputStyle, flex: 1 }}
                     placeholder="e.g. {{customer.name}}"
                     value={selectedElement.binding || ''}
@@ -2531,10 +2551,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Page Visibility</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Page Scope</span>
+              <label htmlFor="prop-page-scope" style={{ fontSize: '11px', color: '#64748b' }}>Page Scope</label>
               <select
+                id="prop-page-scope"
                 data-testid="prop-page-scope"
-                aria-label="Page scope"
                 style={propInputStyle}
                 value={selectedElement.pageScope || 'all'}
                 onChange={(e) => updateElement(selectedElement.id, { pageScope: e.target.value as DesignElement['pageScope'] })}
@@ -2574,10 +2594,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Output Channel</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Channel</span>
+              <label htmlFor="prop-output-channel" style={{ fontSize: '11px', color: '#64748b' }}>Channel</label>
               <select
+                id="prop-output-channel"
                 data-testid="prop-output-channel"
-                aria-label="Output channel"
                 style={propInputStyle}
                 value={selectedElement.outputChannel || 'both'}
                 onChange={(e) => updateElement(selectedElement.id, { outputChannel: e.target.value as DesignElement['outputChannel'] })}
@@ -2615,10 +2635,10 @@ export default function ErpDesigner({
           <label style={labelStyle}>Conditional Visibility</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '11px', color: '#64748b' }}>Visibility</span>
+              <label htmlFor="prop-conditional-visibility" style={{ fontSize: '11px', color: '#64748b' }}>Visibility</label>
               <select
+                id="prop-conditional-visibility"
                 data-testid="prop-conditional-visibility"
-                aria-label="Conditional visibility"
                 style={propInputStyle}
                 value={selectedElement.conditionalVisibility || 'always'}
                 onChange={(e) => updateElement(selectedElement.id, { conditionalVisibility: e.target.value as DesignElement['conditionalVisibility'], visibilityCondition: e.target.value === 'always' ? '' : selectedElement.visibilityCondition })}
@@ -2629,11 +2649,11 @@ export default function ErpDesigner({
             </div>
             {selectedElement.conditionalVisibility === 'conditional' && (
               <div>
-                <span style={{ fontSize: '11px', color: '#64748b' }}>Condition Expression</span>
+                <label htmlFor="prop-visibility-condition" style={{ fontSize: '11px', color: '#64748b' }}>Condition Expression</label>
                 <input
+                  id="prop-visibility-condition"
                   data-testid="prop-visibility-condition"
                   type="text"
-                  aria-label="Visibility condition expression"
                   style={propInputStyle}
                   value={selectedElement.visibilityCondition || ''}
                   onChange={(e) => updateElement(selectedElement.id, { visibilityCondition: e.target.value })}
