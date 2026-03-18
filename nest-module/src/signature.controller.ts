@@ -45,26 +45,88 @@ export class SignatureController {
       );
     }
 
-    // Accept base64 data (with or without data URL prefix)
-    let pngBuffer: Buffer;
-    try {
-      const base64Data = body.data.replace(/^data:image\/png;base64,/, '');
-      pngBuffer = Buffer.from(base64Data, 'base64');
-    } catch {
-      throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'Invalid base64 data' },
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    if (pngBuffer.length === 0) {
+    // Check for empty/whitespace-only data
+    if (typeof body.data === 'string' && !body.data.trim()) {
       throw new HttpException(
         { statusCode: 400, error: 'Bad Request', message: 'Signature data is empty' },
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    const result = await this.signatureService.upload(orgId, userId, pngBuffer);
+    // Detect format from data URL prefix or raw base64
+    let imageBuffer: Buffer;
+    let detectedFormat: 'png' | 'svg' | 'unknown' = 'unknown';
+
+    try {
+      let base64Data = body.data;
+
+      // Strip data URL prefix and detect format
+      if (base64Data.startsWith('data:image/png;base64,')) {
+        base64Data = base64Data.slice('data:image/png;base64,'.length);
+        detectedFormat = 'png';
+      } else if (base64Data.startsWith('data:image/svg+xml;base64,')) {
+        base64Data = base64Data.slice('data:image/svg+xml;base64,'.length);
+        detectedFormat = 'svg';
+      } else if (base64Data.startsWith('data:')) {
+        // Has a data URL prefix but not an accepted image type
+        const mimeMatch = base64Data.match(/^data:([^;]+);base64,/);
+        const mimeType = mimeMatch ? mimeMatch[1] : 'unknown';
+        throw new HttpException(
+          {
+            statusCode: 400,
+            error: 'Bad Request',
+            message: `Unsupported image format: ${mimeType}. Accepted formats: image/png, image/svg+xml.`,
+            details: [{ field: 'data', reason: `MIME type "${mimeType}" is not supported. Upload a PNG or SVG image.` }],
+          },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+
+      imageBuffer = Buffer.from(base64Data, 'base64');
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'Invalid base64 data' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (imageBuffer.length === 0) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'Signature data is empty after decoding' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Validate image format by magic bytes if not already detected from data URL
+    if (detectedFormat === 'unknown') {
+      // Check for PNG magic bytes: 89 50 4E 47 0D 0A 1A 0A
+      const pngMagic = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+      if (imageBuffer.length >= 8 && imageBuffer.subarray(0, 8).equals(pngMagic)) {
+        detectedFormat = 'png';
+      }
+      // Check for SVG (starts with XML declaration or <svg tag)
+      else {
+        const textStart = imageBuffer.subarray(0, Math.min(imageBuffer.length, 256)).toString('utf8').trim();
+        if (textStart.startsWith('<?xml') || textStart.startsWith('<svg') || textStart.includes('<svg')) {
+          detectedFormat = 'svg';
+        }
+      }
+    }
+
+    if (detectedFormat === 'unknown') {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Invalid image data. Signature must be a PNG or SVG image.',
+          details: [{ field: 'data', reason: 'Could not detect PNG or SVG format from the provided data. Ensure the data is a valid PNG or SVG image.' }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.signatureService.upload(orgId, userId, imageBuffer);
 
     return {
       id: result.id,
