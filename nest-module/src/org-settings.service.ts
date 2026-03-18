@@ -15,6 +15,10 @@ export interface OrgSettings {
   pdfUA: boolean;
   /** Enable PDF/A-3b conversion (default: true) */
   pdfA: boolean;
+  /** Per-tenant document storage quota in bytes (null = use global default) */
+  documentsQuotaBytes: number | null;
+  /** Per-tenant asset storage quota in bytes (null = use global default) */
+  assetsQuotaBytes: number | null;
   /** Additional org-level feature flags */
   [key: string]: unknown;
 }
@@ -22,6 +26,8 @@ export interface OrgSettings {
 const DEFAULT_SETTINGS: OrgSettings = {
   pdfUA: false,
   pdfA: true,
+  documentsQuotaBytes: null,
+  assetsQuotaBytes: null,
 };
 
 @Injectable()
@@ -64,6 +70,15 @@ export class OrgSettingsService {
    */
   isPdfAEnabled(orgId: string): boolean {
     return this.get(orgId).pdfA !== false;
+  }
+
+  /**
+   * Get the effective document storage quota for an org (in bytes).
+   * Returns the per-org override if set, otherwise null (meaning use global default).
+   */
+  getDocumentsQuotaBytes(orgId: string): number | null {
+    const settings = this.get(orgId);
+    return settings.documentsQuotaBytes ?? null;
   }
 
   /**

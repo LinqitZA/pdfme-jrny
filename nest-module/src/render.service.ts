@@ -129,6 +129,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     private readonly pdfaProcessor: PdfaProcessor,
     private readonly auditService: AuditService,
     private readonly orgSettingsService: OrgSettingsService,
+    @Optional() @Inject('PDFME_MODULE_CONFIG') private readonly moduleConfig?: any,
     @Optional() private readonly dataSourceRegistry?: DataSourceRegistry,
   ) {
     // Allow many listeners (one per SSE client)
@@ -266,6 +267,36 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       () => this.fileStorage.read(filePath),
       `read(${filePath})`,
     );
+  }
+
+  /**
+   * Check if storing a document of the given size would exceed the tenant's storage quota.
+   * Returns null if within quota, or an error object if quota exceeded.
+   */
+  async checkDocumentStorageQuota(orgId: string, newDocumentSizeBytes: number): Promise<{
+    exceeded: boolean;
+    currentUsageBytes: number;
+    quotaBytes: number;
+    newDocumentSizeBytes: number;
+  } | null> {
+    // Get per-tenant quota override, or fall back to global default
+    const perTenantQuota = this.orgSettingsService.getDocumentsQuotaBytes(orgId);
+    const globalQuota = this.moduleConfig?.quotas?.documentsBytes ?? 5 * 1024 * 1024 * 1024; // 5GB default
+    const quotaBytes = perTenantQuota !== null ? perTenantQuota : globalQuota;
+
+    // Get current usage
+    const usage = await this.fileStorage.usage(orgId);
+    const currentUsageBytes = usage.documents;
+
+    if (currentUsageBytes + newDocumentSizeBytes > quotaBytes) {
+      return {
+        exceeded: true,
+        currentUsageBytes,
+        quotaBytes,
+        newDocumentSizeBytes,
+      };
+    }
+    return null;
   }
 
   /**
@@ -633,6 +664,18 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       .createHash('sha256')
       .update(pdfBuffer)
       .digest('hex');
+
+    // 5b. Check document storage quota before storing
+    const quotaCheck = await this.checkDocumentStorageQuota(orgId, pdfBuffer.length);
+    if (quotaCheck && quotaCheck.exceeded) {
+      return {
+        error: `Storage quota exceeded. Current usage: ${quotaCheck.currentUsageBytes} bytes, quota: ${quotaCheck.quotaBytes} bytes, new document: ${quotaCheck.newDocumentSizeBytes} bytes`,
+        statusCode: 413,
+        quotaExceeded: true,
+        currentUsageBytes: quotaCheck.currentUsageBytes,
+        quotaBytes: quotaCheck.quotaBytes,
+      };
+    }
 
     // 6. Store PDF via FileStorageService
     const docId = createId();

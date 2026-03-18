@@ -845,6 +845,14 @@ export class TemplateController {
       );
     }
 
+    // System templates (orgId=null) are read-only
+    if (existing.orgId === null) {
+      throw new HttpException(
+        { statusCode: 403, error: 'Forbidden', message: 'System templates are read-only and cannot be modified. Use POST /api/pdfme/templates/:id/fork to create an editable copy.' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
     // Validate schema if provided
     if (body.schema !== undefined) {
       this.validateSchemaField(body.schema);
@@ -1071,6 +1079,15 @@ export class TemplateController {
     // Use user from guard (set by JwtAuthGuard) or fallback to manual decode
     const user = req?.user || decodeJwt(authHeader);
     const orgId = user?.orgId;
+
+    // Check if this is a system template (orgId=null) - these are read-only
+    const existing = await this.templateService.findById(id, orgId);
+    if (existing && existing.orgId === null) {
+      throw new HttpException(
+        { statusCode: 403, error: 'Forbidden', message: 'System templates are read-only and cannot be deleted.' },
+        HttpStatus.FORBIDDEN,
+      );
+    }
 
     const userId = user?.sub;
     const result = await this.templateService.softDelete(id, orgId, userId);

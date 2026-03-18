@@ -99,6 +99,22 @@ export class AssetController {
       );
     }
 
+    // Check asset storage quota before uploading
+    const quotaCheck = await this.assetService.checkAssetStorageQuota(orgId, file.size);
+    if (quotaCheck && quotaCheck.exceeded) {
+      throw new HttpException(
+        {
+          statusCode: 413,
+          error: 'Payload Too Large',
+          message: `Asset storage quota exceeded. Current usage: ${quotaCheck.currentUsageBytes} bytes, quota: ${quotaCheck.quotaBytes} bytes, new asset: ${quotaCheck.newAssetSizeBytes} bytes`,
+          quotaExceeded: true,
+          currentUsageBytes: quotaCheck.currentUsageBytes,
+          quotaBytes: quotaCheck.quotaBytes,
+        },
+        HttpStatus.PAYLOAD_TOO_LARGE,
+      );
+    }
+
     try {
       const result = await this.assetService.upload(
         orgId,

@@ -6,8 +6,9 @@
  * - Fonts (TTF, OTF, WOFF2)     → {orgId}/fonts/
  */
 
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { FileStorageService } from './file-storage.service';
+import { OrgSettingsService } from './org-settings.service';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 
@@ -43,6 +44,8 @@ const MIME_MAP: Record<string, string> = {
 export class AssetService {
   constructor(
     @Inject('FILE_STORAGE') private readonly storage: FileStorageService,
+    private readonly orgSettingsService: OrgSettingsService,
+    @Optional() @Inject('PDFME_MODULE_CONFIG') private readonly moduleConfig?: any,
   ) {}
 
   /**
@@ -61,6 +64,34 @@ export class AssetService {
   isAllowedExtension(filename: string): boolean {
     const ext = path.extname(filename).toLowerCase();
     return ALLOWED_EXTENSIONS.includes(ext);
+  }
+
+  /**
+   * Check if storing an asset of the given size would exceed the tenant's asset storage quota.
+   * Returns null if within quota, or quota details if exceeded.
+   */
+  async checkAssetStorageQuota(orgId: string, newAssetSizeBytes: number): Promise<{
+    exceeded: boolean;
+    currentUsageBytes: number;
+    quotaBytes: number;
+    newAssetSizeBytes: number;
+  } | null> {
+    const perTenantQuota = this.orgSettingsService.get(orgId).assetsQuotaBytes as number | null | undefined;
+    const globalQuota = this.moduleConfig?.quotas?.assetsBytes ?? 500 * 1024 * 1024; // 500MB default
+    const quotaBytes = (perTenantQuota !== null && perTenantQuota !== undefined) ? perTenantQuota : globalQuota;
+
+    const usage = await this.storage.usage(orgId);
+    const currentUsageBytes = usage.assets;
+
+    if (currentUsageBytes + newAssetSizeBytes > quotaBytes) {
+      return {
+        exceeded: true,
+        currentUsageBytes,
+        quotaBytes,
+        newAssetSizeBytes,
+      };
+    }
+    return null;
   }
 
   /**
