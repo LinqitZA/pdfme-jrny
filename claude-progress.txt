@@ -4958,3 +4958,42 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-50-toolbar-preview-toggle.js - 40 tests
 
 ### Test Results: 114/114 tests passing across 3 features
+
+
+---
+
+## Session - 2026-03-18 - Features #51, #52, #53 (Toolbar Actions)
+
+### Completed Features:
+- **Feature #51**: Toolbar save draft triggers callback
+  - Added onSaveDraft callback prop to ErpDesignerProps interface
+  - Save button shows status indicators: Saving, Save Draft, Retry Save
+  - data-save-status attribute on button for programmatic status checking
+  - Save success toast and error banner with retry button
+  - 23/23 tests passing
+
+- **Feature #52**: Toolbar publish respects canPublish
+  - Added canPublish boolean prop (defaults to true)
+  - Added onPublish callback prop fired on publish click
+  - Publish button disabled with grey styling when canPublish=false
+  - Tooltip shows Publishing is not permitted when disabled
+  - page.tsx reads canPublish from URL search params
+  - 23/23 tests passing
+
+- **Feature #53**: Toolbar export JSON when permitted
+  - Added canExportJson boolean prop (defaults to true)
+  - Added Export JSON button with data-testid btn-export-json
+  - Creates Blob with application/json, triggers download
+  - Pretty-printed JSON with name, pageSize, pages, exportedAt
+  - Button disabled with grey styling when canExportJson=false
+  - Success toast on export completion
+  - 30/30 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Added props and export button
+- apps/designer-sandbox/app/page.tsx - Read canPublish and canExportJson from params
+- tests/test-feature-51-save-draft-callback.js - 23 tests
+- tests/test-feature-52-publish-canPublish.js - 23 tests
+- tests/test-feature-53-export-json.js - 30 tests
+
+### Test Results: 76/76 tests passing across 3 features
