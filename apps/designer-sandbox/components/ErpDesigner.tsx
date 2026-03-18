@@ -406,6 +406,7 @@ export default function ErpDesigner({
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const reconnectRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveRetryCountRef = useRef(0);
+  const saveGenerationRef = useRef(0); // Tracks changes during save to prevent late responses overwriting
   const MAX_RECONNECT_RETRIES = 5;
 
   // ─── Responsive viewport state ───
@@ -510,8 +511,12 @@ export default function ErpDesigner({
   }, []);
 
   // Keep isDirtyRef in sync with isDirty state
+  // Increment save generation when dirty to detect changes during in-flight saves
   useEffect(() => {
     isDirtyRef.current = isDirty;
+    if (isDirty) {
+      saveGenerationRef.current += 1;
+    }
   }, [isDirty]);
 
   // ─── Load template schema from API when templateId is provided ───
@@ -920,6 +925,9 @@ export default function ErpDesigner({
     if (isSavingRef.current) return;
     isSavingRef.current = true;
 
+    // Capture save generation - if changes occur during save, this will differ
+    const saveGen = saveGenerationRef.current;
+
     // Call external callback if provided
     if (onSave) {
       onSave({ name, pageSize, pages, schemas: [] });
@@ -944,8 +952,11 @@ export default function ErpDesigner({
 
         if (response.ok) {
           setSaveStatus('saved');
-          setIsDirty(false);
-          isDirtyRef.current = false;
+          // Only clear dirty flag if no changes occurred during the save
+          if (saveGenerationRef.current === saveGen) {
+            setIsDirty(false);
+            isDirtyRef.current = false;
+          }
           addToast('success', 'Draft saved successfully', 3000);
           announceStatus('Draft saved successfully');
           // Replace current history entry to prevent re-submit on back button
@@ -1129,6 +1140,7 @@ export default function ErpDesigner({
   const performAutoSave = useCallback(async () => {
     if (!isDirtyRef.current || !templateId || isReadOnly) return;
 
+    const autoSaveGen = saveGenerationRef.current;
     setAutoSaveStatus('saving');
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1146,8 +1158,11 @@ export default function ErpDesigner({
       if (response.ok) {
         setAutoSaveStatus('saved');
         setLastAutoSave(new Date());
-        setIsDirty(false);
-        isDirtyRef.current = false;
+        // Only clear dirty flag if no changes occurred during the auto-save
+        if (saveGenerationRef.current === autoSaveGen) {
+          setIsDirty(false);
+          isDirtyRef.current = false;
+        }
         announceStatus('Auto-saved');
         // Reset status back to idle after 3 seconds
         setTimeout(() => setAutoSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
@@ -1257,6 +1272,7 @@ export default function ErpDesigner({
         return;
       }
 
+      const retryGen = saveGenerationRef.current;
       setAutoSaveStatus('saving');
       try {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -1274,8 +1290,11 @@ export default function ErpDesigner({
         if (response.ok) {
           setAutoSaveStatus('saved');
           setLastAutoSave(new Date());
-          setIsDirty(false);
-          isDirtyRef.current = false;
+          // Only clear dirty if no new changes during retry save
+          if (saveGenerationRef.current === retryGen) {
+            setIsDirty(false);
+            isDirtyRef.current = false;
+          }
           setPendingRetrySave(false);
           saveRetryCountRef.current = 0;
           // Also clear manual save error if there was one
