@@ -5085,3 +5085,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 89/89 tests passing across 3 features
 ### Current Status: ~351/388 features passing (90.5%)
+
+---
+
+## Session - 2026-03-18 - Features #63, #66, #68 (Canvas Interactions)
+
+### Completed Features:
+- **Feature #63**: Canvas delete removes selected elements ✅
+  - Delete/Backspace key handler removes selected elements
+  - Element-level onKeyDown handler for focused elements
+  - Multi-select delete via selectedElementIds
+  - Delete button in properties panel with red styling
+  - setPagesWithHistory ensures undo support
+  - Selection cleared after deletion
+  - isDirty flag set on delete
+  - Keyboard shortcut listed in help dialog
+  - 43/43 tests passing
+
+- **Feature #66**: Add page button creates blank page ✅
+  - btn-add-page button in Pages tab panel
+  - addPage useCallback creates new page via createPage()
+  - Auto-names pages "Page N+1"
+  - Appends blank page with empty elements array
+  - Uses setPagesWithHistory for undo support
+  - Sets isDirty flag
+  - Full-width centered button with + icon
+  - 31/31 tests passing
+
+- **Feature #68**: Out-of-scope elements dimmed with badge ✅
+  - Changed out-of-scope opacity from 0.15 to 0.5 (50%)
+  - Added scope badge showing "First only", "Last only", "Not first"
+  - Badge has purple color scheme (#9333ea text, #f3e8ff bg, #d8b4fe border)
+  - Badge positioned at top-right of element
+  - data-out-of-scope attribute for testing
+  - data-testid for each scope badge
+  - Smooth opacity transition (0.2s ease)
+  - pointerEvents none for out-of-scope elements
+  - Page simulator integration verified
+  - 38/38 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Out-of-scope opacity and scope badge
+- tests/test-feature-63-canvas-delete-elements.js - 43 tests
+- tests/test-feature-66-add-page-button.js - 31 tests
+- tests/test-feature-68-out-of-scope-dimmed.js - 38 tests
+
+### Test Results: 112/112 tests passing across 3 features
