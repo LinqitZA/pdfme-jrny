@@ -126,3 +126,38 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - May need `docker start pdfme-postgres pdfme-redis` if containers stopped
 - JWT auth uses simple base64 decode - accepts any well-formed JWT without signature verification (dev mode)
 - Templates support multi-tenancy via orgId; system templates have orgId=null
+
+---
+
+## Session 4 - 2026-03-18 - Features #6, #7, #8 (JWT Auth)
+
+### Completed Features:
+- **Feature #6**: Health endpoint returns OK without authentication ✅
+  - GET /api/pdfme/health returns 200 with database status without any auth header
+  - Uses @Public() decorator to bypass global auth guard
+
+- **Feature #7**: JWT authentication validates valid tokens ✅
+  - Valid JWT tokens with sub, orgId, roles claims are accepted
+  - orgId from JWT scopes template queries (different org can't see other org's data)
+  - createdBy populated from JWT sub claim
+
+- **Feature #8**: JWT authentication rejects missing token ✅
+  - GET /api/pdfme/templates without auth → 401
+  - POST /api/pdfme/templates without auth → 401
+  - POST /api/pdfme/render/now without auth → 401
+  - Error envelope: {statusCode: 401, error: "Unauthorized", message: "..."}
+
+### Key Changes:
+- nest-module/src/auth.guard.ts: Global JwtAuthGuard with @Public() decorator
+- APP_GUARD registered in AppModule for automatic protection of all endpoints
+- HealthController marked @Public() - exempt from auth
+- RenderController stub registered with @Controller('api/pdfme/render') and POST /now endpoint
+- Test scripts: tests/test-jwt-auth.sh, tests/test-jwt-reject.sh
+
+### Current Status: 12/388 features passing (sessions 1-4 combined, approx)
+
+### Notes for next session:
+- Auth guard is global - all new controllers automatically require JWT
+- Use @Public() decorator for any public endpoints
+- request.user available in controllers after auth (contains sub, orgId, roles)
+- Template/Asset controllers still use internal decodeJwt() - could be refactored to use request.user
