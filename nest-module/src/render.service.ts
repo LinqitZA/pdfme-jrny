@@ -1841,6 +1841,50 @@ export class RenderService {
   }
 
   /**
+   * Get a generated document for download. Returns the PDF buffer from disk cache.
+   * No re-render is triggered — the previously generated PDF file is served directly.
+   *
+   * @param documentId - The ID of the generated document
+   * @param orgId - Tenant org ID
+   * @returns PDF buffer and metadata, or error object
+   */
+  async getDocumentForDownload(documentId: string, orgId: string): Promise<
+    | { buffer: Buffer; documentId: string; pdfHash: string; filePath: string }
+    | { error: string; statusCode: number }
+  > {
+    // 1. Look up the document record in the database
+    const [doc] = await this.db
+      .select()
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.id, documentId),
+          eq(generatedDocuments.orgId, orgId),
+        ),
+      );
+
+    if (!doc) {
+      return { error: 'Document not found', statusCode: 404 };
+    }
+
+    if (doc.status === 'failed') {
+      return { error: 'Document generation failed — no PDF available', statusCode: 404 };
+    }
+
+    if (!doc.filePath) {
+      return { error: 'Document has no associated file', statusCode: 404 };
+    }
+
+    // 2. Read the cached PDF from disk (no re-render)
+    try {
+      const buffer = await this.fileStorage.read(doc.filePath);
+      return { buffer, documentId: doc.id, pdfHash: doc.pdfHash, filePath: doc.filePath };
+    } catch {
+      return { error: 'Document file not found on disk', statusCode: 404 };
+    }
+  }
+
+  /**
    * Build sample inputs from template field names for preview generation.
    * Generates realistic-looking sample values based on field name patterns.
    */

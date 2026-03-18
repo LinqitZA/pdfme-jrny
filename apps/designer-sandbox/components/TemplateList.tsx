@@ -11,6 +11,8 @@ interface Template {
   createdAt: string;
   updatedAt: string;
   createdBy?: string;
+  lockedBy?: string | null;
+  lockedAt?: string | null;
 }
 
 interface PaginationInfo {
@@ -159,6 +161,19 @@ export default function TemplateList({
       .replace(/\b\w/g, c => c.toUpperCase());
   };
 
+  const LOCK_DURATION_MS = 30 * 60 * 1000; // 30 minutes - matches backend
+
+  const isLockActive = (template: Template): boolean => {
+    if (!template.lockedBy || !template.lockedAt) return false;
+    const expiresAt = new Date(new Date(template.lockedAt).getTime() + LOCK_DURATION_MS);
+    return new Date() < expiresAt;
+  };
+
+  const getLockExpiresAt = (template: Template): string | null => {
+    if (!template.lockedAt) return null;
+    return new Date(new Date(template.lockedAt).getTime() + LOCK_DURATION_MS).toISOString();
+  };
+
   const statusColor = (status: string) => {
     switch (status) {
       case 'published': return { bg: '#dcfce7', color: '#166534', border: '#86efac' };
@@ -254,6 +269,7 @@ export default function TemplateList({
         <div data-testid="template-list" style={{ display: 'grid', gap: '12px' }}>
           {templates.map((template) => {
             const sc = statusColor(template.status);
+            const locked = isLockActive(template);
             return (
               <div
                 key={template.id}
@@ -261,28 +277,40 @@ export default function TemplateList({
                 onClick={() => onSelectTemplate?.(template)}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto auto auto',
+                  gridTemplateColumns: '1fr auto auto auto auto',
                   alignItems: 'center',
                   gap: '16px',
                   padding: '16px 20px',
                   backgroundColor: '#fff',
-                  border: '1px solid #e2e8f0',
+                  border: locked ? '1px solid #fbbf24' : '1px solid #e2e8f0',
                   borderRadius: '8px',
                   cursor: onSelectTemplate ? 'pointer' : 'default',
                   transition: 'box-shadow 0.15s, border-color 0.15s',
                 }}
                 onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#93c5fd';
+                  if (!locked) {
+                    (e.currentTarget as HTMLDivElement).style.borderColor = '#93c5fd';
+                  }
                   (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.borderColor = '#e2e8f0';
+                  (e.currentTarget as HTMLDivElement).style.borderColor = locked ? '#fbbf24' : '#e2e8f0';
                   (e.currentTarget as HTMLDivElement).style.boxShadow = 'none';
                 }}
               >
                 <div>
-                  <div data-testid={`template-name-${template.id}`} style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>
+                  <div data-testid={`template-name-${template.id}`} style={{ fontSize: '15px', fontWeight: 600, color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     {template.name}
+                    {locked && (
+                      <span
+                        data-testid={`lock-indicator-${template.id}`}
+                        title={`Locked by ${template.lockedBy}${getLockExpiresAt(template) ? ` (expires ${formatDate(getLockExpiresAt(template)!)})` : ''}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#b45309', backgroundColor: '#fef3c7', padding: '2px 8px', borderRadius: '9999px', border: '1px solid #fcd34d', fontWeight: 500, whiteSpace: 'nowrap' }}
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <span data-testid={`lock-holder-${template.id}`}>{template.lockedBy}</span>
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
                     ID: {template.id}

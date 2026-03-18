@@ -268,6 +268,41 @@ export class RenderController {
     });
   }
 
+  @Get('document/:documentId')
+  async downloadDocument(
+    @Param('documentId') documentId: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.renderService.getDocumentForDownload(documentId, user.orgId);
+
+    if ('error' in result) {
+      throw new HttpException(
+        {
+          statusCode: result.statusCode,
+          error: result.statusCode === 404 ? 'Not Found' : 'Internal Server Error',
+          message: result.error,
+        },
+        result.statusCode,
+      );
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${documentId}.pdf"`);
+    res.setHeader('Content-Length', result.buffer.length);
+    res.setHeader('ETag', `"${result.pdfHash}"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(result.buffer);
+  }
+
   @Get('download/:previewId')
   async downloadPreview(
     @Param('previewId') previewId: string,
