@@ -2200,3 +2200,53 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 63/63 tests passing across 3 test suites
 ### Current Status: ~161/388 features passing (41.5%)
+
+---
+
+## Session - 2026-03-18 - Features #235, #236, #237 (Temp Purge, Template Defaults, Element Defaults)
+
+### Completed Features:
+- **Feature #235**: Temp file auto-purge after retention period ✅
+  - Added purgeExpiredPreviews() method to RenderService
+  - Implemented OnModuleInit/OnModuleDestroy lifecycle hooks for purge cycle
+  - Periodic purge runs every 5 minutes (purgeIntervalMs = 300000)
+  - Default retention period is 60 minutes (retentionPeriodMs = 3600000)
+  - Added POST /api/pdfme/render/purge-expired-previews endpoint (manual trigger)
+  - Added GET /api/pdfme/render/purge-status endpoint (status/config)
+  - lastPurgeResult tracks purged count, remaining, errors, timestamp
+  - Handles already-deleted files gracefully
+  - 27/27 tests passing
+
+- **Feature #236**: New template has sensible defaults ✅
+  - POST /api/pdfme/templates returns status=draft, version=1
+  - createdAt set to current timestamp
+  - lockedBy and lockedAt are null for new templates
+  - publishedVer and forkedFromId are null/undefined
+  - createdBy from JWT sub claim
+  - Each template gets independent defaults
+  - No code changes needed - existing implementation correct
+  - 24/24 tests passing
+
+- **Feature #237**: Designer new element has default properties ✅
+  - getDefaultElement provides sensible defaults for all 11 element types
+  - Text: w=200, h=24, Helvetica 14px, left-aligned, black, lineHeight 1.4
+  - Image: w=150, h=100, contain fit, 100% opacity
+  - Signature: w=200, h=60
+  - Line items: w=495, h=200, showHeader=true, solid borders
+  - Watermark: DRAFT text, 72px, centered
+  - Calculated: right-aligned, 0.00 content
+  - QR: 80x80 square
+  - Base position (50, 50) with 20px offset stacking
+  - Additional defaults: pageScope=all, outputChannel=both, conditionalVisibility=always
+  - All block types draggable in UI
+  - 58/58 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/render.service.ts - purgeExpiredPreviews(), OnModuleInit/OnModuleDestroy
+- nest-module/src/render.controller.ts - purge-expired-previews and purge-status endpoints
+- tests/test-temp-purge-235.js - 27 tests
+- tests/test-template-defaults-236.js - 24 tests
+- tests/test-element-defaults-237.js - 58 tests
+
+### Test Results: 109/109 tests passing across 3 test suites
+### Current Status: ~160/388 features passing (41.2%)
