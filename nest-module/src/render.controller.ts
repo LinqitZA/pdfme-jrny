@@ -7,6 +7,7 @@
  * - GET    /api/pdfme/render/batch/:batchId         (batch status)
  * - GET    /api/pdfme/render/batch/:batchId/progress (SSE progress stream)
  * - POST   /api/pdfme/render/batch/:batchId/merge   (merge batch PDFs)
+ * - GET    /api/pdfme/render/history                (paginated render history)
  */
 
 import {
@@ -542,6 +543,32 @@ export class RenderController {
     res.setHeader('Content-Disposition', `inline; filename="${previewId}.pdf"`);
     res.setHeader('Content-Length', result.buffer.length);
     res.send(result.buffer);
+  }
+
+  @Get('history')
+  async listHistory(
+    @Query('limit') limitStr: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Query('entityType') entityType: string | undefined,
+    @Query('status') status: string | undefined,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const limit = limitStr ? parseInt(limitStr, 10) : 10;
+    const result = await this.renderService.listHistory(user.orgId, {
+      limit: isNaN(limit) ? 10 : limit,
+      cursor: cursor || undefined,
+      entityType: entityType || undefined,
+      status: status || undefined,
+    });
+    return result;
   }
 
   @Get('documents')

@@ -6,7 +6,7 @@
  */
 
 import { Injectable, Inject, Optional, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { eq, and, inArray, desc, gt, lt } from 'drizzle-orm';
+import { eq, and, or, inArray, desc, gt, lt, ne } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
 import { templates, generatedDocuments, renderBatches } from './db/schema';
@@ -2437,11 +2437,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         .limit(1);
 
       if (cursorDoc.length > 0) {
-        // Get documents created before or at cursor's time, but not the cursor doc itself
+        // Composite cursor: documents strictly older, OR same time but with id < cursor id
+        // This handles ties where multiple docs have the same createdAt timestamp
         const cursorTime = cursorDoc[0].createdAt;
+        const cursorId = cursorDoc[0].id;
         conditions.push(
-          // Documents older than cursor (or same time but different id for tie-breaking)
-          lt(generatedDocuments.createdAt, cursorTime),
+          or(
+            lt(generatedDocuments.createdAt, cursorTime),
+            and(eq(generatedDocuments.createdAt, cursorTime), lt(generatedDocuments.id, cursorId)),
+          )!,
         );
       }
     }
@@ -2463,7 +2467,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       })
       .from(generatedDocuments)
       .where(whereClause)
-      .orderBy(desc(generatedDocuments.createdAt))
+      .orderBy(desc(generatedDocuments.createdAt), desc(generatedDocuments.id))
       .limit(effectiveLimit + 1);
 
     const hasMore = docs.length > effectiveLimit;
