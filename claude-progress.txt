@@ -2458,3 +2458,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 110/110 tests passing across 3 test suites
 ### Current Status: ~178/388 features passing (45.9%)
+
+---
+
+## Session - 2026-03-18 - Features #261, #262, #263 (Schema Validation, Render Template Checks)
+
+### Completed Features:
+- **Feature #261**: Template schema must be valid JSON ✅
+  - Added validateSchemaField() method to TemplateController
+  - Validates schema on PUT /templates/:id and PUT /templates/:id/draft
+  - String/array/number/boolean/null schema returns 400 with details
+  - Valid JSON but wrong structure (pages not array, invalid basePdf) returns 422
+  - Valid schema object passes through
+  - POST create already had basic schema validation, now consistent
+  - 32/32 tests passing
+
+- **Feature #262**: Render request validates templateId exists ✅
+  - POST /render/now returns 404 for nonexistent templateId
+  - Returns 400 for missing/empty templateId
+  - Published template renders successfully (201)
+  - Draft/archived templates return 422 (not 404) to distinguish from missing
+  - Error message clearly identifies "Template not found"
+  - 20/20 tests passing
+
+- **Feature #263**: Render request validates template is published ✅
+  - Modified renderNow() to check template existence first, then status
+  - Draft template returns 422 with message "Template is in 'draft' status and must be published before rendering"
+  - Archived template returns 422 with archived status message
+  - Error response includes templateStatus field for client handling
+  - 404 is reserved for truly non-existent templates
+  - Published template renders successfully
+  - 15/15 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.controller.ts - validateSchemaField(), schema validation on PUT endpoints
+- nest-module/src/render.controller.ts - Dynamic error status codes (404 vs 422)
+- nest-module/src/render.service.ts - Split template check: existence (404) vs status (422)
+- tests/test-schema-validation-261.js - 32 tests
+- tests/test-render-validate-templateid-262.js - 20 tests
+- tests/test-render-draft-rejected-263.js - 15 tests
+
+### Test Results: 67/67 tests passing across 3 test suites
+### Current Status: ~182/388 features passing (46.9%)
