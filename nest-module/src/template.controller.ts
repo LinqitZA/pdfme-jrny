@@ -268,7 +268,7 @@ export class TemplateController {
   @Post('import')
   @HttpCode(HttpStatus.CREATED)
   async importTemplate(
-    @Body() body: TemplateExportPackage,
+    @Body() body: any,
     @Headers('authorization') authHeader?: string,
   ) {
     const jwt = decodeJwt(authHeader);
@@ -279,22 +279,104 @@ export class TemplateController {
       );
     }
 
-    if (!body || !body.template || !body.version) {
+    // Step 1: Basic type check - body must be a non-null object (not array, string, number, etc.)
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'Invalid export package format' },
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Request body must be a valid JSON object',
+          details: [{ field: 'body', reason: 'Expected a JSON object representing an export package' }],
+        },
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    // Validate package structure
-    if (!body.template?.name || !body.template?.type || !body.template?.schema) {
+    // Step 2: Check required top-level fields exist
+    const missingTopLevel: Array<{ field: string; reason: string }> = [];
+    if (body.version === undefined || body.version === null) {
+      missingTopLevel.push({ field: 'version', reason: 'version is required (must be 1)' });
+    }
+    if (!body.template) {
+      missingTopLevel.push({ field: 'template', reason: 'template object is required' });
+    }
+
+    if (missingTopLevel.length > 0) {
       throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'Export package must contain template with name, type, and schema' },
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Invalid export package format',
+          details: missingTopLevel,
+        },
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    const result = await this.templateService.importTemplate(body, jwt.orgId, jwt.sub);
+    // Step 3: Structural validation - valid JSON but wrong structure → 422
+    const structuralErrors: Array<{ field: string; reason: string }> = [];
+
+    // Validate version
+    if (body.version !== 1) {
+      structuralErrors.push({ field: 'version', reason: `Unsupported package version: ${body.version}. Only version 1 is supported.` });
+    }
+
+    // Validate template is an object
+    if (typeof body.template !== 'object' || Array.isArray(body.template)) {
+      structuralErrors.push({ field: 'template', reason: 'template must be an object' });
+    } else {
+      // Validate required template fields
+      if (!body.template.name || (typeof body.template.name === 'string' && !body.template.name.trim())) {
+        structuralErrors.push({ field: 'template.name', reason: 'template.name is required and must be a non-empty string' });
+      }
+      if (!body.template.type || (typeof body.template.type === 'string' && !body.template.type.trim())) {
+        structuralErrors.push({ field: 'template.type', reason: 'template.type is required and must be a non-empty string' });
+      }
+      if (!body.template.schema) {
+        structuralErrors.push({ field: 'template.schema', reason: 'template.schema is required' });
+      } else if (typeof body.template.schema !== 'object' || Array.isArray(body.template.schema)) {
+        structuralErrors.push({ field: 'template.schema', reason: 'template.schema must be a JSON object' });
+      }
+    }
+
+    // Validate assets structure if present
+    if (body.assets !== undefined) {
+      if (typeof body.assets !== 'object' || Array.isArray(body.assets)) {
+        structuralErrors.push({ field: 'assets', reason: 'assets must be an object with images and fonts arrays' });
+      } else {
+        if (body.assets.images !== undefined && !Array.isArray(body.assets.images)) {
+          structuralErrors.push({ field: 'assets.images', reason: 'assets.images must be an array' });
+        }
+        if (body.assets.fonts !== undefined && !Array.isArray(body.assets.fonts)) {
+          structuralErrors.push({ field: 'assets.fonts', reason: 'assets.fonts must be an array' });
+        }
+      }
+    }
+
+    if (structuralErrors.length > 0) {
+      throw new HttpException(
+        {
+          statusCode: 422,
+          error: 'Unprocessable Entity',
+          message: 'Export package has structural errors',
+          details: structuralErrors,
+        },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    // Ensure assets has default structure
+    const validatedBody: TemplateExportPackage = {
+      version: body.version,
+      exportedAt: body.exportedAt || new Date().toISOString(),
+      template: body.template,
+      assets: {
+        images: body.assets?.images || [],
+        fonts: body.assets?.fonts || [],
+      },
+    };
+
+    const result = await this.templateService.importTemplate(validatedBody, jwt.orgId, jwt.sub);
     return result;
   }
 
@@ -506,6 +588,37 @@ export class TemplateController {
       );
     }
     return result;
+  }
+
+  @Post(':id/validate')
+  @HttpCode(HttpStatus.OK)
+  async validate(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const template = await this.templateService.findById(id, orgId);
+    if (!template) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    const errors = this.templateService.validateTemplateForPublish({
+      name: template.name,
+      type: template.type,
+      schema: template.schema as Record<string, unknown>,
+    });
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      templateId: id,
+      templateName: template.name,
+    };
   }
 
   @Post(':id/publish')
