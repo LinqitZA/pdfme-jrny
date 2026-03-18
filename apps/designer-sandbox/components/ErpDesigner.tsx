@@ -264,10 +264,121 @@ export default function ErpDesigner({
   const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDirtyRef = useRef(false);
 
+  // Manual save state
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Render/PDF generation state
+  const [renderStatus, setRenderStatus] = useState<'idle' | 'loading' | 'progress' | 'complete' | 'error'>('idle');
+  const [renderProgress, setRenderProgress] = useState<{ completed: number; failed: number; total: number }>({ completed: 0, failed: 0, total: 0 });
+  const [renderResult, setRenderResult] = useState<{ documentId?: string; downloadUrl?: string; batchId?: string; error?: string } | null>(null);
+  const [renderMessage, setRenderMessage] = useState('');
+  const sseRef = useRef<EventSource | null>(null);
+
+  // Template loading state
+  const [isLoading, setIsLoading] = useState(!!templateId);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   // Keep isDirtyRef in sync with isDirty state
   useEffect(() => {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
+
+  // ─── Load template schema from API when templateId is provided ───
+  useEffect(() => {
+    if (!templateId) {
+      setIsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadTemplate() {
+      setIsLoading(true);
+      setLoadError(null);
+
+      try {
+        const headers: Record<string, string> = {};
+        if (authToken) {
+          headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+        }
+
+        const response = await fetch(`${apiBase}/templates/${templateId}`, { headers });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+          throw new Error(errBody.message || `Failed to load template (${response.status})`);
+        }
+
+        const template = await response.json();
+        if (cancelled) return;
+
+        // Populate state from template data
+        if (template.name) {
+          setName(template.name);
+        }
+
+        const schema = template.schema;
+        if (schema) {
+          // Set page size
+          if (schema.pageSize) {
+            setPageSize(schema.pageSize);
+          }
+
+          // Parse pages and elements from schema
+          if (schema.pages && Array.isArray(schema.pages) && schema.pages.length > 0) {
+            const loadedPages: TemplatePage[] = schema.pages.map((page: { id?: string; label?: string; elements?: DesignElement[] }, idx: number) => {
+              const pageElements: DesignElement[] = (page.elements || []).map((el: Partial<DesignElement> & { id: string; type: ElementType }) => ({
+                id: el.id || createElementId(),
+                type: el.type || 'text',
+                x: el.x ?? 50,
+                y: el.y ?? 50,
+                w: el.w ?? 100,
+                h: el.h ?? 40,
+                content: el.content,
+                fontFamily: el.fontFamily,
+                fontSize: el.fontSize,
+                fontWeight: el.fontWeight,
+                fontStyle: el.fontStyle,
+                textAlign: el.textAlign,
+                color: el.color,
+                lineHeight: el.lineHeight,
+                src: el.src,
+                objectFit: el.objectFit,
+                opacity: el.opacity,
+                columns: el.columns,
+                showHeader: el.showHeader,
+                borderStyle: el.borderStyle,
+                binding: el.binding,
+              }));
+
+              return {
+                id: page.id || `page-loaded-${idx + 1}`,
+                label: page.label || `Page ${idx + 1}`,
+                elements: pageElements,
+              };
+            });
+
+            setPages(loadedPages);
+            setCurrentPageIndex(0);
+          }
+        }
+
+        setIsLoading(false);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const msg = err instanceof Error ? err.message : String(err);
+        setLoadError(msg);
+        setIsLoading(false);
+      }
+    }
+
+    loadTemplate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId, authToken, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-page state
   const [pages, setPages] = useState<TemplatePage[]>(() => [
@@ -354,12 +465,56 @@ export default function ErpDesigner({
     setIsDirty(true);
   }, [currentPageIndex, currentPage]);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    // Call external callback if provided
     if (onSave) {
       onSave({ name, pageSize, pages, schemas: [] });
     }
-    setIsDirty(false);
-  }, [name, pageSize, pages, onSave]);
+
+    // If we have a templateId and apiBase, persist to backend
+    if (templateId) {
+      setSaveStatus('saving');
+      setSaveError(null);
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+
+        const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            name,
+            schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+          }),
+        });
+
+        if (response.ok) {
+          setSaveStatus('saved');
+          setIsDirty(false);
+          isDirtyRef.current = false;
+          setTimeout(() => setSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
+        } else {
+          const errBody = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
+          const errorMsg = errBody.message || `Save failed with status ${response.status}`;
+          setSaveStatus('error');
+          setSaveError(errorMsg);
+          // DO NOT clear isDirty - unsaved changes preserved for retry
+        }
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error
+          ? (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')
+            ? 'Network error — check your connection and try again'
+            : err.message)
+          : 'An unexpected error occurred while saving';
+        setSaveStatus('error');
+        setSaveError(errorMsg);
+        // DO NOT clear isDirty - unsaved changes preserved for retry
+      }
+    } else {
+      // No templateId - just clear dirty flag (local-only mode)
+      setIsDirty(false);
+    }
+  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase]);
 
   // ─── Auto-save: save draft to backend every 30 seconds ───
   const performAutoSave = useCallback(async () => {
@@ -411,6 +566,216 @@ export default function ErpDesigner({
       }
     };
   }, [templateId, autoSaveInterval, performAutoSave]);
+
+  // ─── Render / PDF generation handlers ───
+
+  const getAuthHeaders = useCallback((): Record<string, string> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+    return headers;
+  }, [authToken]);
+
+  /** Single PDF render (preview or render/now) */
+  const handlePreview = useCallback(async () => {
+    if (!templateId) {
+      setRenderStatus('error');
+      setRenderMessage('Save the template first to generate a preview');
+      setRenderResult({ error: 'No template ID' });
+      setTimeout(() => { if (renderStatus === 'error') { setRenderStatus('idle'); setRenderResult(null); setRenderMessage(''); } }, 5000);
+      return;
+    }
+
+    setRenderStatus('loading');
+    setRenderMessage('Generating preview PDF…');
+    setRenderResult(null);
+    setRenderProgress({ completed: 0, failed: 0, total: 1 });
+
+    try {
+      const response = await fetch(`${apiBase}/templates/${templateId}/preview`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ sampleRowCount: 5, channel: 'print' }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({ message: 'Preview generation failed' }));
+        throw new Error(errBody.message || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      setRenderStatus('complete');
+      setRenderMessage('Preview ready!');
+      setRenderResult({
+        documentId: result.previewId,
+        downloadUrl: result.downloadUrl || `${apiBase}/render/download/${result.previewId}`,
+      });
+      setRenderProgress({ completed: 1, failed: 0, total: 1 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRenderStatus('error');
+      setRenderMessage(`Preview failed: ${msg}`);
+      setRenderResult({ error: msg });
+    }
+  }, [templateId, apiBase, getAuthHeaders, renderStatus]);
+
+  /** Single document render via render/now */
+  const handleRenderNow = useCallback(async (entityId?: string) => {
+    if (!templateId) {
+      setRenderStatus('error');
+      setRenderMessage('Save the template first');
+      setRenderResult({ error: 'No template ID' });
+      return;
+    }
+
+    setRenderStatus('loading');
+    setRenderMessage('Generating PDF…');
+    setRenderResult(null);
+    setRenderProgress({ completed: 0, failed: 0, total: 1 });
+
+    try {
+      const response = await fetch(`${apiBase}/render/now`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          templateId,
+          entityId: entityId || 'preview',
+          channel: 'print',
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({ message: 'Render failed' }));
+        throw new Error(errBody.message || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      setRenderStatus('complete');
+      setRenderMessage('PDF generated successfully!');
+      setRenderResult({
+        documentId: result.document?.id || result.documentId,
+        downloadUrl: result.downloadUrl,
+      });
+      setRenderProgress({ completed: 1, failed: 0, total: 1 });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRenderStatus('error');
+      setRenderMessage(`Render failed: ${msg}`);
+      setRenderResult({ error: msg });
+    }
+  }, [templateId, apiBase, getAuthHeaders]);
+
+  /** Bulk render with SSE progress tracking */
+  const handleBulkRender = useCallback(async (entityIds: string[]) => {
+    if (!templateId || entityIds.length === 0) return;
+
+    // Cleanup any existing SSE connection
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
+
+    setRenderStatus('loading');
+    setRenderMessage(`Starting bulk render of ${entityIds.length} documents…`);
+    setRenderResult(null);
+    setRenderProgress({ completed: 0, failed: 0, total: entityIds.length });
+
+    try {
+      const response = await fetch(`${apiBase}/render/bulk`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          templateId,
+          entityIds,
+          channel: 'print',
+        }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({ message: 'Bulk render failed' }));
+        throw new Error(errBody.message || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      const batchId = result.batchId;
+
+      setRenderStatus('progress');
+      setRenderMessage(`Rendering ${entityIds.length} documents…`);
+      setRenderResult({ batchId });
+
+      // Connect to SSE progress stream
+      const tokenParam = authToken ? `?token=${encodeURIComponent(authToken)}` : '';
+      const eventSource = new EventSource(`${apiBase}/render/batch/${batchId}/progress${tokenParam}`);
+      sseRef.current = eventSource;
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === 'job_complete' || data.type === 'job_failed') {
+            setRenderProgress((prev) => ({
+              ...prev,
+              completed: data.type === 'job_complete' ? prev.completed + 1 : prev.completed,
+              failed: data.type === 'job_failed' ? prev.failed + 1 : prev.failed,
+            }));
+            const done = (data.completedJobs || 0) + (data.failedJobs || 0);
+            setRenderMessage(`Rendering: ${done}/${entityIds.length} complete`);
+          }
+
+          if (data.type === 'batch_complete') {
+            setRenderStatus('complete');
+            setRenderMessage(`Bulk render complete! ${data.completedJobs || 0} succeeded, ${data.failedJobs || 0} failed`);
+            setRenderProgress({
+              completed: data.completedJobs || 0,
+              failed: data.failedJobs || 0,
+              total: entityIds.length,
+            });
+            eventSource.close();
+            sseRef.current = null;
+          }
+        } catch {
+          // ignore parse errors
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        sseRef.current = null;
+        // Only set error if we haven't completed
+        setRenderStatus((prev) => {
+          if (prev === 'complete') return prev;
+          setRenderMessage('Lost connection to progress stream. Check batch status manually.');
+          return 'error';
+        });
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRenderStatus('error');
+      setRenderMessage(`Bulk render failed: ${msg}`);
+      setRenderResult({ error: msg });
+    }
+  }, [templateId, apiBase, authToken, getAuthHeaders]);
+
+  /** Dismiss render overlay */
+  const dismissRenderOverlay = useCallback(() => {
+    if (sseRef.current) {
+      sseRef.current.close();
+      sseRef.current = null;
+    }
+    setRenderStatus('idle');
+    setRenderMessage('');
+    setRenderResult(null);
+    setRenderProgress({ completed: 0, failed: 0, total: 0 });
+  }, []);
+
+  // Cleanup SSE on unmount
+  useEffect(() => {
+    return () => {
+      if (sseRef.current) {
+        sseRef.current.close();
+        sseRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── Page management ───
 
@@ -1124,6 +1489,74 @@ export default function ErpDesigner({
     );
   };
 
+  // ─── Loading state: show spinner while fetching template from API ───
+  if (isLoading) {
+    return (
+      <div
+        data-testid="designer-loading"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          color: '#6b7280',
+          backgroundColor: '#f8f9fa',
+          gap: '16px',
+        }}
+      >
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '3px solid #e5e7eb',
+          borderTopColor: '#3b82f6',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        <div style={{ fontSize: '16px', fontWeight: 500 }}>Loading template...</div>
+      </div>
+    );
+  }
+
+  // ─── Load error state ───
+  if (loadError) {
+    return (
+      <div
+        data-testid="designer-load-error"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+          color: '#ef4444',
+          backgroundColor: '#f8f9fa',
+          gap: '16px',
+        }}
+      >
+        <div style={{ fontSize: '48px' }}>!</div>
+        <div style={{ fontSize: '16px', fontWeight: 500 }}>Failed to load template</div>
+        <div style={{ fontSize: '14px', color: '#6b7280', maxWidth: '400px', textAlign: 'center' }}>{loadError}</div>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            padding: '8px 16px',
+            border: '1px solid #d1d5db',
+            borderRadius: '6px',
+            background: '#fff',
+            cursor: 'pointer',
+            fontSize: '14px',
+          }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <>
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
@@ -1262,18 +1695,47 @@ export default function ErpDesigner({
         )}
 
         {/* Right-side actions */}
-        <button data-testid="btn-preview" style={toolbarBtnStyle}>Preview</button>
+        <button
+          data-testid="btn-preview"
+          onClick={handlePreview}
+          disabled={renderStatus === 'loading' || renderStatus === 'progress'}
+          style={{
+            ...toolbarBtnStyle,
+            opacity: (renderStatus === 'loading' || renderStatus === 'progress') ? 0.6 : 1,
+            cursor: (renderStatus === 'loading' || renderStatus === 'progress') ? 'not-allowed' : 'pointer',
+          }}
+        >
+          {renderStatus === 'loading' ? 'Generating…' : 'Preview'}
+        </button>
+        <button
+          data-testid="btn-render"
+          onClick={() => handleRenderNow()}
+          disabled={renderStatus === 'loading' || renderStatus === 'progress'}
+          style={{
+            ...toolbarBtnStyle,
+            backgroundColor: '#8b5cf6',
+            color: '#fff',
+            fontWeight: 600,
+            opacity: (renderStatus === 'loading' || renderStatus === 'progress') ? 0.6 : 1,
+            cursor: (renderStatus === 'loading' || renderStatus === 'progress') ? 'not-allowed' : 'pointer',
+          }}
+        >
+          Generate PDF
+        </button>
         <button
           data-testid="btn-save"
           onClick={handleSave}
+          disabled={saveStatus === 'saving'}
           style={{
             ...toolbarBtnStyle,
-            backgroundColor: isDirty ? '#3b82f6' : '#94a3b8',
+            backgroundColor: saveStatus === 'error' ? '#ef4444' : isDirty ? '#3b82f6' : '#94a3b8',
             color: '#fff',
             fontWeight: 600,
+            opacity: saveStatus === 'saving' ? 0.7 : 1,
+            cursor: saveStatus === 'saving' ? 'not-allowed' : 'pointer',
           }}
         >
-          Save Draft
+          {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Retry Save' : 'Save Draft'}
         </button>
         <button
           data-testid="btn-publish"
@@ -1287,6 +1749,60 @@ export default function ErpDesigner({
           Publish
         </button>
       </div>
+
+      {/* ─── Save Error Banner ─── */}
+      {saveStatus === 'error' && saveError && (
+        <div
+          data-testid="save-error-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: '#fef2f2',
+            borderBottom: '1px solid #fecaca',
+            padding: '8px 16px',
+            fontSize: '13px',
+            color: '#991b1b',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span data-testid="save-error-icon" style={{ fontSize: '16px' }}>⚠</span>
+            <span data-testid="save-error-message">{saveError}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              data-testid="save-error-retry"
+              onClick={handleSave}
+              style={{
+                padding: '4px 12px',
+                backgroundColor: '#ef4444',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '12px',
+                fontWeight: 600,
+              }}
+            >
+              Retry
+            </button>
+            <button
+              data-testid="save-error-dismiss"
+              onClick={() => { setSaveStatus('idle'); setSaveError(null); }}
+              style={{
+                padding: '4px 8px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#991b1b',
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── Three-Panel Layout ─── */}
       <div
@@ -1633,6 +2149,156 @@ export default function ErpDesigner({
           </div>
         </div>
       </div>
+
+      {/* ─── Render Progress Overlay ─── */}
+      {renderStatus !== 'idle' && (
+        <div
+          data-testid="render-overlay"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000,
+          }}
+        >
+          <div
+            data-testid="render-dialog"
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              padding: '32px',
+              minWidth: '400px',
+              maxWidth: '480px',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+              textAlign: 'center',
+            }}
+          >
+            {/* Loading spinner */}
+            {(renderStatus === 'loading' || renderStatus === 'progress') && (
+              <div data-testid="render-spinner" style={{ marginBottom: '16px' }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  border: '4px solid #e2e8f0',
+                  borderTopColor: '#8b5cf6',
+                  borderRadius: '50%',
+                  animation: 'spin 1s linear infinite',
+                  margin: '0 auto',
+                }} />
+              </div>
+            )}
+
+            {/* Complete icon */}
+            {renderStatus === 'complete' && (
+              <div data-testid="render-complete-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#10b981' }}>
+                ✓
+              </div>
+            )}
+
+            {/* Error icon */}
+            {renderStatus === 'error' && (
+              <div data-testid="render-error-icon" style={{ marginBottom: '16px', fontSize: '48px', color: '#ef4444' }}>
+                ✗
+              </div>
+            )}
+
+            {/* Status message */}
+            <div
+              data-testid="render-message"
+              style={{
+                fontSize: '16px',
+                fontWeight: 600,
+                color: renderStatus === 'error' ? '#ef4444' : renderStatus === 'complete' ? '#10b981' : '#334155',
+                marginBottom: '12px',
+              }}
+            >
+              {renderMessage}
+            </div>
+
+            {/* Progress bar for bulk render */}
+            {(renderStatus === 'progress' || (renderStatus === 'complete' && renderProgress.total > 1)) && (
+              <div data-testid="render-progress-section" style={{ marginBottom: '16px' }}>
+                <div style={{
+                  width: '100%',
+                  height: '8px',
+                  backgroundColor: '#e2e8f0',
+                  borderRadius: '4px',
+                  overflow: 'hidden',
+                  marginBottom: '8px',
+                }}>
+                  <div
+                    data-testid="render-progress-bar"
+                    style={{
+                      height: '100%',
+                      width: `${renderProgress.total > 0 ? ((renderProgress.completed + renderProgress.failed) / renderProgress.total) * 100 : 0}%`,
+                      backgroundColor: renderProgress.failed > 0 ? '#f59e0b' : '#8b5cf6',
+                      borderRadius: '4px',
+                      transition: 'width 0.3s ease',
+                    }}
+                  />
+                </div>
+                <div data-testid="render-progress-text" style={{ fontSize: '13px', color: '#64748b' }}>
+                  {renderProgress.completed + renderProgress.failed} / {renderProgress.total} complete
+                  {renderProgress.failed > 0 && (
+                    <span style={{ color: '#ef4444', marginLeft: '8px' }}>({renderProgress.failed} failed)</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Download link on completion */}
+            {renderStatus === 'complete' && renderResult?.downloadUrl && (
+              <a
+                data-testid="render-download-link"
+                href={renderResult.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display: 'inline-block',
+                  padding: '8px 24px',
+                  backgroundColor: '#8b5cf6',
+                  color: '#fff',
+                  borderRadius: '6px',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  marginBottom: '12px',
+                }}
+              >
+                Download PDF
+              </a>
+            )}
+
+            {/* Dismiss button */}
+            {(renderStatus === 'complete' || renderStatus === 'error') && (
+              <div>
+                <button
+                  data-testid="render-dismiss"
+                  onClick={dismissRenderOverlay}
+                  style={{
+                    padding: '8px 24px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    color: '#64748b',
+                    marginTop: '8px',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ─── Context Menu (portal-like, fixed position) ─── */}
       {contextMenu.visible && (
