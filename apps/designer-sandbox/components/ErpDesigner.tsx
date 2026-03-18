@@ -83,6 +83,8 @@ interface DesignElement {
   borderStyle?: 'solid' | 'dashed' | 'none';
   // Data binding
   binding?: string;
+  // Page visibility scope
+  pageScope?: 'all' | 'first' | 'last' | 'notFirst';
 }
 
 /** Represents a single page in the template */
@@ -675,6 +677,7 @@ export default function ErpDesigner({
       ...defaults,
       x,
       y,
+      pageScope: 'all',
     };
     setPagesWithHistory((prev) => {
       return prev.map((page, idx) => {
@@ -2206,6 +2209,48 @@ export default function ErpDesigner({
             </div>
           </div>
         )}
+
+        {/* Page Visibility section - always shown */}
+        <div data-testid="properties-page-visibility" style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Page Visibility</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Page Scope</span>
+              <select
+                data-testid="prop-page-scope"
+                style={propInputStyle}
+                value={selectedElement.pageScope || 'all'}
+                onChange={(e) => updateElement(selectedElement.id, { pageScope: e.target.value as DesignElement['pageScope'] })}
+              >
+                <option value="all">All Pages</option>
+                <option value="first">First Page Only</option>
+                <option value="last">Last Page Only</option>
+                <option value="notFirst">Not First Page</option>
+              </select>
+            </div>
+            {selectedElement.pageScope && selectedElement.pageScope !== 'all' && (
+              <div
+                data-testid="page-scope-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#dbeafe',
+                  color: '#2563eb',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  width: 'fit-content',
+                }}
+              >
+                {selectedElement.pageScope === 'first' && 'First page only'}
+                {selectedElement.pageScope === 'last' && 'Last page only'}
+                {selectedElement.pageScope === 'notFirst' && 'Not first page'}
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Delete element button */}
         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e2e8f0' }}>
