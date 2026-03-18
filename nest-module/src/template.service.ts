@@ -6,7 +6,7 @@
  * System templates (orgId=null) are visible to all orgs.
  */
 
-import { Injectable, Inject, Optional } from '@nestjs/common';
+import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { templates, templateVersions } from './db/schema';
@@ -155,8 +155,14 @@ export class TemplateService {
     if (options?.cursor) {
       try {
         const decoded = JSON.parse(Buffer.from(options.cursor, 'base64').toString());
-        // Cursor-based: get items after the cursor position (createdAt DESC, id DESC)
+        if (!decoded.createdAt || !decoded.id) {
+          throw new Error('Cursor missing required fields');
+        }
         const cursorDate = new Date(decoded.createdAt);
+        if (isNaN(cursorDate.getTime())) {
+          throw new Error('Cursor contains invalid date');
+        }
+        // Cursor-based: get items after the cursor position (createdAt DESC, id DESC)
         conditions.push(
           or(
             lt(templates.createdAt, cursorDate),
@@ -164,7 +170,7 @@ export class TemplateService {
           )!,
         );
       } catch {
-        // Invalid cursor — ignore and start from beginning
+        throw new BadRequestException('Invalid cursor parameter. The cursor value is malformed or expired.');
       }
     }
 
@@ -451,11 +457,15 @@ export class TemplateService {
       }
     }
 
+    // Increment version number on each publish
+    const newVersion = template.version + 1;
+
     const [result] = await this.db
       .update(templates)
       .set({
         status: 'published',
-        publishedVer: template.version,
+        version: newVersion,
+        publishedVer: newVersion,
         updatedAt: new Date(),
       })
       .where(eq(templates.id, id))
@@ -568,6 +578,30 @@ export class TemplateService {
       .limit(50);
 
     return rows;
+  }
+
+  /**
+   * Get a specific version of a template by version number.
+   * Returns null if not found.
+   */
+  async getVersionByNumber(templateId: string, versionNumber: number, orgId?: string) {
+    const conditions: SQL[] = [
+      eq(templateVersions.templateId, templateId),
+      eq(templateVersions.version, versionNumber),
+    ];
+    if (orgId) {
+      conditions.push(
+        or(eq(templateVersions.orgId, orgId), isNull(templateVersions.orgId))!,
+      );
+    }
+
+    const rows = await this.db
+      .select()
+      .from(templateVersions)
+      .where(and(...conditions))
+      .limit(1);
+
+    return rows.length > 0 ? rows[0] : null;
   }
 
   // ─── Template Export / Import ────────────────────────────────────────

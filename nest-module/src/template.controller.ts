@@ -212,6 +212,33 @@ export class TemplateController {
     return { data: versions, total: versions.length };
   }
 
+  @Get(':id/versions/:version')
+  async getVersionByNumber(
+    @Param('id') id: string,
+    @Param('version') version: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const versionNumber = parseInt(version, 10);
+    if (isNaN(versionNumber) || versionNumber < 1) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'Version must be a positive integer' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.templateService.getVersionByNumber(id, versionNumber, orgId);
+    if (!result) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `Version ${versionNumber} of template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
+  }
+
   @Get(':id/export')
   async exportTemplate(
     @Param('id') id: string,
