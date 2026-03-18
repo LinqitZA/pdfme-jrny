@@ -4265,3 +4265,44 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 106/106 tests passing across 3 features
 ### Current Status: ~303/388 features passing (78.1%)
+
+---
+
+## Session - 2026-03-18 - Features #105, #106, #9 (Backup ZIP and Auth)
+
+### Completed Features:
+- **Feature #105**: Backup export generates ZIP
+  - POST /api/pdfme/templates/backup/export returns application/zip
+  - ZIP contains manifest.json, templates/, assets/, signatures/ directories
+  - Each template as individual JSON file with index.json
+  - Assets (images + fonts) as binary files with index.json
+  - Manifest includes version, exportedAt, orgId, templateCount
+  - Auth required (401 without token), org isolation verified
+  - 27/27 tests passing
+
+- **Feature #106**: Backup import restores from ZIP
+  - POST /api/pdfme/templates/backup/import-zip accepts JSON with base64 ZIP
+  - Parses ZIP, extracts templates, assets, fonts, signatures
+  - All imported templates created as drafts
+  - Name deduplication on re-import (adds Import suffix)
+  - Round-trip integrity verified
+  - 25/25 tests passing
+
+- **Feature #9**: Auth rejects invalid tokens
+  - Malformed tokens (random, 2-part, 4-part, dots-only, empty) rejected 401
+  - Wrong secret rejected 401, tampered payload rejected 401
+  - Missing sub claim rejected 401, Bearer prefix required
+  - Multiple endpoints all reject invalid tokens
+  - Valid token accepted (control test)
+  - 17/17 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.service.ts - backupOrgAsZip and importBackupFromZip
+- nest-module/src/template.controller.ts - backup/export and backup/import-zip endpoints
+- nest-module/src/main.ts - raw body parser for ZIP uploads
+- tests/test-feature-105-backup-zip.js - 27 tests
+- tests/test-feature-106-backup-import-zip.js - 25 tests
+- tests/test-feature-9-jwt-rejects-invalid.js - 17 tests
+
+### Test Results: 69/69 tests passing across 3 features
+### Current Status: ~311/388 features passing (80.2%)
