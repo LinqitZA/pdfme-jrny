@@ -234,7 +234,16 @@ export class SignatureController {
       });
     }
 
-    return { message: 'Signature revoked successfully' };
+    // Get updated signature to include revokedAt in response
+    const revokedSig = await this.signatureService.getSignatureById(orgId, signature.id);
+
+    return {
+      message: 'Signature revoked successfully',
+      id: signature.id,
+      userId,
+      orgId,
+      revokedAt: revokedSig?.revokedAt || new Date().toISOString(),
+    };
   }
 
   /**

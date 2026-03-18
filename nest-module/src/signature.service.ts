@@ -118,6 +118,27 @@ export class SignatureService {
   }
 
   /**
+   * Get a signature by ID (regardless of revocation status)
+   */
+  async getSignatureById(
+    orgId: string,
+    signatureId: string,
+  ): Promise<SignatureRecord | null> {
+    const results = await this.db
+      .select()
+      .from(userSignatures)
+      .where(
+        and(
+          eq(userSignatures.orgId, orgId),
+          eq(userSignatures.id, signatureId),
+        ),
+      );
+
+    if (results.length === 0) return null;
+    return results[0] as SignatureRecord;
+  }
+
+  /**
    * Read the signature file from storage
    */
   async readSignatureFile(filePath: string): Promise<Buffer> {
