@@ -90,3 +90,39 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Designer: npm run -w apps/designer-sandbox dev -- -p 3002
 
 ### Current Status: 6/388 features passing (sessions 1+2 combined)
+
+---
+
+## Session 3 - 2026-03-18 - Features #71, #76, #102
+
+### Completed Features:
+- **Feature #71**: Template create API works ✅
+  - POST /api/pdfme/templates returns HTTP 201 with {id, status:"draft"}
+  - GET by ID returns full template matching created data
+  - Data persists across server restart (verified)
+  - No mock data patterns in codebase
+
+- **Feature #76**: Template archive soft-deletes ✅
+  - DELETE /api/pdfme/templates/:id sets status="archived" (soft delete, not hard delete)
+  - Archived templates excluded from GET /api/pdfme/templates list queries
+  - Archived template still accessible via direct GET by ID
+
+- **Feature #102**: Empty state for org with no templates ✅
+  - New org with no templates sees only system templates (orgId=null)
+  - System templates (orgId=null) visible to all orgs via list endpoint
+  - Proper empty state: {data:[], pagination:{total:0}} when no templates at all
+  - Archived templates excluded even from system template results
+
+### Key Changes Made:
+- template.service.ts: Multi-tenant findAll with OR condition (orgId match OR orgId IS NULL for system templates), NE filter for archived status, softDelete method instead of hard delete
+- template.controller.ts: @HttpCode(201) on POST, JWT decode from Authorization header, DELETE returns {id, status:"archived"}
+- db/database.module.ts: NestJS Global module wrapping Drizzle connection
+
+### Current Status: 9/388 features passing (sessions 1+2+3 combined)
+
+### Notes for next session:
+- Server runs on port 3000 (or use PORT env var)
+- Docker containers: pdfme-postgres (port 5432), pdfme-redis (port 6379)
+- May need `docker start pdfme-postgres pdfme-redis` if containers stopped
+- JWT auth uses simple base64 decode - accepts any well-formed JWT without signature verification (dev mode)
+- Templates support multi-tenancy via orgId; system templates have orgId=null
