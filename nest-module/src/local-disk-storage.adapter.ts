@@ -9,6 +9,13 @@ import * as path from 'path';
 import { FileStorageService } from './file-storage.service';
 
 export class LocalDiskStorageAdapter extends FileStorageService {
+  /**
+   * Simulated transient failure counter. When > 0, the next N write/read
+   * operations will throw a simulated transient error, then succeed.
+   * Used for testing retry logic.
+   */
+  private simulatedFailuresRemaining = 0;
+
   constructor(
     private readonly rootDir: string,
     private readonly tempDir: string,
@@ -17,6 +24,25 @@ export class LocalDiskStorageAdapter extends FileStorageService {
     // Ensure root and temp directories exist
     fs.mkdirSync(this.rootDir, { recursive: true });
     fs.mkdirSync(this.tempDir, { recursive: true });
+  }
+
+  /**
+   * Set the number of transient failures to simulate on next operations.
+   * Each write or read call decrements the counter; when 0, operations succeed.
+   */
+  setSimulatedFailures(count: number): void {
+    this.simulatedFailuresRemaining = count;
+  }
+
+  getSimulatedFailures(): number {
+    return this.simulatedFailuresRemaining;
+  }
+
+  private checkSimulatedFailure(): void {
+    if (this.simulatedFailuresRemaining > 0) {
+      this.simulatedFailuresRemaining--;
+      throw new Error('Simulated transient storage failure (ECONNRESET)');
+    }
   }
 
   private resolvePath(filePath: string): string {
@@ -29,12 +55,14 @@ export class LocalDiskStorageAdapter extends FileStorageService {
   }
 
   async write(filePath: string, data: Buffer): Promise<void> {
+    this.checkSimulatedFailure();
     const fullPath = this.resolvePath(filePath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, data);
   }
 
   async read(filePath: string): Promise<Buffer> {
+    this.checkSimulatedFailure();
     const fullPath = this.resolvePath(filePath);
     return fs.readFileSync(fullPath);
   }

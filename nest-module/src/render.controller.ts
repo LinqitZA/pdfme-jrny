@@ -266,6 +266,86 @@ export class RenderController {
     });
   }
 
+  @Get('download/:previewId')
+  async downloadPreview(
+    @Param('previewId') previewId: string,
+    @Req() req: any,
+    @Res() res: Response,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const result = await this.renderService.getPreviewForDownload(previewId, user.orgId);
+
+    if ('error' in result) {
+      throw new HttpException(
+        {
+          statusCode: result.statusCode,
+          error: result.statusCode === 410 ? 'Gone' : 'Not Found',
+          message: result.error,
+        },
+        result.statusCode,
+      );
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${previewId}.pdf"`);
+    res.setHeader('Content-Length', result.buffer.length);
+    res.send(result.buffer);
+  }
+
+  @Post('simulate-storage-failure')
+  async simulateStorageFailure(
+    @Body() body: { failureCount: number },
+  ) {
+    const fileStorage = (this.renderService as any).fileStorage;
+    if (typeof fileStorage.setSimulatedFailures === 'function') {
+      fileStorage.setSimulatedFailures(body.failureCount || 0);
+      return {
+        simulatedFailures: body.failureCount || 0,
+        message: `Next ${body.failureCount || 0} storage operations will fail`,
+      };
+    }
+    return { error: 'File storage adapter does not support failure simulation' };
+  }
+
+  @Post('retry-config')
+  async setRetryConfig(
+    @Body() body: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number },
+  ) {
+    this.renderService.setRetryConfig(body);
+    return {
+      config: this.renderService.getRetryConfig(),
+    };
+  }
+
+  @Get('retry-config')
+  async getRetryConfig() {
+    return {
+      config: this.renderService.getRetryConfig(),
+      lastRetryAttempts: this.renderService.lastRetryAttempts,
+    };
+  }
+
+  @Post('force-expire-preview')
+  async forceExpirePreview(
+    @Body() body: { previewId: string },
+  ) {
+    if (!body.previewId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'previewId is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    const success = this.renderService.forceExpirePreview(body.previewId);
+    return { expired: success, previewId: body.previewId };
+  }
+
   @Get('verify/:documentId')
   async verifyDocument(
     @Param('documentId') documentId: string,
