@@ -507,3 +507,42 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Test Results: 46/46 new tests passing, 33/33 existing tests still passing
 
 ### Current Status: Features #112, #113, #114 marked passing
+
+---
+
+## Session - 2026-03-18 - Features #121, #122, #123 (Grouped Table Plugin)
+
+### Completed Features:
+- **Feature #121**: Grouped table renders with groupBy ✅
+  - GroupedTable class in packages/erp-schemas/src/grouped-table/index.ts
+  - Accepts groupBy field array, groups data rows under headers
+  - Renders columnHeader, groupHeader, data, groupFooter, grandTotal rows
+  - Tree structure shows hierarchical grouping with correct parent-child nesting
+  - REST endpoint: POST /api/pdfme/grouped-table/render
+
+- **Feature #122**: Grouped table subtotals per group ✅
+  - SUM, COUNT, AVG, MIN, MAX aggregation per column
+  - Group footer rows show subtotals scoped to each group
+  - Grand total row at bottom shows aggregations across all data
+  - Number formatting with #,##0.00 pattern support
+  - Verified: Electronics=20,500, Furniture=9,500, Grand Total=30,200
+
+- **Feature #123**: Grouped table multi-level nesting ✅
+  - Supports 1, 2, or 3 levels of groupBy nesting
+  - Level 0/1/2 group headers with distinct background colors
+  - Subtotals calculated at every nesting level
+  - 4+ levels rejected with error message
+  - Verified: region->category->brand 3-level nesting with correct subtotals
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/grouped-table/index.ts - Full GroupedTable class (GroupNode, RenderedRow, toPdfmeTableInput)
+- nest-module/src/grouped-table.controller.ts - REST endpoints (POST /render, POST /pdf)
+- nest-module/src/app.module.ts - Registered GroupedTableController
+- tests/test-grouped-table.sh - 40 automated tests
+
+### API Endpoints Added:
+- POST /api/pdfme/grouped-table/render - Render grouped data to structured row output
+- POST /api/pdfme/grouped-table/pdf - Render grouped data to PDF document
+
+### Test Results: 40/40 tests passing
+### Current Status: Features #121, #122, #123 marked passing
