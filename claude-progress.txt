@@ -672,3 +672,52 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Test Results: 35+ assertions across 4 test suites all passing
 
 ### Current Status: ~50/388 features passing (47 + 3 new)
+
+---
+
+## Session - 2026-03-18 - Features #131, #132, #133 (Render Pipeline Extensions)
+
+### Completed Features:
+- **Feature #131**: QR barcode with ERP URL binding ✅
+  - Implemented full qrBarcode schema plugin in packages/erp-schemas/src/qr-barcode/index.ts
+  - resolveQrBarcodes() converts qrBarcode type to standard pdfme qrcode
+  - Supports {{field.key}} URL pattern bindings with dot-notation resolution
+  - Integrated into RenderService pipeline (step 3d)
+  - Verified: QR code renders in PDF with correct URL data
+
+- **Feature #132**: Render pipeline resolvePageScopes ✅
+  - resolvePageScopes() method in RenderService filters elements by page scope
+  - Scopes: 'all' (default), 'first' (first page only), 'last' (last page only), 'notFirst' (all except first)
+  - Strips pageScope property from elements before passing to pdfme
+  - Verified: 3-page PDF with correct element filtering per page
+  - Note: element position.y must be >= paddingTop for pdfme dynamicTemplate compatibility
+
+- **Feature #133**: Render pipeline resolveConditions ✅
+  - resolveConditions() method in RenderService hides elements based on conditions
+  - Supports 'fieldNonEmpty' condition type (checks input field has value)
+  - Supports 'expression' condition type (evaluates comparison expressions)
+  - Expression operators: ==, !=, >, <, >=, <=
+  - Strips condition property from elements before passing to pdfme
+  - Verified: elements hidden when field empty, visible when populated
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/qr-barcode/index.ts - Full QR barcode plugin with URL binding resolution
+- nest-module/src/render.service.ts - Added resolveQrBarcodes import, resolvePageScopes(), resolveConditions(), evaluateConditionExpression()
+- tests/test-features-131-132-133.js - 12 automated tests covering all three features
+
+### Render Pipeline Order (updated):
+1. buildPdfmeTemplate (legacy format conversion)
+2. resolveDrawnSignatures (signature PNG embedding)
+3. resolveErpImages (file storage image resolution)
+4. resolveLineItemsTables (table with footer rows)
+5. resolveQrBarcodes (QR code URL binding) [NEW]
+6. resolveRichText (rich text post-processing)
+7. resolveSignatureBlocks (signature block post-processing)
+8. resolvePageScopes (page-level visibility) [NEW]
+9. resolveConditions (conditional element visibility) [NEW]
+10. resolveCalculatedFields (expression evaluation)
+11. extractWatermarkFromTemplate + remove watermark elements
+12. pdfme generate()
+13. applyWatermark, applyRichText, applySignatureBlocks (post-processing)
+
+### Current Status: Features #131, #132, #133 marked passing (~52/388)
