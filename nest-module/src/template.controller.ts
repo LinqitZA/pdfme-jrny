@@ -380,6 +380,56 @@ export class TemplateController {
     return result;
   }
 
+  @Get('backup')
+  async backupOrg(
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // Fetch locale config from expression controller's in-memory store
+    // For backup we pass it through if available via query or use defaults
+    let localeConfig: { locale: string; currency: string; timezone: string } | undefined;
+    try {
+      // Try to fetch locale config from the expressions endpoint
+      const http = await import('http');
+      const localeData: any = await new Promise((resolve, reject) => {
+        const req = http.request({
+          hostname: 'localhost',
+          port: 3000,
+          path: '/api/pdfme/expressions/locale',
+          method: 'GET',
+          headers: { 'Authorization': authHeader || '' },
+        }, (res: any) => {
+          let data = '';
+          res.on('data', (chunk: string) => data += chunk);
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch { resolve(null); }
+          });
+        });
+        req.on('error', () => resolve(null));
+        req.end();
+      });
+      if (localeData && localeData.locale) {
+        localeConfig = {
+          locale: localeData.locale,
+          currency: localeData.currency || 'USD',
+          timezone: localeData.timezone || 'UTC',
+        };
+      }
+    } catch {
+      // Locale config not available, will be null in backup
+    }
+
+    const backup = await this.templateService.backupOrg(jwt.orgId, localeConfig);
+    return backup;
+  }
+
   @Get('system')
   async listSystem() {
     const data = await this.templateService.findSystemTemplates();

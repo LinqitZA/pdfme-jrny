@@ -53,6 +53,18 @@ export class RenderQueueService implements OnModuleDestroy {
     Array<{ attempt: number; success: boolean; error?: string; timestamp: string }>
   > = new Map();
 
+  /** Per-tenant concurrency limits (orgId -> max concurrent jobs) */
+  private tenantConcurrencyLimits: Map<string, number> = new Map();
+
+  /** Per-tenant active job counts (orgId -> count of currently processing jobs) */
+  private tenantActiveJobs: Map<string, number> = new Map();
+
+  /** Per-tenant peak concurrent tracking for verification (orgId -> max seen simultaneously) */
+  private tenantPeakConcurrent: Map<string, number> = new Map();
+
+  /** Default concurrency per tenant when no specific limit set */
+  private defaultTenantConcurrency: number = 10;
+
   constructor() {
     const redisHost = process.env.REDIS_HOST || 'localhost';
     const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
@@ -86,12 +98,43 @@ export class RenderQueueService implements OnModuleDestroy {
     const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
     const connection = { host: redisHost, port: redisPort };
 
-    // Create worker to process jobs
+    // Create worker to process jobs with per-tenant concurrency enforcement
     this.worker = new Worker(
       QUEUE_NAME,
       async (job: Job<RenderJobData>) => {
         const attemptNumber = job.attemptsMade + 1;
         const jobId = job.id || 'unknown';
+        const orgId = job.data.orgId;
+
+        // Per-tenant concurrency enforcement
+        const tenantLimit = this.tenantConcurrencyLimits.get(orgId) ?? this.defaultTenantConcurrency;
+        const currentActive = this.tenantActiveJobs.get(orgId) || 0;
+
+        if (currentActive >= tenantLimit) {
+          // Re-queue with a short delay to let active jobs complete
+          console.log(
+            `[pdfme-erp] Tenant ${orgId} at concurrency limit (${currentActive}/${tenantLimit}). Re-queuing job ${jobId}.`,
+          );
+          // Move job back to delayed state by throwing a special error that triggers retry
+          await this.queue.add('render', job.data, {
+            delay: 500, // Re-check in 500ms
+            attempts: job.opts.attempts,
+            backoff: job.opts.backoff,
+            jobId: `${jobId}-requeue-${Date.now()}`,
+          });
+          // Return a skip result - job was re-queued
+          return { status: 'done' as const, attempts: attemptNumber, documentId: 'requeued' };
+        }
+
+        // Increment active count for this tenant
+        this.tenantActiveJobs.set(orgId, currentActive + 1);
+        const newActive = currentActive + 1;
+
+        // Track peak concurrency
+        const currentPeak = this.tenantPeakConcurrent.get(orgId) || 0;
+        if (newActive > currentPeak) {
+          this.tenantPeakConcurrent.set(orgId, newActive);
+        }
 
         // Initialize attempt log for this job
         if (!this.jobAttemptLog.has(jobId)) {
@@ -100,7 +143,7 @@ export class RenderQueueService implements OnModuleDestroy {
 
         try {
           console.log(
-            `[pdfme-erp] Processing render job ${jobId} (attempt ${attemptNumber}/${MAX_ATTEMPTS})`,
+            `[pdfme-erp] Processing render job ${jobId} (attempt ${attemptNumber}/${MAX_ATTEMPTS}) [tenant ${orgId}: ${newActive}/${tenantLimit} active]`,
           );
 
           const result = await processor(job.data, attemptNumber);
@@ -135,11 +178,15 @@ export class RenderQueueService implements OnModuleDestroy {
           }
 
           throw error; // Re-throw so BullMQ handles the retry
+        } finally {
+          // Decrement active count for this tenant
+          const active = this.tenantActiveJobs.get(orgId) || 1;
+          this.tenantActiveJobs.set(orgId, Math.max(0, active - 1));
         }
       },
       {
         connection,
-        concurrency: parseInt(process.env.RENDER_QUEUE_CONCURRENCY || '5', 10),
+        concurrency: parseInt(process.env.RENDER_QUEUE_CONCURRENCY || '20', 10),
       },
     );
 
@@ -304,12 +351,69 @@ export class RenderQueueService implements OnModuleDestroy {
   }
 
   /**
+   * Set per-tenant concurrency limit
+   */
+  setTenantConcurrency(orgId: string, limit: number): void {
+    this.tenantConcurrencyLimits.set(orgId, limit);
+    console.log(`[pdfme-erp] Set tenant ${orgId} concurrency limit to ${limit}`);
+  }
+
+  /**
+   * Get per-tenant concurrency limit
+   */
+  getTenantConcurrency(orgId: string): number {
+    return this.tenantConcurrencyLimits.get(orgId) ?? this.defaultTenantConcurrency;
+  }
+
+  /**
+   * Get active job count for a tenant
+   */
+  getTenantActiveCount(orgId: string): number {
+    return this.tenantActiveJobs.get(orgId) || 0;
+  }
+
+  /**
+   * Get peak concurrent jobs seen for a tenant (for testing verification)
+   */
+  getTenantPeakConcurrent(orgId: string): number {
+    return this.tenantPeakConcurrent.get(orgId) || 0;
+  }
+
+  /**
+   * Get per-tenant concurrency status
+   */
+  getTenantConcurrencyStatus(orgId: string): {
+    orgId: string;
+    limit: number;
+    active: number;
+    peak: number;
+  } {
+    return {
+      orgId,
+      limit: this.getTenantConcurrency(orgId),
+      active: this.getTenantActiveCount(orgId),
+      peak: this.getTenantPeakConcurrent(orgId),
+    };
+  }
+
+  /**
+   * Reset per-tenant concurrency tracking (for testing)
+   */
+  resetTenantConcurrency(): void {
+    this.tenantConcurrencyLimits.clear();
+    this.tenantActiveJobs.clear();
+    this.tenantPeakConcurrent.clear();
+  }
+
+  /**
    * Drain all jobs from main queue and DLQ (for testing)
    */
   async drain(): Promise<void> {
     await this.queue.drain();
     await this.dlq.drain();
     this.jobAttemptLog.clear();
+    this.tenantActiveJobs.clear();
+    this.tenantPeakConcurrent.clear();
   }
 
   async onModuleDestroy() {

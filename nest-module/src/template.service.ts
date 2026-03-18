@@ -10,7 +10,7 @@ import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/commo
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc, inArray, ilike } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { Parser } from 'expr-eval';
-import { templates, templateVersions } from './db/schema';
+import { templates, templateVersions, userSignatures } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { AuditService } from './audit.service';
 import { FileStorageService } from './file-storage.service';
@@ -1021,16 +1021,18 @@ export class TemplateService {
     pkg: TemplateExportPackage,
     orgId: string,
     createdBy: string,
-  ): Promise<{ id: string; status: string; name: string; type: string; version: number; createdAt: Date; fontValidation?: { total: number; valid: number; invalid: number; errors: string[] }; assetsExtracted?: { images: number; fonts: number } }> {
+  ): Promise<{ id: string; status: string; name: string; type: string; version: number; createdAt: Date; fontValidation?: { total: number; valid: number; invalid: number; errors: string[] }; assetsExtracted?: { images: number; fonts: number }; assetsSkipped?: { images: number; fonts: number } }> {
     const fontValidationErrors: string[] = [];
     let validFonts = 0;
     let invalidFonts = 0;
     let extractedImages = 0;
     let extractedFonts = 0;
 
-    // Validate and restore assets to storage
+    // Validate and restore assets to storage (with deduplication)
+    let skippedImages = 0;
+    let skippedFonts = 0;
     if (this.storage) {
-      // Process images
+      // Process images - skip if identical content already exists at target path
       for (const img of pkg.assets.images) {
         try {
           const buffer = Buffer.from(img.data, 'base64');
@@ -1039,6 +1041,21 @@ export class TemplateService {
           const newPath = pathParts.length > 1
             ? `${orgId}/${pathParts.slice(1).join('/')}`
             : `${orgId}/assets/${pathParts[pathParts.length - 1]}`;
+
+          // Deduplication: check if asset already exists with same content
+          const exists = await this.storage.exists(newPath);
+          if (exists) {
+            try {
+              const existingBuffer = await this.storage.read(newPath);
+              if (existingBuffer.length === buffer.length && existingBuffer.equals(buffer)) {
+                skippedImages++;
+                continue; // Identical asset already exists, skip
+              }
+            } catch {
+              // Can't read existing file, overwrite it
+            }
+          }
+
           await this.storage.write(newPath, buffer);
           extractedImages++;
         } catch {
@@ -1046,7 +1063,7 @@ export class TemplateService {
         }
       }
 
-      // Validate and process fonts
+      // Validate and process fonts - skip if identical content already exists
       for (const font of pkg.assets.fonts) {
         try {
           const buffer = Buffer.from(font.data, 'base64');
@@ -1064,6 +1081,21 @@ export class TemplateService {
           const newPath = pathParts.length > 1
             ? `${orgId}/${pathParts.slice(1).join('/')}`
             : `${orgId}/fonts/${pathParts[pathParts.length - 1]}`;
+
+          // Deduplication: check if font already exists with same content
+          const exists = await this.storage.exists(newPath);
+          if (exists) {
+            try {
+              const existingBuffer = await this.storage.read(newPath);
+              if (existingBuffer.length === buffer.length && existingBuffer.equals(buffer)) {
+                skippedFonts++;
+                continue; // Identical font already exists, skip
+              }
+            } catch {
+              // Can't read existing file, overwrite it
+            }
+          }
+
           await this.storage.write(newPath, buffer);
           extractedFonts++;
         } catch {
@@ -1073,11 +1105,34 @@ export class TemplateService {
       }
     }
 
+    // Deduplicate name: if a template with the same name exists in this org, add suffix
+    let importName = pkg.template.name;
+    const existingWithName = await this.db
+      .select({ name: templates.name })
+      .from(templates)
+      .where(
+        and(
+          or(eq(templates.orgId, orgId), isNull(templates.orgId)),
+          ilike(templates.name, `${importName}%`),
+        ),
+      );
+    if (existingWithName.length > 0) {
+      const existingNames = new Set(existingWithName.map((t) => t.name));
+      // Try (Import), (Import 2), (Import 3), etc.
+      let suffix = '';
+      let counter = 1;
+      do {
+        suffix = counter === 1 ? ' (Import)' : ` (Import ${counter})`;
+        counter++;
+      } while (existingNames.has(`${importName}${suffix}`));
+      importName = `${importName}${suffix}`;
+    }
+
     // Create the template as draft
     const result = await this.create({
       orgId,
       type: pkg.template.type,
-      name: pkg.template.name,
+      name: importName,
       schema: pkg.template.schema,
       createdBy,
       status: 'draft', // Always import as draft
@@ -1100,6 +1155,138 @@ export class TemplateService {
         images: extractedImages,
         fonts: extractedFonts,
       },
+      assetsSkipped: {
+        images: skippedImages,
+        fonts: skippedFonts,
+      },
+    };
+  }
+
+  // ─── Org Backup Export ──────────────────────────────────────────────
+
+  /**
+   * Export a comprehensive backup of all org data as a JSON package.
+   * Includes all templates, assets (images + fonts), signatures, and locale config.
+   */
+  async backupOrg(
+    orgId: string,
+    localeConfig?: { locale: string; currency: string; timezone: string },
+  ): Promise<{
+    version: number;
+    exportedAt: string;
+    orgId: string;
+    templates: Array<{ id: string; name: string; type: string; status: string; version: number; schema: unknown; createdAt: Date; updatedAt: Date }>;
+    assets: { images: Array<{ path: string; data: string; mimeType: string }>; fonts: Array<{ path: string; data: string; mimeType: string }> };
+    signatures: Array<{ id: string; userId: string; filePath: string; capturedAt: Date; data: string }>;
+    localeConfig: { locale: string; currency: string; timezone: string } | null;
+  }> {
+    const exportedAt = new Date().toISOString();
+
+    // 1. Fetch all templates for the org (including archived)
+    const orgTemplates = await this.db
+      .select()
+      .from(templates)
+      .where(
+        or(eq(templates.orgId, orgId), isNull(templates.orgId)),
+      );
+
+    const templateData = orgTemplates.map((t) => ({
+      id: t.id,
+      name: t.name,
+      type: t.type,
+      status: t.status,
+      version: t.version,
+      schema: t.schema,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
+
+    // 2. Fetch all assets (images + fonts) from storage
+    const images: Array<{ path: string; data: string; mimeType: string }> = [];
+    const fonts: Array<{ path: string; data: string; mimeType: string }> = [];
+
+    const MIME_MAP: Record<string, string> = {
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.svg': 'image/svg+xml', '.webp': 'image/webp', '.gif': 'image/gif',
+      '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff2': 'font/woff2',
+    };
+
+    if (this.storage) {
+      // List and read images
+      try {
+        const imageFiles = await this.storage.list(`${orgId}/assets`);
+        for (const filePath of imageFiles) {
+          try {
+            const buffer = await this.storage.read(filePath);
+            const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '');
+            images.push({
+              path: filePath,
+              data: buffer.toString('base64'),
+              mimeType: MIME_MAP[ext] || 'application/octet-stream',
+            });
+          } catch {
+            // Skip unreadable files
+          }
+        }
+      } catch {
+        // No images directory
+      }
+
+      // List and read fonts
+      try {
+        const fontFiles = await this.storage.list(`${orgId}/fonts`);
+        for (const filePath of fontFiles) {
+          try {
+            const buffer = await this.storage.read(filePath);
+            const ext = '.' + (filePath.split('.').pop()?.toLowerCase() || '');
+            fonts.push({
+              path: filePath,
+              data: buffer.toString('base64'),
+              mimeType: MIME_MAP[ext] || 'application/octet-stream',
+            });
+          } catch {
+            // Skip unreadable files
+          }
+        }
+      } catch {
+        // No fonts directory
+      }
+    }
+
+    // 3. Fetch all signatures for the org
+    const orgSignatures = await this.db
+      .select()
+      .from(userSignatures)
+      .where(eq(userSignatures.orgId, orgId));
+
+    const signatureData: Array<{ id: string; userId: string; filePath: string; capturedAt: Date; data: string }> = [];
+    for (const sig of orgSignatures) {
+      let sigBase64 = '';
+      if (this.storage) {
+        try {
+          const buffer = await this.storage.read(sig.filePath);
+          sigBase64 = buffer.toString('base64');
+        } catch {
+          // Skip if file not found
+        }
+      }
+      signatureData.push({
+        id: sig.id,
+        userId: sig.userId,
+        filePath: sig.filePath,
+        capturedAt: sig.capturedAt,
+        data: sigBase64,
+      });
+    }
+
+    return {
+      version: 1,
+      exportedAt,
+      orgId,
+      templates: templateData,
+      assets: { images, fonts },
+      signatures: signatureData,
+      localeConfig: localeConfig || null,
     };
   }
 

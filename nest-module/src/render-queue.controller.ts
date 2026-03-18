@@ -12,6 +12,9 @@ import { RenderQueueService, RenderJobData } from './render-queue.service';
 /** Tracks how many times a test job should fail before succeeding */
 const failureSimulations: Map<string, { failCount: number; currentFails: number }> = new Map();
 
+/** Tracks processing delay for concurrency test jobs (simKey -> delayMs) */
+const concurrencySimulations: Map<string, number> = new Map();
+
 @Controller('api/pdfme/queue')
 @Public()
 export class RenderQueueController {
@@ -19,6 +22,13 @@ export class RenderQueueController {
     // Register a test processor
     this.queueService.registerProcessor(async (data, attemptNumber) => {
       const simKey = `${data.templateId}:${data.entityId}`;
+
+      // Check for concurrency simulation (adds processing delay)
+      const concDelay = concurrencySimulations.get(simKey);
+      if (concDelay && concDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, concDelay));
+      }
+
       const sim = failureSimulations.get(simKey);
 
       if (sim && sim.currentFails < sim.failCount) {
@@ -43,9 +53,10 @@ export class RenderQueueController {
    * Submit a render job to the queue
    */
   @Post('submit')
-  async submitJob(@Body() body: RenderJobData) {
-    const jobId = await this.queueService.addJob(body);
-    return { jobId, queued: true };
+  async submitJob(@Body() body: RenderJobData & { delay?: number; priority?: number }) {
+    const { delay, priority, ...jobData } = body;
+    const jobId = await this.queueService.addJob(jobData, { delay, priority });
+    return { jobId, queued: true, delay: delay || 0 };
   }
 
   /**
@@ -140,12 +151,82 @@ export class RenderQueueController {
   }
 
   /**
+   * Set per-tenant concurrency limit
+   */
+  @Post('concurrency')
+  async setTenantConcurrency(
+    @Body() body: { orgId: string; limit: number },
+  ) {
+    if (!body?.orgId || typeof body?.limit !== 'number' || body.limit < 1) {
+      throw new HttpException('orgId and limit (>=1) are required', HttpStatus.BAD_REQUEST);
+    }
+    this.queueService.setTenantConcurrency(body.orgId, body.limit);
+    return {
+      orgId: body.orgId,
+      limit: body.limit,
+      set: true,
+    };
+  }
+
+  /**
+   * Get per-tenant concurrency status
+   */
+  @Get('concurrency/:orgId')
+  async getTenantConcurrency(@Param('orgId') orgId: string) {
+    return this.queueService.getTenantConcurrencyStatus(orgId);
+  }
+
+  /**
+   * Submit concurrency test jobs with configurable processing delay
+   */
+  @Post('test-concurrency')
+  async testConcurrency(
+    @Body() body: { orgId: string; count?: number; delayMs?: number },
+  ) {
+    const orgId = body?.orgId || 'test-org';
+    const count = body?.count || 10;
+    const delayMs = body?.delayMs || 2000;
+
+    const jobIds: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const entityId = `conc-test-${Date.now()}-${i}`;
+      const templateId = `conc-tmpl-${i}`;
+
+      // Register a simulation that takes delayMs to complete
+      const simKey = `${templateId}:${entityId}`;
+      concurrencySimulations.set(simKey, delayMs);
+
+      const jobData: RenderJobData = {
+        templateId,
+        entityId,
+        entityType: 'concurrency-test',
+        orgId,
+        channel: 'print',
+        triggeredBy: 'concurrency-tester',
+      };
+
+      const jobId = await this.queueService.addJob(jobData);
+      jobIds.push(jobId);
+    }
+
+    return {
+      orgId,
+      jobIds,
+      count,
+      delayMs,
+      submitted: true,
+    };
+  }
+
+  /**
    * Drain all queues (for testing cleanup)
    */
   @Post('drain')
   async drain() {
     await this.queueService.drain();
     failureSimulations.clear();
+    concurrencySimulations.clear();
+    this.queueService.resetTenantConcurrency();
     return { drained: true };
   }
 }
