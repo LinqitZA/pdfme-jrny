@@ -736,7 +736,12 @@ export default function ErpDesigner({
     }
   }, [zoom, addElementToCanvas, currentPage, updateElement]);
 
+  const isSavingRef = useRef(false);
   const handleSave = useCallback(async () => {
+    // Prevent double-click race condition
+    if (isSavingRef.current) return;
+    isSavingRef.current = true;
+
     // Call external callback if provided
     if (onSave) {
       onSave({ name, pageSize, pages, schemas: [] });
@@ -786,21 +791,27 @@ export default function ErpDesigner({
         // DO NOT clear isDirty - unsaved changes preserved for retry
         // Flag for auto-retry on reconnection
         if (!navigator.onLine) setPendingRetrySave(true);
+      } finally {
+        isSavingRef.current = false;
       }
     } else {
       // No templateId - just clear dirty flag (local-only mode)
       setIsDirty(false);
+      isSavingRef.current = false;
     }
   }, [name, pageSize, pages, onSave, templateId, authToken, apiBase]);
 
   // ─── Publish: publish template to backend ───
+  const isPublishingRef = useRef(false);
   const handlePublish = useCallback(async () => {
+    if (isPublishingRef.current) return; // Prevent double-click
     if (!templateId) {
       setPublishStatus('error');
       setPublishError('Cannot publish: no template ID');
       return;
     }
 
+    isPublishingRef.current = true;
     setPublishStatus('publishing');
     setPublishError(null);
     setPublishErrors([]);
@@ -842,6 +853,8 @@ export default function ErpDesigner({
         : 'An unexpected error occurred while publishing';
       setPublishStatus('error');
       setPublishError(errorMsg);
+    } finally {
+      isPublishingRef.current = false;
     }
   }, [templateId, authToken, apiBase]);
 

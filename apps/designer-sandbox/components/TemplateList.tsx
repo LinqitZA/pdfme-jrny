@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 interface Template {
   id: string;
@@ -44,6 +44,8 @@ export default function TemplateList({
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
+  const archivingRef = useRef<string | null>(null);
 
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -129,6 +131,36 @@ export default function TemplateList({
     setCursor(null);
     fetchTemplates(null);
   }, [fetchTemplates]);
+
+  const handleArchive = useCallback(async (templateId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't trigger card click
+    if (archivingRef.current === templateId) return; // Prevent double-click
+    archivingRef.current = templateId;
+    setArchivingId(templateId);
+
+    try {
+      const response = await fetch(`${apiBase}/templates/${templateId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+
+      if (response.ok) {
+        // Remove from local list
+        setTemplates(prev => prev.filter(t => t.id !== templateId));
+        if (pagination) {
+          setPagination(prev => prev ? { ...prev, total: prev.total - 1 } : prev);
+        }
+      } else {
+        const errBody = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+        setError(errBody.message || `Failed to archive template: ${response.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to archive template');
+    } finally {
+      archivingRef.current = null;
+      setArchivingId(null);
+    }
+  }, [apiBase, getAuthHeaders, pagination]);
 
   const handleLoadMore = () => {
     if (cursor && !loadingMore) {
@@ -277,7 +309,7 @@ export default function TemplateList({
                 onClick={() => onSelectTemplate?.(template)}
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr auto auto auto auto',
+                  gridTemplateColumns: '1fr auto auto auto auto auto',
                   alignItems: 'center',
                   gap: '16px',
                   padding: '16px 20px',
@@ -337,6 +369,24 @@ export default function TemplateList({
                   <div>v{template.version}</div>
                   <div>{formatDate(template.updatedAt || template.createdAt)}</div>
                 </div>
+                <button
+                  data-testid={`btn-archive-${template.id}`}
+                  onClick={(e) => handleArchive(template.id, e)}
+                  disabled={archivingId === template.id}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    border: '1px solid #fecaca',
+                    backgroundColor: archivingId === template.id ? '#f3f4f6' : '#fff',
+                    color: archivingId === template.id ? '#9ca3af' : '#dc2626',
+                    cursor: archivingId === template.id ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    opacity: archivingId === template.id ? 0.7 : 1,
+                  }}
+                >
+                  {archivingId === template.id ? 'Archiving…' : 'Archive'}
+                </button>
               </div>
             );
           })}
