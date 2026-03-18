@@ -471,3 +471,39 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - AuditService uses @Optional() injection in TemplateService so it doesn't break if audit isn't registered
 
 ### Current Status: ~31/388 features passing (sessions 1-7 combined)
+
+---
+
+## Session - 2026-03-18 - Features #112, #113, #114 (Expression Engine Date/Numeric/Locale)
+
+### Completed Features:
+- **Feature #112**: Expression engine date functions ✅
+  - TODAY() returns current date as epoch timestamp
+  - YEAR(date) extracts year from date value
+  - MONTH(date) extracts month (1-12)
+  - DAY(date) extracts day of month
+  - DATEDIFF(d1, d2) returns difference in days
+  - FORMAT(date, pattern) formats with yyyy, MM, dd, HH, mm, ss, MMMM, MMM tokens
+
+- **Feature #113**: Expression engine numeric FORMAT ROUND ABS ✅
+  - ROUND(3.456, 2) = 3.46
+  - ABS(-5) = 5
+  - FORMAT(1234.5, '#,##0.00') = '1,234.50'
+  - FORMAT handles grouping separators, decimal padding, negative numbers
+
+- **Feature #114**: Expression engine locale-aware functions ✅
+  - ExpressionEngine constructor accepts { locale, currency } options
+  - FORMAT_CURRENCY(1234.56) with en-ZA/ZAR = 'R 1 234,56'
+  - FORMAT_DATE(date) uses Intl.DateTimeFormat with org locale
+  - FORMAT_NUMBER(1234.5) uses Intl.NumberFormat with locale separators
+  - Default locale: en-US, default currency: USD
+
+### Key Changes:
+- packages/erp-schemas/src/expression-engine/index.ts: Added registerDateFunctions(), registerNumericFunctions(), registerLocaleAwareFunctions(), ExpressionEngineOptions interface
+- packages/erp-schemas/src/index.ts: Added ExpressionEngineOptions type export
+- tests/test-expression-date-numeric-locale.js: 46 tests covering all three features
+- Date objects in context converted to epoch timestamps for expr-eval compatibility
+
+### Test Results: 46/46 new tests passing, 33/33 existing tests still passing
+
+### Current Status: Features #112, #113, #114 marked passing
