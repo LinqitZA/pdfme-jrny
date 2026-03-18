@@ -2670,6 +2670,71 @@ export default function ErpDesigner({
     <>
     <style>{`
       @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ─── Focus ring styles for accessibility (Feature #307) ─── */
+      /* Toolbar buttons */
+      .erp-designer-toolbar button:focus-visible,
+      .erp-designer-toolbar select:focus-visible,
+      .erp-designer-toolbar input:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 2px !important;
+        border-radius: 3px;
+      }
+      /* Properties panel inputs and selects */
+      .erp-designer-right-panel input:focus-visible,
+      .erp-designer-right-panel select:focus-visible,
+      .erp-designer-right-panel button:focus-visible,
+      .erp-designer-right-panel textarea:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 1px !important;
+        border-radius: 3px;
+      }
+      /* Left panel interactive elements - block cards, field items, page thumbnails */
+      .erp-designer-left-panel button:focus-visible,
+      .erp-designer-left-panel input:focus-visible,
+      .erp-designer-left-panel select:focus-visible,
+      .block-card:focus-visible,
+      [role="option"]:focus-visible,
+      [role="tab"]:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 2px !important;
+        border-radius: 4px;
+      }
+      /* Canvas elements */
+      .erp-designer-canvas [tabindex="0"]:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 1px !important;
+        border-radius: 2px;
+      }
+      /* General fallback for any focusable elements in the designer */
+      .erp-designer button:focus-visible,
+      .erp-designer [role="button"]:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 2px !important;
+        border-radius: 3px;
+      }
+      /* Tab buttons in left panel */
+      .erp-designer-left-panel [data-testid]:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 2px !important;
+      }
+      /* Ensure no outline on mouse click (focus-visible only triggers on keyboard) */
+      .erp-designer *:focus:not(:focus-visible) {
+        outline: none;
+      }
+      /* Clickable validation errors */
+      .erp-designer [data-element-id]:focus-visible {
+        outline: 2px solid #4f46e5 !important;
+        outline-offset: 1px !important;
+        border-radius: 3px;
+      }
+      /* Toast close buttons */
+      .erp-designer .toast-close-btn:focus-visible {
+        outline: 2px solid #ffffff !important;
+        outline-offset: 1px !important;
+        border-radius: 2px;
+      }
+
       .block-card {
         transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
       }
@@ -3934,8 +3999,10 @@ export default function ErpDesigner({
               backgroundColor: '#ffffff',
               borderRadius: '12px',
               padding: '32px',
-              minWidth: '400px',
-              maxWidth: '480px',
+              minWidth: 'min(400px, 90vw)',
+              maxWidth: 'min(480px, 94vw)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
               textAlign: 'center',
             }}
@@ -4214,7 +4281,7 @@ export default function ErpDesigner({
           display: 'flex',
           flexDirection: 'column',
           gap: '8px',
-          maxWidth: '400px',
+          maxWidth: 'min(400px, calc(100vw - 32px))',
         }}
       >
         {toasts.map((toast) => {
