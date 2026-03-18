@@ -1,7 +1,6 @@
 *.log
 .DS_Store
-/node_modules
-/packages/*/node_modules
+node_modules/
 /packages/common/src/version.ts
 .cache
 dist
@@ -10,3 +9,6 @@ coverage/
 **/repomix-output.{txt,xml}
 
 **/__diff_output__/**
+
+.playwright-cli/
+.playwright/

@@ -59,6 +59,8 @@
   "devDependencies": {
     "@babel/core": "^7.28.4",
     "@humanwhocodes/config-array": "^0.13.0",
+    "@swc/core": "^1.15.18",
+    "@swc/register": "^0.1.10",
     "@types/jest": "^29.5.14",
     "@types/jest-image-snapshot": "^6.4.1",
     "@types/node": "^25.3.3",
@@ -76,7 +78,11 @@
     "ts-jest": "^29.4.6",
     "ts-jest-resolver": "^2.0.1",
     "ts-loader": "^9.5.4",
+    "ts-node": "^10.9.2",
     "ts-prune": "^0.10.3",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@nestjs/platform-express": "^11.1.17"
   }
 }

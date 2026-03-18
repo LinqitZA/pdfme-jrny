@@ -14,7 +14,25 @@ version: 1
 # Uncomment the commands you need for your specific project.
 # By default, this file has NO commands enabled - you must explicitly add them.
 
-commands: []
+commands:
+  - name: psql
+    description: PostgreSQL command-line client
+  - name: redis-cli
+    description: Redis CLI client
+  - name: createdb
+    description: PostgreSQL create database
+  - name: dropdb
+    description: PostgreSQL drop database
+  - name: pg_isready
+    description: PostgreSQL connection check
+  - name: redis-server
+    description: Redis server
+  - name: which
+    description: Locate commands
+  - name: find
+    description: Find files
+  - name: pg_lsclusters
+    description: List PostgreSQL clusters
 
   # ==========================================
   # iOS Development Example

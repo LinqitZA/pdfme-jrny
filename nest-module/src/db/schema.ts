@@ -4,78 +4,103 @@
  * Tables: Template, GeneratedDocument, UserSignature, RenderBatch, AuditLog
  */
 
-// To be implemented with Drizzle ORM by coding agents
-// Schema matches app_spec.txt database_schema section
+import {
+  pgTable,
+  text,
+  integer,
+  timestamp,
+  jsonb,
+  index,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
-/*
-Template:
-  - id (cuid, PK)
-  - orgId (string, nullable — null = system template)
-  - type (string — invoice | statement | purchase_order | delivery_note | credit_note | report_* | custom)
-  - name (string)
-  - schema (jsonb — pdfme Template JSON)
-  - status (string — draft | published | archived)
-  - version (integer, default 1)
-  - saveMode (string, nullable — inPlace | newVersion)
-  - publishedVer (integer, nullable)
-  - forkedFromId (string, nullable — FK)
-  - createdAt (timestamp)
-  - updatedAt (timestamp)
-  - createdBy (string — userId)
-  - lockedBy (string, nullable)
-  - lockedAt (timestamp, nullable)
-  - Index: [orgId, type, status]
+// ─── Template ────────────────────────────────────────────────────────
+export const templates = pgTable(
+  'templates',
+  {
+    id: text('id').primaryKey(), // cuid2
+    orgId: text('org_id'), // nullable — null = system template
+    type: text('type').notNull(), // invoice | statement | purchase_order | delivery_note | credit_note | report_* | custom
+    name: text('name').notNull(),
+    schema: jsonb('schema').notNull(), // pdfme Template JSON
+    status: text('status').notNull().default('draft'), // draft | published | archived
+    version: integer('version').notNull().default(1),
+    saveMode: text('save_mode'), // inPlace | newVersion
+    publishedVer: integer('published_ver'),
+    forkedFromId: text('forked_from_id'), // FK self-ref
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    createdBy: text('created_by').notNull(), // userId
+    lockedBy: text('locked_by'),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_templates_org_type_status').on(table.orgId, table.type, table.status),
+  ],
+);
 
-GeneratedDocument:
-  - id (cuid, PK)
-  - orgId (string)
-  - templateId (string — FK)
-  - templateVer (integer)
-  - entityType (string)
-  - entityId (string)
-  - filePath (string)
-  - pdfHash (string — SHA-256)
-  - status (string — queued | generating | done | failed)
-  - outputChannel (string — email | print)
-  - triggeredBy (string — userId)
-  - inputSnapshot (jsonb, nullable)
-  - errorMessage (string, nullable)
-  - createdAt (timestamp)
+// ─── GeneratedDocument ───────────────────────────────────────────────
+export const generatedDocuments = pgTable('generated_documents', {
+  id: text('id').primaryKey(), // cuid2
+  orgId: text('org_id').notNull(),
+  templateId: text('template_id')
+    .notNull()
+    .references(() => templates.id),
+  templateVer: integer('template_ver').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id').notNull(),
+  filePath: text('file_path').notNull(),
+  pdfHash: text('pdf_hash').notNull(), // SHA-256
+  status: text('status').notNull().default('queued'), // queued | generating | done | failed
+  outputChannel: text('output_channel').notNull(), // email | print
+  triggeredBy: text('triggered_by').notNull(), // userId
+  inputSnapshot: jsonb('input_snapshot'),
+  errorMessage: text('error_message'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
-UserSignature:
-  - id (cuid, PK)
-  - orgId (string)
-  - userId (string)
-  - filePath (string)
-  - capturedAt (timestamp)
-  - revokedAt (timestamp, nullable)
-  - Unique: [orgId, userId]
+// ─── UserSignature ───────────────────────────────────────────────────
+export const userSignatures = pgTable(
+  'user_signatures',
+  {
+    id: text('id').primaryKey(), // cuid2
+    orgId: text('org_id').notNull(),
+    userId: text('user_id').notNull(),
+    filePath: text('file_path').notNull(),
+    capturedAt: timestamp('captured_at', { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('idx_user_signatures_org_user').on(table.orgId, table.userId),
+  ],
+);
 
-RenderBatch:
-  - id (cuid, PK)
-  - orgId (string)
-  - templateType (string)
-  - channel (string — email | print)
-  - totalJobs (integer)
-  - completedJobs (integer, default 0)
-  - failedJobs (integer, default 0)
-  - failedIds (text array)
-  - status (string — running | completed | completedWithErrors | aborted)
-  - onFailure (string — continue | abort)
-  - notifyUrl (string, nullable)
-  - createdAt (timestamp)
-  - completedAt (timestamp, nullable)
+// ─── RenderBatch ─────────────────────────────────────────────────────
+export const renderBatches = pgTable('render_batches', {
+  id: text('id').primaryKey(), // cuid2
+  orgId: text('org_id').notNull(),
+  templateType: text('template_type').notNull(),
+  channel: text('channel').notNull(), // email | print
+  totalJobs: integer('total_jobs').notNull(),
+  completedJobs: integer('completed_jobs').notNull().default(0),
+  failedJobs: integer('failed_jobs').notNull().default(0),
+  failedIds: text('failed_ids').array(), // text[]
+  status: text('status').notNull().default('running'), // running | completed | completedWithErrors | aborted
+  onFailure: text('on_failure').notNull().default('continue'), // continue | abort
+  notifyUrl: text('notify_url'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+});
 
-AuditLog:
-  - id (cuid, PK)
-  - orgId (string)
-  - entityType (string)
-  - entityId (string)
-  - action (string)
-  - userId (string)
-  - metadata (jsonb, nullable)
-  - createdAt (timestamp)
-  - APPEND-ONLY: no UPDATE or DELETE
-*/
-
-export {};
+// ─── AuditLog ────────────────────────────────────────────────────────
+// APPEND-ONLY: no UPDATE or DELETE
+export const auditLogs = pgTable('audit_logs', {
+  id: text('id').primaryKey(), // cuid2
+  orgId: text('org_id').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id').notNull(),
+  action: text('action').notNull(),
+  userId: text('user_id').notNull(),
+  metadata: jsonb('metadata'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

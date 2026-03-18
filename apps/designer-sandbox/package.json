@@ -12,8 +12,8 @@
     "next": "latest",
     "react": "^18.0.0",
     "react-dom": "^18.0.0",
-    "@pdfme/ui": "workspace:*",
-    "@pdfme-erp/schemas": "workspace:*"
+    "@pdfme/ui": "*",
+    "@pdfme-erp/schemas": "*"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
