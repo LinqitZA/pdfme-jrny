@@ -137,6 +137,26 @@ export class RenderController {
       }
     }
 
+    // Validate entityIds entries are non-null, non-empty strings
+    const invalidIndices: number[] = [];
+    for (let i = 0; i < body.entityIds.length; i++) {
+      const id = body.entityIds[i];
+      if (id === null || id === undefined || typeof id !== 'string' || id.trim() === '') {
+        invalidIndices.push(i);
+      }
+    }
+    if (invalidIndices.length > 0) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'entityIds must contain only non-empty strings',
+          details: [{ field: 'entityIds', reason: `Invalid entries at indices: ${invalidIndices.join(', ')}. Each entityId must be a non-empty string.` }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     if (body.entityIds.length > 2000) {
       throw new HttpException(
         {
