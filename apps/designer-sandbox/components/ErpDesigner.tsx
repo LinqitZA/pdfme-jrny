@@ -360,10 +360,29 @@ export default function ErpDesigner({
   const [pageSize, setPageSize] = useState('A4');
   const [name, setName] = useState(templateName);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [isDirty, setIsDirty] = useState(false);
   const [showBindingPicker, setShowBindingPicker] = useState(false);
   const [bindingSearch, setBindingSearch] = useState('');
   const [fieldTabSearch, setFieldTabSearch] = useState('');
+
+  // ─── Alignment guides state ───
+  const [alignmentGuides, setAlignmentGuides] = useState<Array<{ type: 'horizontal' | 'vertical'; position: number; label?: string }>>([]);
+  const [isDraggingElement, setIsDraggingElement] = useState(false);
+  const dragStartRef = useRef<{ elementId: string; startX: number; startY: number; elStartX: number; elStartY: number } | null>(null);
+  const SNAP_THRESHOLD = 5; // px distance to show guide and snap
+
+  // ─── Grid snap state (Feature #59) ───
+  const GRID_SIZES = [0, 1, 2, 5, 10, 15, 20, 25]; // 0 = off, values in mm
+  const [gridSizeMm, setGridSizeMm] = useState(5); // default 5mm
+  const MM_TO_PT = 2.83465; // 1mm = 2.83465 PDF points
+  const gridSizePt = gridSizeMm * MM_TO_PT;
+
+  /** Snap a value to the nearest grid increment (in PDF points) */
+  const snapToGrid = useCallback((value: number): number => {
+    if (gridSizeMm === 0 || gridSizePt === 0) return value;
+    return Math.round(value / gridSizePt) * gridSizePt;
+  }, [gridSizeMm, gridSizePt]);
 
   // Auto-save state
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -995,6 +1014,160 @@ export default function ErpDesigner({
     });
     setIsDirty(true);
   }, [currentPageIndex, setPagesWithHistory]);
+
+  // ─── Alignment guide calculation ───
+  const calculateAlignmentGuides = useCallback((draggedId: string, newX: number, newY: number, newW: number, newH: number) => {
+    if (!currentPage) return { guides: [] as Array<{ type: 'horizontal' | 'vertical'; position: number; label?: string }>, snapX: newX, snapY: newY };
+    const otherElements = currentPage.elements.filter((el) => el.id !== draggedId);
+    const guides: Array<{ type: 'horizontal' | 'vertical'; position: number; label?: string }> = [];
+    let snapX = newX;
+    let snapY = newY;
+    const draggedCenterX = newX + newW / 2;
+    const draggedCenterY = newY + newH / 2;
+    const draggedRight = newX + newW;
+    const draggedBottom = newY + newH;
+
+    for (const other of otherElements) {
+      const otherCenterX = other.x + other.w / 2;
+      const otherCenterY = other.y + other.h / 2;
+      const otherRight = other.x + other.w;
+      const otherBottom = other.y + other.h;
+
+      // Vertical guides (x-axis alignment)
+      // Left edge to left edge
+      if (Math.abs(newX - other.x) < SNAP_THRESHOLD) {
+        guides.push({ type: 'vertical', position: other.x, label: 'left-edge' });
+        snapX = other.x;
+      }
+      // Right edge to right edge
+      if (Math.abs(draggedRight - otherRight) < SNAP_THRESHOLD) {
+        guides.push({ type: 'vertical', position: otherRight, label: 'right-edge' });
+        snapX = otherRight - newW;
+      }
+      // Center to center (vertical)
+      if (Math.abs(draggedCenterX - otherCenterX) < SNAP_THRESHOLD) {
+        guides.push({ type: 'vertical', position: otherCenterX, label: 'center' });
+        snapX = otherCenterX - newW / 2;
+      }
+      // Left edge to right edge
+      if (Math.abs(newX - otherRight) < SNAP_THRESHOLD) {
+        guides.push({ type: 'vertical', position: otherRight, label: 'edge-snap' });
+        snapX = otherRight;
+      }
+      // Right edge to left edge
+      if (Math.abs(draggedRight - other.x) < SNAP_THRESHOLD) {
+        guides.push({ type: 'vertical', position: other.x, label: 'edge-snap' });
+        snapX = other.x - newW;
+      }
+
+      // Horizontal guides (y-axis alignment)
+      // Top edge to top edge
+      if (Math.abs(newY - other.y) < SNAP_THRESHOLD) {
+        guides.push({ type: 'horizontal', position: other.y, label: 'top-edge' });
+        snapY = other.y;
+      }
+      // Bottom edge to bottom edge
+      if (Math.abs(draggedBottom - otherBottom) < SNAP_THRESHOLD) {
+        guides.push({ type: 'horizontal', position: otherBottom, label: 'bottom-edge' });
+        snapY = otherBottom - newH;
+      }
+      // Center to center (horizontal)
+      if (Math.abs(draggedCenterY - otherCenterY) < SNAP_THRESHOLD) {
+        guides.push({ type: 'horizontal', position: otherCenterY, label: 'center' });
+        snapY = otherCenterY - newH / 2;
+      }
+      // Top edge to bottom edge
+      if (Math.abs(newY - otherBottom) < SNAP_THRESHOLD) {
+        guides.push({ type: 'horizontal', position: otherBottom, label: 'edge-snap' });
+        snapY = otherBottom;
+      }
+      // Bottom edge to top edge
+      if (Math.abs(draggedBottom - other.y) < SNAP_THRESHOLD) {
+        guides.push({ type: 'horizontal', position: other.y, label: 'edge-snap' });
+        snapY = other.y - newH;
+      }
+    }
+    return { guides, snapX, snapY };
+  }, [currentPage, SNAP_THRESHOLD]);
+
+  // ─── Mouse-based element drag on canvas ───
+  const handleElementMouseDown = useCallback((e: React.MouseEvent, elementId: string) => {
+    if (previewMode) return;
+    if (e.button !== 0) return; // Only left click
+    e.preventDefault();
+    e.stopPropagation();
+    const el = currentPage?.elements.find((el) => el.id === elementId);
+    if (!el) return;
+    const scale = zoom / 100;
+    dragStartRef.current = {
+      elementId,
+      startX: e.clientX,
+      startY: e.clientY,
+      elStartX: el.x,
+      elStartY: el.y,
+    };
+    setIsDraggingElement(true);
+
+    const handleMouseMove = (ev: MouseEvent) => {
+      if (!dragStartRef.current) return;
+      const dx = (ev.clientX - dragStartRef.current.startX) / scale;
+      const dy = (ev.clientY - dragStartRef.current.startY) / scale;
+      let newX = Math.max(0, Math.round(dragStartRef.current.elStartX + dx));
+      let newY = Math.max(0, Math.round(dragStartRef.current.elStartY + dy));
+      // Apply grid snapping (Feature #59)
+      newX = snapToGrid(newX);
+      newY = snapToGrid(newY);
+      const dragEl = currentPage?.elements.find((el) => el.id === dragStartRef.current!.elementId);
+      if (dragEl) {
+        const { guides, snapX, snapY } = calculateAlignmentGuides(dragEl.id, newX, newY, dragEl.w, dragEl.h);
+        setAlignmentGuides(guides);
+        updateElement(dragEl.id, { x: snapX, y: snapY });
+      }
+    };
+
+    const handleMouseUp = () => {
+      dragStartRef.current = null;
+      setIsDraggingElement(false);
+      setAlignmentGuides([]);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [currentPage, zoom, previewMode, calculateAlignmentGuides, updateElement, snapToGrid]);
+
+  // ─── Multi-select helper: select/deselect with modifier ───
+  const handleElementClick = useCallback((e: React.MouseEvent, elementId: string) => {
+    e.stopPropagation();
+    const isModifier = e.ctrlKey || e.metaKey;
+    if (isModifier) {
+      // Multi-select toggle
+      setSelectedElementIds((prev) => {
+        const currentIds = prev.length > 0 ? prev : (selectedElementId ? [selectedElementId] : []);
+        if (currentIds.includes(elementId)) {
+          const next = currentIds.filter((id) => id !== elementId);
+          // Update primary selection
+          setSelectedElementId(next.length > 0 ? next[next.length - 1] : null);
+          return next;
+        } else {
+          setSelectedElementId(elementId);
+          return [...currentIds, elementId];
+        }
+      });
+    } else {
+      // Single select
+      setSelectedElementId(elementId);
+      setSelectedElementIds([elementId]);
+    }
+  }, [selectedElementId]);
+
+  // ─── Deselect all on canvas background click ───
+  const handleCanvasBackgroundClick = useCallback(() => {
+    setSelectedElementId(null);
+    setSelectedElementIds([]);
+    setShowBindingPicker(false);
+  }, []);
 
   // ─── Add element to canvas ───
   const addElementToCanvas = useCallback((type: ElementType, position?: { x: number; y: number }) => {
@@ -2111,23 +2284,31 @@ export default function ErpDesigner({
         e.preventDefault();
         handleRedo();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedElementId) {
+        const idsToDelete = selectedElementIds.length > 0 ? selectedElementIds : (selectedElementId ? [selectedElementId] : []);
+        if (idsToDelete.length > 0) {
           e.preventDefault();
-          setPagesWithHistory((prev: TemplatePage[]) => prev.map((p: TemplatePage, idx: number) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem: DesignElement) => elem.id !== selectedElementId) }));
+          setPagesWithHistory((prev: TemplatePage[]) => prev.map((p: TemplatePage, idx: number) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem: DesignElement) => !idsToDelete.includes(elem.id)) }));
           setSelectedElementId(null);
+          setSelectedElementIds([]);
           setIsDirty(true);
         }
       } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        // Arrow keys nudge selected element: 1px default, 10px with Shift
-        if (selectedElementId) {
+        // Arrow keys nudge selected element(s): 1px default, 10px with Shift
+        const idsToNudge = selectedElementIds.length > 0 ? selectedElementIds : (selectedElementId ? [selectedElementId] : []);
+        if (idsToNudge.length > 0) {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
           const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
           const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-          updateElement(selectedElementId, {
-            x: Math.max(0, (selectedElement?.x ?? 0) + dx),
-            y: Math.max(0, (selectedElement?.y ?? 0) + dy),
-          });
+          for (const id of idsToNudge) {
+            const el = currentPage?.elements.find((el) => el.id === id);
+            if (el) {
+              updateElement(id, {
+                x: Math.max(0, (el.x ?? 0) + dx),
+                y: Math.max(0, (el.y ?? 0) + dy),
+              });
+            }
+          }
         }
       } else if (e.key === '?' || (e.shiftKey && e.key === '/')) {
         e.preventDefault();
@@ -2137,7 +2318,7 @@ export default function ErpDesigner({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleSave, selectedElementId, selectedElement, currentPageIndex, setPagesWithHistory, setSelectedElementId, setIsDirty, updateElement]);
+  }, [handleUndo, handleRedo, handleSave, selectedElementId, selectedElementIds, selectedElement, currentPage, currentPageIndex, setPagesWithHistory, setSelectedElementId, setSelectedElementIds, setIsDirty, updateElement]);
 
   // ─── Page management ───
 
@@ -2270,21 +2451,23 @@ export default function ErpDesigner({
   const renderCanvasElement = useCallback((el: DesignElement) => {
     const scale = zoom / 100;
     const isSelected = selectedElementId === el.id;
+    const isMultiSelected = selectedElementIds.includes(el.id);
     const category = getElementCategory(el.type);
 
+    const borderStyle = !previewMode && (isSelected || isMultiSelected) ? '2px solid #3b82f6' : '1px solid #cbd5e1';
     const baseStyle: React.CSSProperties = {
       position: 'absolute',
       left: `${el.x * scale}px`,
       top: `${el.y * scale}px`,
       width: `${el.w * scale}px`,
       height: `${el.h * scale}px`,
-      border: isSelected && !previewMode ? '2px solid #3b82f6' : '1px solid #cbd5e1',
+      border: borderStyle,
       borderRadius: '2px',
-      cursor: previewMode ? 'default' : 'pointer',
+      cursor: previewMode ? 'default' : (isDraggingElement ? 'grabbing' : 'pointer'),
       pointerEvents: previewMode ? 'none' : 'auto',
       boxSizing: 'border-box',
       overflow: 'hidden',
-      backgroundColor: category === 'image' ? '#f8fafc' : 'transparent',
+      backgroundColor: isMultiSelected && !isSelected ? 'rgba(59, 130, 246, 0.05)' : (category === 'image' ? '#f8fafc' : 'transparent'),
       // Crisp rendering at all zoom levels
       backfaceVisibility: 'hidden',
       WebkitFontSmoothing: 'antialiased',
@@ -2384,22 +2567,24 @@ export default function ErpDesigner({
         key={el.id}
         data-testid={`canvas-element-${el.id}`}
         data-element-type={el.type}
+        data-selected={isSelected ? 'true' : 'false'}
+        data-multi-selected={isMultiSelected ? 'true' : 'false'}
         role="button"
         tabIndex={0}
         aria-label={`${getElementTypeLabel(el.type)} element${el.binding ? ` bound to ${el.binding}` : ''}`}
-        aria-selected={isSelected}
+        aria-selected={isSelected || isMultiSelected}
         style={baseStyle}
-        onClick={(e) => {
-          e.stopPropagation();
-          setSelectedElementId(el.id);
-        }}
+        onClick={(e) => handleElementClick(e, el.id)}
+        onMouseDown={(e) => handleElementMouseDown(e, el.id)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedElementId(el.id); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedElementId(el.id); setSelectedElementIds([el.id]); }
           if (e.key === 'Delete' || e.key === 'Backspace') {
             e.preventDefault();
-            if (isSelected) {
-              setPagesWithHistory((prev) => prev.map((p, idx) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem) => elem.id !== el.id) }));
+            if (isSelected || isMultiSelected) {
+              const idsToDelete = selectedElementIds.length > 1 ? selectedElementIds : [el.id];
+              setPagesWithHistory((prev) => prev.map((p, idx) => idx !== currentPageIndex ? p : { ...p, elements: p.elements.filter((elem) => !idsToDelete.includes(elem.id)) }));
               setSelectedElementId(null);
+              setSelectedElementIds([]);
               setIsDirty(true);
             }
           }
@@ -2407,7 +2592,7 @@ export default function ErpDesigner({
       >
         {content}
         {/* Selection handles */}
-        {isSelected && (
+        {(isSelected || isMultiSelected) && (
           <>
             <div style={{ position: 'absolute', top: -4, left: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
             <div style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
@@ -2417,7 +2602,7 @@ export default function ErpDesigner({
         )}
       </div>
     );
-  }, [zoom, selectedElementId, previewMode]);
+  }, [zoom, selectedElementId, selectedElementIds, previewMode, isDraggingElement, handleElementClick, handleElementMouseDown]);
 
   // ─── Properties Panel Rendering ───
 
@@ -3905,6 +4090,28 @@ export default function ErpDesigner({
           ))}
         </select>
 
+        {/* Grid Size Selector (Feature #59) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <span style={{ fontSize: '11px', color: '#64748b' }}>Grid:</span>
+          <select
+            data-testid="grid-size-selector"
+            aria-label="Grid size"
+            value={gridSizeMm}
+            onChange={(e) => setGridSizeMm(Number(e.target.value))}
+            style={{
+              padding: '4px 8px',
+              borderRadius: '4px',
+              border: '1px solid #e2e8f0',
+              fontSize: '13px',
+              backgroundColor: '#fff',
+            }}
+          >
+            {GRID_SIZES.map((g) => (
+              <option key={g} value={g}>{g === 0 ? 'Off' : `${g}mm`}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Page indicator */}
         <span
           data-testid="page-indicator"
@@ -4897,16 +5104,14 @@ export default function ErpDesigner({
             minWidth: 0,
             backgroundColor: '#e2e8f0',
             display: 'flex',
-            alignItems: 'center',
+            alignItems: 'flex-start',
             justifyContent: 'center',
             overflow: 'auto',
             padding: '24px',
+            paddingTop: '48px',
             position: 'relative',
           }}
-          onClick={() => {
-            setSelectedElementId(null);
-            setShowBindingPicker(false);
-          }}
+          onClick={handleCanvasBackgroundClick}
         >
           {/* ─── Mobile Panel Toggle Buttons ─── */}
           {isNarrowViewport && (
@@ -4965,21 +5170,121 @@ export default function ErpDesigner({
               </button>
             </>
           )}
-          {/* A4 Page */}
+
+          {/* ─── Canvas with Rulers (Feature #57, #58) ─── */}
           <div
-            data-testid="canvas-page"
-            data-page-size={pageSize}
-            data-page-width={PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595}
-            data-page-height={PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842}
-            onDragOver={handleCanvasDragOver}
-            onDrop={handleCanvasDrop}
-            style={{
-              width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
-              height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
-              backgroundColor: '#ffffff',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
-              borderRadius: '2px',
-              position: 'relative',
+            data-testid="canvas-ruler-container"
+            style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start' }}
+          >
+            {/* ─── Horizontal Ruler (Feature #58) ─── */}
+            <div
+              data-testid="ruler-horizontal"
+              aria-label="Horizontal ruler"
+              data-zoom={zoom}
+              style={{
+                width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
+                height: '20px',
+                marginLeft: '20px',
+                position: 'relative',
+                backgroundColor: '#f1f5f9',
+                borderBottom: '1px solid #cbd5e1',
+                borderRadius: '2px 2px 0 0',
+                overflow: 'hidden',
+                userSelect: 'none',
+                fontSize: '9px',
+                color: '#64748b',
+              }}
+            >
+              {/* Ruler tick marks - every 10mm (28.3465pt) */}
+              {(() => {
+                const pageW = PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595;
+                const scale = zoom / 100;
+                const mmStep = 10; // tick every 10mm
+                const ptStep = mmStep * MM_TO_PT;
+                const ticks: React.ReactNode[] = [];
+                for (let ptPos = 0; ptPos <= pageW; ptPos += ptStep) {
+                  const mm = Math.round(ptPos / MM_TO_PT);
+                  const px = ptPos * scale;
+                  ticks.push(
+                    <div key={`ht-${mm}`} style={{ position: 'absolute', left: `${px}px`, top: 0, height: '100%', borderLeft: '1px solid #cbd5e1' }}>
+                      <span style={{ position: 'absolute', left: '2px', top: '2px', fontSize: '8px', lineHeight: 1, whiteSpace: 'nowrap' }}>{mm}</span>
+                    </div>
+                  );
+                  // Minor ticks every 5mm within
+                  const midPt = ptPos + (ptStep / 2);
+                  if (midPt <= pageW) {
+                    ticks.push(
+                      <div key={`ht-mid-${mm}`} style={{ position: 'absolute', left: `${midPt * scale}px`, bottom: 0, height: '6px', borderLeft: '1px solid #d1d5db' }} />
+                    );
+                  }
+                }
+                return ticks;
+              })()}
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'row' }}>
+              {/* ─── Vertical Ruler (Feature #58) ─── */}
+              <div
+                data-testid="ruler-vertical"
+                aria-label="Vertical ruler"
+                data-zoom={zoom}
+                style={{
+                  width: '20px',
+                  height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
+                  position: 'relative',
+                  backgroundColor: '#f1f5f9',
+                  borderRight: '1px solid #cbd5e1',
+                  borderRadius: '2px 0 0 2px',
+                  overflow: 'hidden',
+                  userSelect: 'none',
+                  fontSize: '9px',
+                  color: '#64748b',
+                }}
+              >
+                {/* Vertical tick marks - every 10mm */}
+                {(() => {
+                  const pageH = PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842;
+                  const scale = zoom / 100;
+                  const mmStep = 10;
+                  const ptStep = mmStep * MM_TO_PT;
+                  const ticks: React.ReactNode[] = [];
+                  for (let ptPos = 0; ptPos <= pageH; ptPos += ptStep) {
+                    const mm = Math.round(ptPos / MM_TO_PT);
+                    const px = ptPos * scale;
+                    ticks.push(
+                      <div key={`vt-${mm}`} style={{ position: 'absolute', top: `${px}px`, left: 0, width: '100%', borderTop: '1px solid #cbd5e1' }}>
+                        <span style={{ position: 'absolute', top: '2px', left: '2px', fontSize: '8px', lineHeight: 1, writingMode: 'vertical-lr', whiteSpace: 'nowrap' }}>{mm}</span>
+                      </div>
+                    );
+                    const midPt = ptPos + (ptStep / 2);
+                    if (midPt <= pageH) {
+                      ticks.push(
+                        <div key={`vt-mid-${mm}`} style={{ position: 'absolute', top: `${midPt * scale}px`, right: 0, width: '6px', borderTop: '1px solid #d1d5db' }} />
+                      );
+                    }
+                  }
+                  return ticks;
+                })()}
+              </div>
+
+              {/* ─── Page Boundary (Feature #57) ─── */}
+              <div
+                data-testid="canvas-page"
+                data-page-size={pageSize}
+                data-page-width={PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595}
+                data-page-height={PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842}
+                data-aspect-ratio={((PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) / (PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842)).toFixed(4)}
+                data-grid-size-mm={gridSizeMm}
+                onDragOver={handleCanvasDragOver}
+                onDrop={handleCanvasDrop}
+                style={{
+                  width: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.width || 595) * (zoom / 100)}px`,
+                  height: `${(PAGE_SIZE_DIMENSIONS[pageSize]?.height || 842) * (zoom / 100)}px`,
+                  backgroundColor: '#ffffff',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.14), 4px 4px 12px rgba(0,0,0,0.08)',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '1px',
+                  position: 'relative',
               transition: 'width 0.2s, height 0.2s',
               // Crisp rendering at all zoom levels
               imageRendering: 'auto' as React.CSSProperties['imageRendering'],
@@ -5043,6 +5348,73 @@ export default function ErpDesigner({
               );
             })}
 
+            {/* Alignment guides overlay */}
+            {alignmentGuides.length > 0 && (
+              <div data-testid="alignment-guides" data-guide-count={alignmentGuides.length} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 1000 }}>
+                {alignmentGuides.map((guide, idx) => (
+                  guide.type === 'vertical' ? (
+                    <div
+                      key={`guide-v-${idx}`}
+                      data-testid="alignment-guide-vertical"
+                      data-guide-type="vertical"
+                      data-guide-position={guide.position}
+                      data-guide-label={guide.label || ''}
+                      style={{
+                        position: 'absolute',
+                        left: `${guide.position * (zoom / 100)}px`,
+                        top: 0,
+                        width: '1px',
+                        height: '100%',
+                        backgroundColor: '#ef4444',
+                        opacity: 0.8,
+                        zIndex: 1001,
+                      }}
+                    />
+                  ) : (
+                    <div
+                      key={`guide-h-${idx}`}
+                      data-testid="alignment-guide-horizontal"
+                      data-guide-type="horizontal"
+                      data-guide-position={guide.position}
+                      data-guide-label={guide.label || ''}
+                      style={{
+                        position: 'absolute',
+                        top: `${guide.position * (zoom / 100)}px`,
+                        left: 0,
+                        width: '100%',
+                        height: '1px',
+                        backgroundColor: '#ef4444',
+                        opacity: 0.8,
+                        zIndex: 1001,
+                      }}
+                    />
+                  )
+                ))}
+              </div>
+            )}
+
+            {/* Multi-select indicator */}
+            {selectedElementIds.length > 1 && (
+              <div
+                data-testid="multi-select-indicator"
+                data-selected-count={selectedElementIds.length}
+                style={{
+                  position: 'absolute',
+                  bottom: '8px',
+                  right: '8px',
+                  padding: '2px 8px',
+                  backgroundColor: '#3b82f6',
+                  color: '#fff',
+                  fontSize: `${10 * (zoom / 100)}px`,
+                  borderRadius: '4px',
+                  zIndex: 100,
+                  userSelect: 'none',
+                }}
+              >
+                {selectedElementIds.length} selected
+              </div>
+            )}
+
             {/* Placeholder content showing it's a template canvas */}
             {currentPage && currentPage.elements.length === 0 && (
               <div
@@ -5061,7 +5433,43 @@ export default function ErpDesigner({
                 Drag blocks here or click to add
               </div>
             )}
+
+            {/* ─── Grid Overlay (Feature #59) ─── */}
+            {gridSizeMm > 0 && (
+              <svg
+                data-testid="canvas-grid-overlay"
+                data-grid-size-mm={gridSizeMm}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: '100%',
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }}
+              >
+                <defs>
+                  <pattern
+                    id={`grid-pattern-${gridSizeMm}`}
+                    width={gridSizePt * (zoom / 100)}
+                    height={gridSizePt * (zoom / 100)}
+                    patternUnits="userSpaceOnUse"
+                  >
+                    <path
+                      d={`M ${gridSizePt * (zoom / 100)} 0 L 0 0 0 ${gridSizePt * (zoom / 100)}`}
+                      fill="none"
+                      stroke="#e2e8f0"
+                      strokeWidth="0.5"
+                    />
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill={`url(#grid-pattern-${gridSizeMm})`} />
+              </svg>
+            )}
           </div>
+            </div>{/* end flex row with vertical ruler + page */}
+          </div>{/* end canvas-ruler-container */}
         </div>
 
         {/* ─── Right Properties Panel ─── */}
