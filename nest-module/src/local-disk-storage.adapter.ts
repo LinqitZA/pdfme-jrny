@@ -4,6 +4,8 @@
  * Configurable rootDir and tempDir with org-level isolation.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { FileStorageService } from './file-storage.service';
 
 export class LocalDiskStorageAdapter extends FileStorageService {
@@ -12,34 +14,92 @@ export class LocalDiskStorageAdapter extends FileStorageService {
     private readonly tempDir: string,
   ) {
     super();
+    // Ensure root and temp directories exist
+    fs.mkdirSync(this.rootDir, { recursive: true });
+    fs.mkdirSync(this.tempDir, { recursive: true });
   }
 
-  // To be implemented by coding agents
-  async write(_path: string, _data: Buffer): Promise<void> {
-    throw new Error('Not implemented');
+  private resolvePath(filePath: string): string {
+    // Prevent path traversal
+    const resolved = path.resolve(this.rootDir, filePath);
+    if (!resolved.startsWith(path.resolve(this.rootDir))) {
+      throw new Error('Path traversal detected');
+    }
+    return resolved;
   }
 
-  async read(_path: string): Promise<Buffer> {
-    throw new Error('Not implemented');
+  async write(filePath: string, data: Buffer): Promise<void> {
+    const fullPath = this.resolvePath(filePath);
+    fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+    fs.writeFileSync(fullPath, data);
   }
 
-  async exists(_path: string): Promise<boolean> {
-    throw new Error('Not implemented');
+  async read(filePath: string): Promise<Buffer> {
+    const fullPath = this.resolvePath(filePath);
+    return fs.readFileSync(fullPath);
   }
 
-  async delete(_path: string): Promise<void> {
-    throw new Error('Not implemented');
+  async exists(filePath: string): Promise<boolean> {
+    const fullPath = this.resolvePath(filePath);
+    return fs.existsSync(fullPath);
   }
 
-  async list(_prefix: string): Promise<string[]> {
-    throw new Error('Not implemented');
+  async delete(filePath: string): Promise<void> {
+    const fullPath = this.resolvePath(filePath);
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+    }
   }
 
-  async stat(_path: string): Promise<{ size: number; modifiedAt: Date } | null> {
-    throw new Error('Not implemented');
+  async list(prefix: string): Promise<string[]> {
+    const fullPath = this.resolvePath(prefix);
+    if (!fs.existsSync(fullPath)) {
+      return [];
+    }
+    const stat = fs.statSync(fullPath);
+    if (!stat.isDirectory()) {
+      return [prefix];
+    }
+    const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+    const result: string[] = [];
+    for (const entry of entries) {
+      const entryPath = path.join(prefix, entry.name);
+      if (entry.isFile()) {
+        result.push(entryPath);
+      } else if (entry.isDirectory()) {
+        const subFiles = await this.list(entryPath);
+        result.push(...subFiles);
+      }
+    }
+    return result;
   }
 
-  async usage(_orgId: string): Promise<{ documents: number; assets: number; total: number }> {
-    throw new Error('Not implemented');
+  async stat(filePath: string): Promise<{ size: number; modifiedAt: Date } | null> {
+    const fullPath = this.resolvePath(filePath);
+    if (!fs.existsSync(fullPath)) {
+      return null;
+    }
+    const stats = fs.statSync(fullPath);
+    return { size: stats.size, modifiedAt: stats.mtime };
+  }
+
+  async usage(orgId: string): Promise<{ documents: number; assets: number; total: number }> {
+    let documents = 0;
+    let assets = 0;
+
+    const docFiles = await this.list(`${orgId}/documents`);
+    for (const f of docFiles) {
+      const s = await this.stat(f);
+      if (s) documents += s.size;
+    }
+
+    const assetFiles = await this.list(`${orgId}/assets`);
+    const fontFiles = await this.list(`${orgId}/fonts`);
+    for (const f of [...assetFiles, ...fontFiles]) {
+      const s = await this.stat(f);
+      if (s) assets += s.size;
+    }
+
+    return { documents, assets, total: documents + assets };
   }
 }

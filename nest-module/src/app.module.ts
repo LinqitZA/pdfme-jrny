@@ -1,20 +1,27 @@
 /**
  * AppModule - Root NestJS module for pdfme ERP Edition
  *
- * Provides database connection, health checks, and template management.
+ * Provides database connection, health checks, template management, and asset storage.
  */
 
 import { Module } from '@nestjs/common';
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import * as path from 'path';
 import * as schema from './db/schema';
 import { getDatabaseUrl, type PdfmeDatabase } from './db/connection';
 import { HealthController } from './health.controller';
 import { TemplateController } from './template.controller';
 import { TemplateService } from './template.service';
+import { AssetController } from './asset.controller';
+import { AssetService } from './asset.service';
+import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
+
+const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
+const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController],
+  controllers: [HealthController, TemplateController, AssetController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -35,8 +42,15 @@ import { TemplateService } from './template.service';
       },
       inject: ['PG_POOL'],
     },
+    {
+      provide: 'FILE_STORAGE',
+      useFactory: () => {
+        return new LocalDiskStorageAdapter(STORAGE_ROOT, STORAGE_TEMP);
+      },
+    },
     TemplateService,
+    AssetService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', TemplateService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService],
 })
 export class AppModule {}

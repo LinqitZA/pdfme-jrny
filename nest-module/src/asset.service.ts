@@ -1,0 +1,136 @@
+/**
+ * AssetService - Manages file asset storage for org-level images and fonts
+ *
+ * Stores files in org-specific directories:
+ * - Images (PNG, JPG, SVG, WEBP) → {orgId}/assets/
+ * - Fonts (TTF, OTF, WOFF2)     → {orgId}/fonts/
+ */
+
+import { Injectable, Inject } from '@nestjs/common';
+import { FileStorageService } from './file-storage.service';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
+
+export interface AssetUploadResult {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  category: 'image' | 'font';
+  storagePath: string;
+  orgId: string;
+  createdAt: string;
+}
+
+const IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.svg', '.webp', '.gif'];
+const FONT_EXTENSIONS = ['.ttf', '.otf', '.woff2'];
+const ALLOWED_EXTENSIONS = [...IMAGE_EXTENSIONS, ...FONT_EXTENSIONS];
+
+const MIME_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.ttf': 'font/ttf',
+  '.otf': 'font/otf',
+  '.woff2': 'font/woff2',
+};
+
+@Injectable()
+export class AssetService {
+  constructor(
+    @Inject('FILE_STORAGE') private readonly storage: FileStorageService,
+  ) {}
+
+  /**
+   * Determine the category (image or font) based on file extension
+   */
+  getCategory(filename: string): 'image' | 'font' | null {
+    const ext = path.extname(filename).toLowerCase();
+    if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
+    if (FONT_EXTENSIONS.includes(ext)) return 'font';
+    return null;
+  }
+
+  /**
+   * Validate that the file extension is allowed
+   */
+  isAllowedExtension(filename: string): boolean {
+    const ext = path.extname(filename).toLowerCase();
+    return ALLOWED_EXTENSIONS.includes(ext);
+  }
+
+  /**
+   * Upload a file to the correct org directory
+   */
+  async upload(
+    orgId: string,
+    originalName: string,
+    buffer: Buffer,
+    mimeType?: string,
+  ): Promise<AssetUploadResult> {
+    const ext = path.extname(originalName).toLowerCase();
+    const category = this.getCategory(originalName);
+
+    if (!category) {
+      throw new Error(`Unsupported file type: ${ext}`);
+    }
+
+    const id = randomUUID();
+    const sanitizedName = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filename = `${id}_${sanitizedName}`;
+
+    // Images go to {orgId}/assets/, fonts go to {orgId}/fonts/
+    const directory = category === 'image' ? 'assets' : 'fonts';
+    const storagePath = `${orgId}/${directory}/${filename}`;
+
+    await this.storage.write(storagePath, buffer);
+
+    const resolvedMime = mimeType || MIME_MAP[ext] || 'application/octet-stream';
+
+    return {
+      id,
+      filename,
+      originalName,
+      mimeType: resolvedMime,
+      size: buffer.length,
+      category,
+      storagePath,
+      orgId,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * List all assets for an org
+   */
+  async listAssets(orgId: string): Promise<string[]> {
+    const assetFiles = await this.storage.list(`${orgId}/assets`);
+    const fontFiles = await this.storage.list(`${orgId}/fonts`);
+    return [...assetFiles, ...fontFiles];
+  }
+
+  /**
+   * Read an asset file
+   */
+  async readAsset(storagePath: string): Promise<Buffer> {
+    return this.storage.read(storagePath);
+  }
+
+  /**
+   * Check if an asset exists
+   */
+  async assetExists(storagePath: string): Promise<boolean> {
+    return this.storage.exists(storagePath);
+  }
+
+  /**
+   * Delete an asset
+   */
+  async deleteAsset(storagePath: string): Promise<void> {
+    return this.storage.delete(storagePath);
+  }
+}
