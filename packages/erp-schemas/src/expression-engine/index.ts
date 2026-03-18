@@ -13,11 +13,21 @@
 
 import { Parser } from 'expr-eval';
 
+export type ExpressionErrorMode = 'emptyString' | '#ERROR' | 'fail';
+
 export interface ExpressionEngineOptions {
   /** Locale for locale-aware formatting functions (e.g. 'en-ZA', 'en-US'). Defaults to 'en-US'. */
   locale?: string;
   /** ISO 4217 currency code (e.g. 'ZAR', 'USD'). Defaults to 'USD'. */
   currency?: string;
+  /**
+   * How to handle expression evaluation errors:
+   * - 'emptyString': return empty string (show blank)
+   * - '#ERROR': return '#ERROR' text
+   * - 'fail': throw an error (render fails with message)
+   * Defaults to '#ERROR'.
+   */
+  onError?: ExpressionErrorMode;
 }
 
 /**

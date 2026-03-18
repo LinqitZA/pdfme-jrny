@@ -19,13 +19,15 @@
  * - fontColor: string (default: '#000000')
  */
 
-import { ExpressionEngine, ExpressionEngineOptions } from '../expression-engine';
+import { ExpressionEngine, ExpressionEngineOptions, ExpressionErrorMode } from '../expression-engine';
 
 export interface CalculatedFieldSchema {
   type: 'calculatedField';
   name: string;
   expression: string;
   format?: string;
+  /** How to handle expression errors: 'emptyString' (blank), '#ERROR' (show text), 'fail' (throw). Defaults to '#ERROR'. */
+  onError?: ExpressionErrorMode;
   fontSize?: number;
   fontName?: string;
   alignment?: 'left' | 'center' | 'right';
@@ -49,6 +51,7 @@ export interface ResolvedCalculatedField {
  * @param context - Data context with field values
  * @param format - Optional format pattern (e.g., '#,##0.00')
  * @param engineOptions - Optional ExpressionEngine options (locale, currency)
+ * @param onError - How to handle errors: 'emptyString' (blank), '#ERROR' (show text), 'fail' (throw). Defaults to '#ERROR'.
  * @returns Formatted string result
  */
 export function evaluateCalculatedField(
@@ -56,7 +59,9 @@ export function evaluateCalculatedField(
   context: Record<string, unknown>,
   format?: string,
   engineOptions?: ExpressionEngineOptions,
+  onError?: ExpressionErrorMode,
 ): string {
+  const errorMode = onError || engineOptions?.onError || '#ERROR';
   const engine = new ExpressionEngine(engineOptions);
 
   try {
@@ -65,22 +70,53 @@ export function evaluateCalculatedField(
       const formatExpr = `FORMAT(${expression}, '${format}')`;
       try {
         const result = engine.evaluate(formatExpr, context);
-        return String(result);
-      } catch {
-        // If FORMAT wrapping fails, evaluate raw and format manually
-        const rawResult = engine.evaluate(expression, context);
-        if (typeof rawResult === 'number') {
-          return formatNumber(rawResult, format);
+        // Check for Infinity/NaN (e.g. division by zero)
+        if (typeof result === 'number' && (!isFinite(result) || isNaN(result))) {
+          throw new Error(`Expression result is ${result} (possible division by zero)`);
         }
-        return String(rawResult);
+        const strResult = String(result);
+        if (strResult === 'Infinity' || strResult === '-Infinity' || strResult === 'NaN') {
+          throw new Error(`Expression result is ${strResult} (possible division by zero)`);
+        }
+        return strResult;
+      } catch (formatErr) {
+        // If FORMAT wrapping fails, evaluate raw and format manually
+        try {
+          const rawResult = engine.evaluate(expression, context);
+          if (typeof rawResult === 'number') {
+            if (!isFinite(rawResult) || isNaN(rawResult)) {
+              throw new Error(`Expression result is ${rawResult} (possible division by zero)`);
+            }
+            return formatNumber(rawResult, format);
+          }
+          return String(rawResult);
+        } catch {
+          throw formatErr;
+        }
       }
     }
 
     const result = engine.evaluate(expression, context);
-    return String(result);
+    // Check for Infinity/NaN (e.g. division by zero)
+    if (typeof result === 'number' && (!isFinite(result) || isNaN(result))) {
+      throw new Error(`Expression result is ${result} (possible division by zero)`);
+    }
+    const strResult = String(result);
+    if (strResult === 'Infinity' || strResult === '-Infinity' || strResult === 'NaN') {
+      throw new Error(`Expression result is ${strResult} (possible division by zero)`);
+    }
+    return strResult;
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return `#ERR: ${message}`;
+    switch (errorMode) {
+      case 'emptyString':
+        return '';
+      case 'fail':
+        throw new Error(`Calculated field expression error: ${message}`);
+      case '#ERROR':
+      default:
+        return '#ERROR';
+    }
   }
 }
 
@@ -156,9 +192,10 @@ export function resolveCalculatedFields(
       const calcField = field as CalculatedFieldSchema;
       const expression = calcField.expression || '0';
       const format = calcField.format;
+      const fieldOnError = calcField.onError;
 
-      // Evaluate the expression
-      const formattedValue = evaluateCalculatedField(expression, context, format, engineOptions);
+      // Evaluate the expression (onError from field schema takes precedence)
+      const formattedValue = evaluateCalculatedField(expression, context, format, engineOptions, fieldOnError);
 
       resolvedFields.push({
         name: calcField.name,

@@ -18,7 +18,7 @@ export { richText } from './rich-text';
 
 // Expression engine
 export { ExpressionEngine } from './expression-engine';
-export type { ExpressionEngineOptions } from './expression-engine';
+export type { ExpressionEngineOptions, ExpressionErrorMode } from './expression-engine';
 
 // Types
 export type {
