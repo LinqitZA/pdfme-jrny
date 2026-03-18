@@ -417,6 +417,86 @@ export default function ErpDesigner({
   const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
   const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
+  // ─── Focus trap refs for modal dialogs ───
+  const shortcutsDialogRef = useRef<HTMLDivElement>(null);
+  const renderDialogRef = useRef<HTMLDivElement>(null);
+  const lastFocusedElementRef = useRef<HTMLElement | null>(null);
+
+  // ─── Focus trap effect for shortcuts dialog ───
+  useEffect(() => {
+    if (!showShortcutsHelp) return;
+    lastFocusedElementRef.current = document.activeElement as HTMLElement;
+    const dialogEl = shortcutsDialogRef.current;
+    if (!dialogEl) return;
+    const getFocusableElements = () => {
+      return dialogEl.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+    };
+    requestAnimationFrame(() => {
+      const focusable = getFocusableElements();
+      if (focusable.length > 0) focusable[0].focus();
+    });
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowShortcutsHelp(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusableElements();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    dialogEl.addEventListener('keydown', handleKeyDown);
+    return () => {
+      dialogEl.removeEventListener('keydown', handleKeyDown);
+      if (lastFocusedElementRef.current && lastFocusedElementRef.current.focus) {
+        lastFocusedElementRef.current.focus();
+      }
+    };
+  }, [showShortcutsHelp]);
+
+  // ─── Focus trap effect for render dialog ───
+  useEffect(() => {
+    if (renderStatus === 'idle') return;
+    const dialogEl = renderDialogRef.current;
+    if (!dialogEl) return;
+    const prevFocused = document.activeElement as HTMLElement;
+    const getFocusableElements = () => {
+      return dialogEl.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+    };
+    requestAnimationFrame(() => {
+      const focusable = getFocusableElements();
+      if (focusable.length > 0) focusable[0].focus();
+    });
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusableElements();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+    dialogEl.addEventListener('keydown', handleKeyDown);
+    return () => {
+      dialogEl.removeEventListener('keydown', handleKeyDown);
+      if (prevFocused && prevFocused.focus) { prevFocused.focus(); }
+    };
+  }, [renderStatus]);
+
   useEffect(() => {
     const handleResize = () => {
       const narrow = window.innerWidth <= NARROW_BREAKPOINT;
@@ -903,7 +983,7 @@ export default function ErpDesigner({
       setIsDirty(false);
       isSavingRef.current = false;
     }
-  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase, addToast]);
+  }, [name, pageSize, pages, onSave, templateId, authToken, apiBase, addToast, announceStatus, announceError]);
 
   // ─── Publish: publish template to backend ───
   const isPublishingRef = useRef(false);
@@ -983,10 +1063,11 @@ export default function ErpDesigner({
         : 'An unexpected error occurred while publishing';
       setPublishStatus('error');
       setPublishError(errorMsg);
+      announceError(`Publish error: ${errorMsg}`);
     } finally {
       isPublishingRef.current = false;
     }
-  }, [templateId, authToken, apiBase, pages, addToast]);
+  }, [templateId, authToken, apiBase, pages, addToast, announceStatus, announceError]);
 
   // ─── Navigate to validation error element ───
   const handleValidationErrorClick = useCallback((err: { field: string; elementId?: string; pageIndex?: number }) => {
@@ -1067,21 +1148,24 @@ export default function ErpDesigner({
         setLastAutoSave(new Date());
         setIsDirty(false);
         isDirtyRef.current = false;
+        announceStatus('Auto-saved');
         // Reset status back to idle after 3 seconds
         setTimeout(() => setAutoSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
       } else {
         setAutoSaveStatus('error');
+        announceError('Auto-save failed');
         // Flag for reconnection retry if network is down
         if (!navigator.onLine) setPendingRetrySave(true);
         setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
       }
     } catch {
       setAutoSaveStatus('error');
+      announceError('Auto-save failed');
       // Flag for reconnection retry - network likely down
       if (!navigator.onLine) setPendingRetrySave(true);
       setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
     }
-  }, [templateId, authToken, apiBase, name, pageSize, pages]);
+  }, [templateId, authToken, apiBase, name, pageSize, pages, announceStatus, announceError]);
 
   // Set up auto-save interval
   useEffect(() => {
@@ -1386,6 +1470,7 @@ export default function ErpDesigner({
       setRenderStatus('error');
       setRenderMessage('Save the template first to generate a preview');
       setRenderResult({ error: 'No template ID' });
+      announceError('Save the template first to generate a preview');
       setTimeout(() => { if (renderStatus === 'error') { setRenderStatus('idle'); setRenderResult(null); setRenderMessage(''); } }, 5000);
       return;
     }
@@ -1420,6 +1505,7 @@ export default function ErpDesigner({
       setRenderStatus('error');
       setRenderMessage(`Preview failed: ${msg}`);
       setRenderResult({ error: msg });
+      announceError(`Preview failed: ${msg}`);
     }
   }, [templateId, apiBase, getAuthHeaders, renderStatus]);
 
@@ -1429,6 +1515,7 @@ export default function ErpDesigner({
       setRenderStatus('error');
       setRenderMessage('Save the template first');
       setRenderResult({ error: 'No template ID' });
+      announceError('Save the template first');
       return;
     }
 
@@ -1466,8 +1553,9 @@ export default function ErpDesigner({
       setRenderStatus('error');
       setRenderMessage(`Render failed: ${msg}`);
       setRenderResult({ error: msg });
+      announceError(`Render failed: ${msg}`);
     }
-  }, [templateId, apiBase, getAuthHeaders]);
+  }, [templateId, apiBase, getAuthHeaders, announceError]);
 
   /** Bulk render with SSE progress tracking */
   const handleBulkRender = useCallback(async (entityIds: string[]) => {
@@ -3327,6 +3415,8 @@ export default function ErpDesigner({
       {saveStatus === 'error' && saveError && (
         <div
           data-testid="save-error-banner"
+          role="alert"
+          aria-live="assertive"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -3404,6 +3494,8 @@ export default function ErpDesigner({
       {publishStatus === 'error' && publishError && (
         <div
           data-testid="publish-error-banner"
+          role="alert"
+          aria-live="assertive"
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -3455,7 +3547,7 @@ export default function ErpDesigner({
             </div>
           </div>
           {publishErrors.length > 0 && (
-            <ul data-testid="publish-validation-errors" style={{ margin: '4px 0 0 24px', padding: 0, listStyle: 'disc' }}>
+            <ul data-testid="publish-validation-errors" role="list" aria-label="Validation errors" style={{ margin: '4px 0 0 24px', padding: 0, listStyle: 'disc' }}>
               {publishErrors.map((err, i) => (
                 <li
                   key={i}
@@ -3575,6 +3667,8 @@ export default function ErpDesigner({
           {/* Tabs */}
           <div
             data-testid="left-panel-tabs"
+            role="tablist"
+            aria-label="Left panel tabs"
             style={{
               display: 'flex',
               borderBottom: '1px solid #e2e8f0',
@@ -3584,6 +3678,10 @@ export default function ErpDesigner({
               <button
                 key={tab}
                 data-testid={`tab-${tab}`}
+                role="tab"
+                aria-selected={activeTab === tab}
+                aria-controls={`tabpanel-${tab}`}
+                id={`tab-${tab}-btn`}
                 aria-label={`${tab} tab`}
                 onClick={() => setActiveTab(tab)}
                 style={{
@@ -3632,7 +3730,13 @@ export default function ErpDesigner({
           </div>
 
           {/* Tab Content */}
-          <div style={{ flex: 1, overflow: 'auto', padding: '12px' }}>
+          <div
+            role="tabpanel"
+            id={`tabpanel-${activeTab}`}
+            aria-labelledby={`tab-${activeTab}-btn`}
+            data-testid="left-panel-tabpanel"
+            style={{ flex: 1, overflow: 'auto', padding: '12px' }}
+          >
             {activeTab === 'blocks' && (
               <div data-testid="blocks-content">
                 {BLOCK_CATEGORIES.map((cat) => (
@@ -4271,6 +4375,8 @@ export default function ErpDesigner({
       {renderStatus !== 'idle' && (
         <div
           data-testid="render-overlay"
+          role="alertdialog"
+          aria-label={renderStatus === 'error' ? 'Render error' : renderStatus === 'complete' ? 'Render complete' : 'Rendering in progress'}
           style={{
             position: 'fixed',
             top: 0,
@@ -4531,6 +4637,9 @@ export default function ErpDesigner({
     {(saveStatus === 'saving' || publishStatus === 'publishing') && (
       <div
         data-testid="operation-loading-overlay"
+        role="status"
+        aria-live="polite"
+        aria-label={saveStatus === 'saving' ? 'Saving draft' : 'Publishing template'}
         style={{
           position: 'fixed',
           top: 0,
@@ -4567,6 +4676,7 @@ export default function ErpDesigner({
       {/* ─── Keyboard Shortcuts Help Dialog ─── */}
       {showShortcutsHelp && (
         <div
+          ref={shortcutsDialogRef}
           data-testid="keyboard-shortcuts-dialog"
           role="dialog"
           aria-label="Keyboard shortcuts"
@@ -4681,6 +4791,8 @@ export default function ErpDesigner({
               key={toast.id}
               data-testid={`toast-${toast.type}`}
               data-toast-id={toast.id}
+              role={toast.type === 'error' ? 'alert' : 'status'}
+              aria-live={toast.type === 'error' ? 'assertive' : 'polite'}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4721,6 +4833,46 @@ export default function ErpDesigner({
       </div>
     )}
     <style>{`@keyframes toast-slide-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }`}</style>
+
+    {/* ─── Accessible Status Announcements (ARIA live regions) ─── */}
+    <div
+      data-testid="status-announcer"
+      aria-live="polite"
+      aria-atomic="true"
+      role="status"
+      style={{
+        position: 'absolute',
+        width: '1px',
+        height: '1px',
+        padding: 0,
+        margin: '-1px',
+        overflow: 'hidden',
+        clip: 'rect(0, 0, 0, 0)',
+        whiteSpace: 'nowrap',
+        border: 0,
+      }}
+    >
+      {statusAnnouncement}
+    </div>
+    <div
+      data-testid="error-announcer"
+      aria-live="assertive"
+      aria-atomic="true"
+      role="alert"
+      style={{
+        position: 'absolute',
+        width: '1px',
+        height: '1px',
+        padding: 0,
+        margin: '-1px',
+        overflow: 'hidden',
+        clip: 'rect(0, 0, 0, 0)',
+        whiteSpace: 'nowrap',
+        border: 0,
+      }}
+    >
+      {errorAnnouncement}
+    </div>
     </>
   );
 }
