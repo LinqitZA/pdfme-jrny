@@ -119,6 +119,28 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
 
+      // Handle multer file-too-large errors with specific size limit info
+      if (status === 413) {
+        const msg = typeof exceptionResponse === 'string' ? exceptionResponse
+          : typeof exceptionResponse === 'object' && exceptionResponse !== null
+            ? (exceptionResponse as any).message || 'File too large'
+            : 'File too large';
+        const isFileUpload = typeof msg === 'string' && (msg.includes('File too large') || msg.includes('file') || msg.includes('size'));
+        if (isFileUpload && !(typeof exceptionResponse === 'object' && (exceptionResponse as any).maxSize)) {
+          errorResponse = {
+            statusCode: 413,
+            error: 'Payload Too Large',
+            message: `File exceeds maximum allowed size of 10MB. Please reduce the file size and try again.`,
+            maxSize: '10MB',
+          };
+          // Add timestamp and path then return early
+          errorResponse.timestamp = new Date().toISOString();
+          errorResponse.path = request.url;
+          response.status(status).json(errorResponse);
+          return;
+        }
+      }
+
       if (typeof exceptionResponse === 'string') {
         errorResponse = {
           statusCode: status,
