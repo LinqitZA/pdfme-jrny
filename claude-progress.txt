@@ -42,10 +42,51 @@
 - PUT  /api/pdfme/templates/:id - Update template
 - DELETE /api/pdfme/templates/:id - Soft delete (archive)
 
-### Current Status: 3/388 features passing (this agent's contribution)
+### Current Status: 3/388 features passing (session 1 contribution)
 ### Note: Other agents working in parallel on features #4, #5 and beyond
 
 ### To Start Server:
 chmod +x init.sh && ./init.sh
 # Or directly:
 npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
+
+---
+
+## Session 2 - 2026-03-18 - Features #4, #5, #40
+
+### Completed Features:
+- **Feature #4**: No mock data patterns in codebase ✅
+  - Verified src/ directories free of globalThis, devStore, mockData, testData, fakeData, sampleData, dummyData, STUB, MOCK patterns
+  - No json-server, miragejs, or msw in package.json (only in Next.js internals)
+
+- **Feature #5**: Backend API queries real database ✅
+  - Drizzle query logging enabled (logger: true in AppModule)
+  - GET /api/pdfme/templates logs: `select "id", "org_id", "type"... from "templates"`
+  - POST /api/pdfme/templates logs: `insert into "templates" (...) values (...)`
+  - Data verified directly in PostgreSQL via docker exec
+
+- **Feature #40**: Designer component loads without errors ✅
+  - ErpDesigner React component with three-panel layout (left/canvas/right)
+  - Toolbar: template name (inline editable), page size selector, undo/redo, zoom (25-200%), preview, save draft, publish
+  - Left panel: Blocks (Content/Media/Data/Layout categories), Fields (searchable tree), Assets (upload), Pages (thumbnail)
+  - Center canvas: A4 page representation with zoom
+  - Right panel: Properties panel (context-sensitive)
+  - Next.js App Router designer sandbox running on port 3002
+
+### Fixes Applied:
+- Fixed workspace:* -> * in package.json files for npm workspace compatibility
+- Fixed .gitignore: node_modules/ and .next/ properly excluded
+- Installed @swc/core + @swc/register for NestJS decorator support with ts-node
+- Installed @nestjs/platform-express at root level for resolution
+- Enabled Drizzle query logger for SQL visibility
+
+### Known Issues:
+- Chromium/Playwright can't launch (missing libatk-1.0.so.0) - browser automation unavailable
+- canvas native module build fails - use --ignore-scripts for npm install
+- Use ts-node --swc (not tsx) for NestJS due to emitDecoratorMetadata requirement
+
+### Start Commands:
+- Backend: PORT=3001 npx ts-node --swc --project nest-module/tsconfig.json nest-module/src/main.ts
+- Designer: npm run -w apps/designer-sandbox dev -- -p 3002
+
+### Current Status: 6/388 features passing (sessions 1+2 combined)
