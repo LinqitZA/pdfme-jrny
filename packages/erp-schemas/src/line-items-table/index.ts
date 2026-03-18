@@ -545,8 +545,9 @@ export function resolveLineItemsTables(
         // Calculate number of pages needed
         const firstPageMax = typeof maxRows === 'number' ? maxRows : maxRows.first;
         const middlePageMax = typeof maxRows === 'number' ? maxRows : maxRows.middle;
+        const lastPageMax = typeof maxRows === 'number' ? maxRows : maxRows.last;
 
-        // Chunk the data rows
+        // Chunk the data rows (first pass: use first/middle limits)
         const chunks: string[][][] = [];
         let remaining = dataRows;
         let pageIdx = 0;
@@ -556,6 +557,19 @@ export function resolveLineItemsTables(
           chunks.push(remaining.slice(0, limit));
           remaining = remaining.slice(limit);
           pageIdx++;
+        }
+
+        // Second pass: enforce last page limit if different from middle
+        // If the last chunk exceeds lastPageMax, redistribute rows
+        if (chunks.length > 1 && typeof maxRows !== 'number' && lastPageMax !== middlePageMax) {
+          const lastChunk = chunks[chunks.length - 1];
+          if (lastChunk.length > lastPageMax) {
+            // Move excess rows from last chunk to a new penultimate chunk
+            const excess = lastChunk.length - lastPageMax;
+            const spillOver = lastChunk.splice(0, excess);
+            // Insert the spill-over before the last chunk
+            chunks.splice(chunks.length - 1, 0, spillOver);
+          }
         }
 
         // If we have footer rows, append them to the last chunk
