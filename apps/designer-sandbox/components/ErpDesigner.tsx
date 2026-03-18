@@ -85,6 +85,8 @@ interface DesignElement {
   binding?: string;
   // Page visibility scope
   pageScope?: 'all' | 'first' | 'last' | 'notFirst';
+  // Output channel
+  outputChannel?: 'both' | 'email' | 'print';
 }
 
 /** Represents a single page in the template */
@@ -678,6 +680,7 @@ export default function ErpDesigner({
       x,
       y,
       pageScope: 'all',
+      outputChannel: 'both',
     };
     setPagesWithHistory((prev) => {
       return prev.map((page, idx) => {
@@ -2247,6 +2250,46 @@ export default function ErpDesigner({
                 {selectedElement.pageScope === 'first' && 'First page only'}
                 {selectedElement.pageScope === 'last' && 'Last page only'}
                 {selectedElement.pageScope === 'notFirst' && 'Not first page'}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Output Channel section - always shown */}
+        <div data-testid="properties-output-channel" style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Output Channel</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div>
+              <span style={{ fontSize: '11px', color: '#94a3b8' }}>Channel</span>
+              <select
+                data-testid="prop-output-channel"
+                style={propInputStyle}
+                value={selectedElement.outputChannel || 'both'}
+                onChange={(e) => updateElement(selectedElement.id, { outputChannel: e.target.value as DesignElement['outputChannel'] })}
+              >
+                <option value="both">Both (Email &amp; Print)</option>
+                <option value="email">Email Only</option>
+                <option value="print">Print Only</option>
+              </select>
+            </div>
+            {selectedElement.outputChannel && selectedElement.outputChannel !== 'both' && (
+              <div
+                data-testid="output-channel-badge"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: '12px',
+                  backgroundColor: '#fef3c7',
+                  color: '#d97706',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  width: 'fit-content',
+                }}
+              >
+                {selectedElement.outputChannel === 'email' && 'Email only'}
+                {selectedElement.outputChannel === 'print' && 'Print only'}
               </div>
             )}
           </div>
