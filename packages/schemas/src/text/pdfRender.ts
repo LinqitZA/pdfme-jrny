@@ -19,6 +19,8 @@ import {
   DEFAULT_LINE_HEIGHT,
   DEFAULT_CHARACTER_SPACING,
   DEFAULT_FONT_COLOR,
+  SHRINK_TO_FIT_MIN_FONT_SIZE,
+  DYNAMIC_FIT_VERTICAL,
 } from './constants.js';
 import {
   calculateDynamicFontSize,
@@ -72,9 +74,33 @@ const getFontProp = ({
   colorType?: ColorType;
   schema: TextSchema;
 }) => {
-  const fontSize = schema.dynamicFontSize
-    ? calculateDynamicFontSize({ textSchema: schema, fontKitFont, value })
-    : (schema.fontSize ?? DEFAULT_FONT_SIZE);
+  let fontSize: number;
+  if (schema.dynamicFontSize) {
+    fontSize = calculateDynamicFontSize({ textSchema: schema, fontKitFont, value });
+  } else if (schema.textOverflow === 'shrinkToFit') {
+    // shrinkToFit: use dynamic font sizing with min=6pt and max=current fontSize
+    const baseFontSize = schema.fontSize ?? DEFAULT_FONT_SIZE;
+    const shrinkSchema: TextSchema = {
+      ...schema,
+      dynamicFontSize: {
+        min: SHRINK_TO_FIT_MIN_FONT_SIZE,
+        max: baseFontSize,
+        fit: DYNAMIC_FIT_VERTICAL as any,
+      },
+    };
+    fontSize = calculateDynamicFontSize({
+      textSchema: shrinkSchema,
+      fontKitFont,
+      value,
+      startingFontSize: baseFontSize,
+    });
+    // Enforce minimum 6pt even if calculateDynamicFontSize goes lower
+    if (fontSize < SHRINK_TO_FIT_MIN_FONT_SIZE) {
+      fontSize = SHRINK_TO_FIT_MIN_FONT_SIZE;
+    }
+  } else {
+    fontSize = schema.fontSize ?? DEFAULT_FONT_SIZE;
+  }
   const color = hex2PrintingColor(schema.fontColor || DEFAULT_FONT_COLOR, colorType);
 
   return {
@@ -118,6 +144,20 @@ export const pdfRender = async (arg: PDFRenderProps<TextSchema>) => {
     position: { x, y },
     opacity,
   } = convertForPdfLayoutProps({ schema, pageHeight, applyRotateTranslate: false });
+
+  // Apply clipping for 'clip' text overflow (default behavior)
+  // This ensures text beyond the element boundary is hidden in the rendered PDF
+  const textOverflow = schema.textOverflow || 'clip';
+  const useClipping = textOverflow === 'clip';
+  if (useClipping) {
+    const { pushGraphicsState, rectangle, clip, endPath } = pdfLib;
+    page.pushOperators(
+      pushGraphicsState(),
+      rectangle(x, y, width, height),
+      clip(),
+      endPath(),
+    );
+  }
 
   const pivotPoint = { x: x + width / 2, y: pageHeight - mm2pt(schema.position.y) - height / 2 };
 
@@ -236,4 +276,9 @@ export const pdfRender = async (arg: PDFRenderProps<TextSchema>) => {
       opacity,
     });
   });
+
+  // Restore graphics state after clipping
+  if (useClipping) {
+    page.pushOperators(pdfLib.popGraphicsState());
+  }
 };

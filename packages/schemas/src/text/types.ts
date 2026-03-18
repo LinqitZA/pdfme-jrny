@@ -11,6 +11,8 @@ export type FontWidthCalcValues = {
   characterSpacing: number;
   boxWidthInPt: number;
 };
+export type TEXT_OVERFLOW = 'clip' | 'truncate' | 'shrinkToFit';
+
 export interface TextSchema extends Schema {
   fontName?: string;
   alignment: ALIGNMENT;
@@ -25,6 +27,7 @@ export interface TextSchema extends Schema {
     max: number;
     fit: DYNAMIC_FONT_SIZE_FIT;
   };
+  textOverflow?: TEXT_OVERFLOW;
   fontColor: string;
   backgroundColor: string;
 }
