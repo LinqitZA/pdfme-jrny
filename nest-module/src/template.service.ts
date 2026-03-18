@@ -364,12 +364,30 @@ export class TemplateService {
    * keeps status as 'draft', and updates the updatedAt timestamp.
    */
   async saveDraft(id: string, dto: SaveDraftDto, orgId?: string, userId?: string) {
+    // Check current template status to determine if we should keep published status
+    const existing = await this.findById(id, orgId);
+
     const updateData: Record<string, unknown> = {
       updatedAt: new Date(),
-      status: 'draft',
     };
+
+    // If template is published and has a publishedSchema, keep status as 'published'
+    // so the published version remains accessible for rendering while editing draft
+    if (existing && existing.status === 'published' && existing.publishedSchema) {
+      // Keep status as 'published' — publishedSchema is used for rendering
+      // Only update the working schema (draft edits)
+    } else {
+      updateData.status = 'draft';
+    }
+
     if (dto.schema !== undefined) updateData.schema = dto.schema;
     if (dto.name !== undefined) updateData.name = dto.name;
+    if (dto.saveMode !== undefined) updateData.saveMode = dto.saveMode;
+
+    // saveMode=newVersion: increment the version number to create a new draft version
+    if (dto.saveMode === 'newVersion' && existing) {
+      updateData.version = existing.version + 1;
+    }
 
     const conditions: SQL[] = [eq(templates.id, id)];
     if (orgId) {
@@ -756,8 +774,14 @@ export class TemplateService {
     if (!template) return null;
 
     if (template.status === 'published') {
-      // Already published — return as-is (idempotent)
-      return template;
+      // Check if draft schema differs from published schema (re-publish scenario)
+      const draftSchemaStr = JSON.stringify(template.schema);
+      const publishedSchemaStr = template.publishedSchema ? JSON.stringify(template.publishedSchema) : null;
+      if (publishedSchemaStr && draftSchemaStr === publishedSchemaStr) {
+        // Already published with same schema — return as-is (idempotent)
+        return template;
+      }
+      // Schema has changed since last publish — proceed with re-publish
     }
 
     if (template.status === 'archived') {
@@ -785,6 +809,7 @@ export class TemplateService {
         status: 'published',
         version: newVersion,
         publishedVer: newVersion,
+        publishedSchema: template.schema, // snapshot the current schema for rendering
         updatedAt: new Date(),
       })
       .where(eq(templates.id, id))

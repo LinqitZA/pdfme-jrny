@@ -27,6 +27,7 @@ export const templates = pgTable(
     version: integer('version').notNull().default(1),
     saveMode: text('save_mode'), // inPlace | newVersion
     publishedVer: integer('published_ver'),
+    publishedSchema: jsonb('published_schema'), // snapshot of schema at last publish — used for rendering while draft edits are in progress
     forkedFromId: text('forked_from_id'), // FK self-ref
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

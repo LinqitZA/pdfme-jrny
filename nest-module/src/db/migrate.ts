@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS templates (
   version INTEGER NOT NULL DEFAULT 1,
   save_mode TEXT,
   published_ver INTEGER,
+  published_schema JSONB,
   forked_from_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -6,7 +6,7 @@
  */
 
 import { Injectable, Inject, Optional, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, desc, gt, lt } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
 import { templates, generatedDocuments, renderBatches } from './db/schema';
@@ -378,7 +378,8 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     const template = anyTemplate;
 
     // 2. Build pdfme template structure from the stored schema
-    const templateSchema = template.schema as Record<string, unknown>;
+    // Use publishedSchema if available (allows draft edits while published version stays live)
+    const templateSchema = (template.publishedSchema || template.schema) as Record<string, unknown>;
     let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
 
     // 3. Resolve inputs - use provided inputs or create empty inputs
@@ -2385,6 +2386,97 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     return {
       data: docs,
       pagination: { total: docs.length, limit: effectiveLimit },
+    };
+  }
+
+  /**
+   * List render history for an org with cursor-based pagination.
+   * Returns documents ordered by createdAt descending (most recent first).
+   */
+  async listHistory(
+    orgId: string,
+    options: {
+      limit?: number;
+      cursor?: string;
+      entityType?: string;
+      status?: string;
+    } = {},
+  ): Promise<{
+    data: Array<{
+      id: string;
+      templateId: string;
+      templateVer: number;
+      entityType: string;
+      entityId: string;
+      status: string;
+      outputChannel: string;
+      createdAt: Date;
+      pdfHash: string;
+    }>;
+    pagination: {
+      limit: number;
+      hasMore: boolean;
+      nextCursor: string | null;
+    };
+  }> {
+    const effectiveLimit = Math.min(options.limit || 10, 500);
+    const conditions: any[] = [eq(generatedDocuments.orgId, orgId)];
+
+    if (options.entityType) {
+      conditions.push(eq(generatedDocuments.entityType, options.entityType));
+    }
+    if (options.status) {
+      conditions.push(eq(generatedDocuments.status, options.status));
+    }
+    if (options.cursor) {
+      // Cursor is a document ID - find the createdAt of that doc to paginate
+      const cursorDoc = await this.db
+        .select({ createdAt: generatedDocuments.createdAt, id: generatedDocuments.id })
+        .from(generatedDocuments)
+        .where(eq(generatedDocuments.id, options.cursor))
+        .limit(1);
+
+      if (cursorDoc.length > 0) {
+        // Get documents created before or at cursor's time, but not the cursor doc itself
+        const cursorTime = cursorDoc[0].createdAt;
+        conditions.push(
+          // Documents older than cursor (or same time but different id for tie-breaking)
+          lt(generatedDocuments.createdAt, cursorTime),
+        );
+      }
+    }
+
+    const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+    // Fetch one extra to determine hasMore
+    const docs = await this.db
+      .select({
+        id: generatedDocuments.id,
+        templateId: generatedDocuments.templateId,
+        templateVer: generatedDocuments.templateVer,
+        entityType: generatedDocuments.entityType,
+        entityId: generatedDocuments.entityId,
+        status: generatedDocuments.status,
+        outputChannel: generatedDocuments.outputChannel,
+        createdAt: generatedDocuments.createdAt,
+        pdfHash: generatedDocuments.pdfHash,
+      })
+      .from(generatedDocuments)
+      .where(whereClause)
+      .orderBy(desc(generatedDocuments.createdAt))
+      .limit(effectiveLimit + 1);
+
+    const hasMore = docs.length > effectiveLimit;
+    const resultDocs = hasMore ? docs.slice(0, effectiveLimit) : docs;
+    const nextCursor = hasMore ? resultDocs[resultDocs.length - 1].id : null;
+
+    return {
+      data: resultDocs,
+      pagination: {
+        limit: effectiveLimit,
+        hasMore,
+        nextCursor,
+      },
     };
   }
 
