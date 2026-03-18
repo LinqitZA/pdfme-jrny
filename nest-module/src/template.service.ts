@@ -7,7 +7,7 @@
  */
 
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, and, or, ne, isNull, SQL } from 'drizzle-orm';
+import { eq, and, or, ne, isNull, lt, SQL, asc, desc } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { templates } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
@@ -26,6 +26,16 @@ export interface UpdateTemplateDto {
   schema?: Record<string, unknown>;
   status?: string;
   type?: string;
+}
+
+export interface PaginatedResult<T> {
+  data: T[];
+  pagination: {
+    total: number;
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
 }
 
 export interface SaveDraftDto {
@@ -62,22 +72,90 @@ export class TemplateService {
   }
 
   /**
-   * List templates for an org. Includes:
+   * List templates for an org with cursor-based pagination.
+   * Includes:
    * - Templates owned by the org (orgId matches)
    * - System templates (orgId IS NULL)
    * Excludes archived templates.
+   *
+   * Cursor is based on createdAt descending + id for stable ordering.
+   * The cursor format is: base64(JSON({createdAt, id}))
    */
-  async findAll(orgId?: string) {
+  async findAll(orgId?: string, options?: { limit?: number; cursor?: string }) {
+    const limit = options?.limit ?? 100;
     const conditions: SQL[] = [ne(templates.status, 'archived')];
 
     if (orgId) {
       conditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
     }
 
+    // Decode cursor if provided
+    if (options?.cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(options.cursor, 'base64').toString());
+        // Cursor-based: get items after the cursor position (createdAt DESC, id DESC)
+        const cursorDate = new Date(decoded.createdAt);
+        conditions.push(
+          or(
+            lt(templates.createdAt, cursorDate),
+            and(eq(templates.createdAt, cursorDate), lt(templates.id, decoded.id)),
+          )!,
+        );
+      } catch {
+        // Invalid cursor — ignore and start from beginning
+      }
+    }
+
+    // Fetch limit + 1 to check if there are more results
+    const rows = await this.db
+      .select()
+      .from(templates)
+      .where(and(...conditions))
+      .orderBy(desc(templates.createdAt), desc(templates.id))
+      .limit(limit + 1);
+
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+
+    let nextCursor: string | null = null;
+    if (hasMore && data.length > 0) {
+      const lastItem = data[data.length - 1];
+      nextCursor = Buffer.from(
+        JSON.stringify({ createdAt: lastItem.createdAt, id: lastItem.id }),
+      ).toString('base64');
+    }
+
+    // Count total (without cursor filter, just org + status filter)
+    const countConditions: SQL[] = [ne(templates.status, 'archived')];
+    if (orgId) {
+      countConditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
+    }
+    const allRows = await this.db
+      .select({ id: templates.id })
+      .from(templates)
+      .where(and(...countConditions));
+    const total = allRows.length;
+
+    return {
+      data,
+      pagination: {
+        total,
+        limit,
+        hasMore,
+        nextCursor,
+      },
+    };
+  }
+
+  /**
+   * List system templates (orgId IS NULL). No pagination needed - small fixed set.
+   */
+  async findSystemTemplates() {
     return this.db
       .select()
       .from(templates)
-      .where(and(...conditions));
+      .where(and(isNull(templates.orgId), ne(templates.status, 'archived')))
+      .orderBy(asc(templates.name));
   }
 
   /**

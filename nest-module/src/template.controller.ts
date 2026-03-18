@@ -52,14 +52,17 @@ export class TemplateController {
   @Get()
   async list(
     @Query('orgId') queryOrgId?: string,
+    @Query('limit') queryLimit?: string,
+    @Query('cursor') queryCursor?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     // Prefer orgId from JWT, fallback to query param for dev convenience
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId || queryOrgId;
 
-    const data = await this.templateService.findAll(orgId);
-    return { data, pagination: { total: data.length, limit: 100, hasMore: false } };
+    const limit = queryLimit ? Math.min(Math.max(parseInt(queryLimit, 10) || 100, 1), 1000) : 100;
+
+    return this.templateService.findAll(orgId, { limit, cursor: queryCursor });
   }
 
   @Post()
@@ -94,6 +97,24 @@ export class TemplateController {
       version: result.version,
       createdAt: result.createdAt,
     };
+  }
+
+  @Get('system')
+  async listSystem() {
+    const data = await this.templateService.findSystemTemplates();
+    return { data, total: data.length };
+  }
+
+  @Get('system/:id')
+  async getSystemById(@Param('id') id: string) {
+    const result = await this.templateService.findById(id);
+    if (!result || result.orgId !== null) {
+      throw new HttpException(
+        { statusCode: 404, error: 'Not Found', message: `System template ${id} not found` },
+        HttpStatus.NOT_FOUND,
+      );
+    }
+    return result;
   }
 
   @Get(':id')

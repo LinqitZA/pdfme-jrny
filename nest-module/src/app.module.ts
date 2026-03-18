@@ -22,6 +22,7 @@ import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
 import { JwtAuthGuard } from './auth.guard';
 import { RenderController } from './render.controller';
 import { RenderService } from './render.service';
+import { SeedService } from './seeds/seed.service';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
@@ -62,6 +63,7 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     AssetService,
     SignatureService,
     RenderService,
+    SeedService,
   ],
   exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', TemplateService, AssetService, SignatureService, RenderService],
 })

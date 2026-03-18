@@ -235,6 +235,41 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Notes for next session:
 - Chromium/Playwright still unavailable (missing libatk-1.0.so.0)
 - Verification done via curl + JS bundle inspection
+
+---
+
+## Session 6 - 2026-03-18 - Features #83, #147, #148 (Batch Render Pipeline)
+
+### Completed Features:
+- **Feature #83**: Render bulk creates batch tracking ✅
+  - POST /api/pdfme/render/bulk accepts entityIds array (max 2000)
+  - Returns 202 with batchId, status, totalJobs
+  - Async processing with RenderBatch DB record tracking
+  - GET /api/pdfme/render/batch/:batchId returns progress
+  - Supports onFailure: continue or stop mode
+  - Webhook callback via notifyUrl
+
+- **Feature #147**: Batch render SSE progress stream ✅
+  - GET /api/pdfme/render/batch/:batchId/progress streams SSE events
+  - Content-Type: text/event-stream with proper headers
+  - Events: job_completed, job_failed, batch_complete
+  - Auto-closes connection on batch completion
+  - Handles already-completed batches (sends status immediately)
+
+- **Feature #148**: Batch merge PDFs into single file ✅
+  - POST /api/pdfme/render/batch/:batchId/merge combines all batch PDFs
+  - Uses pdf-lib to merge individual PDFs into single document
+  - Returns mergedDocumentId, filePath, pdfHash, totalPages, documentsIncluded
+  - Proper error handling: 409 if batch still running, 404 if not found
+  - Merged PDF stored at {orgId}/documents/merged_{batchId}_{docId}.pdf
+
+### Key Changes:
+- nest-module/src/render.service.ts: Added renderBulk(), processBatchAsync(), getBatchStatus(), mergeBatchPdfs()
+- nest-module/src/render.controller.ts: Added POST /bulk, GET /batch/:id, GET /batch/:id/progress (SSE), POST /batch/:id/merge
+- Added pdf-lib dependency for PDF merging
+- EventEmitter-based SSE progress streaming
+
+### Current Status: ~25/388 features passing (sessions 1-6 combined)
 - Designer sandbox runs on port 3002
 
 ---
