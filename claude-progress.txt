@@ -236,3 +236,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Chromium/Playwright still unavailable (missing libatk-1.0.so.0)
 - Verification done via curl + JS bundle inspection
 - Designer sandbox runs on port 3002
+
+---
+
+## Session 4 - 2026-03-18 - Features #90, #130, #91 (Signatures)
+
+### Completed Features:
+- **Feature #90**: Signature upload stores PNG ✅
+  - POST /api/pdfme/signatures accepts base64 PNG data, stores in {orgId}/signatures/ dir
+  - Returns 201 with signature ID, userId, orgId, filePath, capturedAt
+  - GET /api/pdfme/signatures/me returns current user's active signature
+  - Unique constraint: re-upload deletes old signature and creates new one
+  - Data persists across server restart (verified)
+
+- **Feature #130**: Drawn signature embeds PNG at render ✅
+  - drawnSignature schema plugin resolves user's signature PNG at render time
+  - RenderService.resolveDrawnSignatures() scans template for drawnSignature fields
+  - Fetches user's signature from SignatureService, converts to base64 data URI
+  - Maps drawnSignature type to pdfme image plugin for PDF generation
+  - Fallback: when no signature exists, renders blank (empty string, no error)
+  - Verified: inputSnapshot shows base64 data URI for signature field
+
+- **Feature #91**: Signature preview returns PNG ✅
+  - GET /api/pdfme/signatures/me/file streams actual PNG binary data
+  - Content-Type: image/png header set correctly
+  - Content-Length matches actual file size
+  - Valid PNG magic bytes verified
+  - Persists across server restart (verified)
+
+### Key Files Created/Modified:
+- nest-module/src/signature.service.ts - SignatureService (upload, getMySignature, revoke, readSignatureFile)
+- nest-module/src/signature.controller.ts - REST endpoints for signatures (POST, GET /me, GET /me/file, DELETE /me)
+- nest-module/src/render.service.ts - Added resolveDrawnSignatures(), drawnSignature plugin mapping
+- packages/erp-schemas/src/drawn-signature/index.ts - drawnSignature plugin definition
+
+### API Endpoints Added:
+- POST   /api/pdfme/signatures         - Upload signature (base64 PNG in body.data)
+- GET    /api/pdfme/signatures/me       - Get current user's signature metadata
+- GET    /api/pdfme/signatures/me/file  - Download signature PNG binary
+- DELETE /api/pdfme/signatures/me       - Revoke current signature
+
+### Notes:
+- JwtAuthGuard was added by another agent (auth.guard.ts) - all endpoints require Bearer token
+- request.user is populated by the guard with {sub, orgId, roles}
+- user_signatures table has unique index on (org_id, user_id) - only one active sig per user per org
+- Storage path: {orgId}/signatures/{uuid}.png
+
+### Current Status: ~12/388 features passing (sessions 1-4 combined)
