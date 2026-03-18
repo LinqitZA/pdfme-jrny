@@ -20,6 +20,8 @@ export interface ExpressionEngineOptions {
   locale?: string;
   /** ISO 4217 currency code (e.g. 'ZAR', 'USD'). Defaults to 'USD'. */
   currency?: string;
+  /** IANA timezone identifier (e.g. 'Africa/Johannesburg', 'America/New_York'). Defaults to 'UTC'. */
+  timezone?: string;
   /**
    * How to handle expression evaluation errors:
    * - 'emptyString': return empty string (show blank)
@@ -47,10 +49,12 @@ export class ExpressionEngine {
   private parser: Parser;
   private locale: string;
   private currency: string;
+  private timezone: string;
 
   constructor(options: ExpressionEngineOptions = {}) {
     this.locale = options.locale || 'en-US';
     this.currency = options.currency || 'USD';
+    this.timezone = options.timezone || 'UTC';
 
     this.parser = new Parser({
       operators: {
@@ -271,28 +275,75 @@ export class ExpressionEngine {
   }
 
   /**
+   * Get date/time parts in the configured timezone using Intl.DateTimeFormat.
+   * Returns { year, month (1-12), day, hour, minute, second }.
+   */
+  private getDatePartsInTimezone(date: Date): { year: number; month: number; day: number; hour: number; minute: number; second: number } {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: this.timezone,
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(date);
+      const get = (type: string): number => {
+        const part = parts.find(p => p.type === type);
+        return part ? parseInt(part.value, 10) : 0;
+      };
+      return {
+        year: get('year'),
+        month: get('month'),
+        day: get('day'),
+        hour: get('hour') === 24 ? 0 : get('hour'), // midnight is sometimes 24
+        minute: get('minute'),
+        second: get('second'),
+      };
+    } catch {
+      // Fallback to UTC if timezone is invalid
+      return {
+        year: date.getUTCFullYear(),
+        month: date.getUTCMonth() + 1,
+        day: date.getUTCDate(),
+        hour: date.getUTCHours(),
+        minute: date.getUTCMinutes(),
+        second: date.getUTCSeconds(),
+      };
+    }
+  }
+
+  /**
    * Register date functions: TODAY, YEAR, MONTH, DAY, DATEDIFF, FORMAT (date version).
    */
   private registerDateFunctions(): void {
-    // TODAY() - returns current date as epoch ms timestamp
+    // TODAY() - returns current date as epoch ms timestamp, timezone-aware
     this.parser.functions.TODAY = (): number => {
       const now = new Date();
-      return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const parts = this.getDatePartsInTimezone(now);
+      // Create a UTC date representing midnight in the configured timezone
+      return Date.UTC(parts.year, parts.month - 1, parts.day);
     };
 
-    // YEAR(date) - extracts year from a date value
+    // YEAR(date) - extracts year from a date value, timezone-aware
     this.parser.functions.YEAR = (value: unknown): number => {
-      return this.toDate(value).getFullYear();
+      const date = this.toDate(value);
+      return this.getDatePartsInTimezone(date).year;
     };
 
-    // MONTH(date) - extracts month (1-12) from a date value
+    // MONTH(date) - extracts month (1-12) from a date value, timezone-aware
     this.parser.functions.MONTH = (value: unknown): number => {
-      return this.toDate(value).getMonth() + 1;
+      const date = this.toDate(value);
+      return this.getDatePartsInTimezone(date).month;
     };
 
-    // DAY(date) - extracts day of month from a date value
+    // DAY(date) - extracts day of month from a date value, timezone-aware
     this.parser.functions.DAY = (value: unknown): number => {
-      return this.toDate(value).getDate();
+      const date = this.toDate(value);
+      return this.getDatePartsInTimezone(date).day;
     };
 
     // DATEDIFF(date1, date2) - returns difference in days (date1 - date2)
@@ -303,7 +354,7 @@ export class ExpressionEngine {
       return Math.round(diffMs / (1000 * 60 * 60 * 24));
     };
 
-    // FORMAT(value, pattern) - formats a date with the given pattern
+    // FORMAT(value, pattern) - formats a date with the given pattern, timezone-aware
     // Supports: yyyy, yy, MM, dd, HH, mm, ss, MMMM, MMM
     this.parser.functions.FORMAT = (value: unknown, pattern: unknown): string => {
       // If the value looks numeric and pattern looks like a number format, delegate to numeric FORMAT
@@ -312,6 +363,7 @@ export class ExpressionEngine {
       }
 
       const date = this.toDate(value);
+      const parts = this.getDatePartsInTimezone(date);
       let result = String(pattern);
 
       const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -320,15 +372,15 @@ export class ExpressionEngine {
         'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
       // Replace tokens (order matters - longer tokens first)
-      result = result.replace(/yyyy/g, String(date.getFullYear()));
-      result = result.replace(/yy/g, String(date.getFullYear()).slice(-2));
-      result = result.replace(/MMMM/g, monthNames[date.getMonth()]);
-      result = result.replace(/MMM/g, monthShort[date.getMonth()]);
-      result = result.replace(/MM/g, String(date.getMonth() + 1).padStart(2, '0'));
-      result = result.replace(/dd/g, String(date.getDate()).padStart(2, '0'));
-      result = result.replace(/HH/g, String(date.getHours()).padStart(2, '0'));
-      result = result.replace(/mm/g, String(date.getMinutes()).padStart(2, '0'));
-      result = result.replace(/ss/g, String(date.getSeconds()).padStart(2, '0'));
+      result = result.replace(/yyyy/g, String(parts.year));
+      result = result.replace(/yy/g, String(parts.year).slice(-2));
+      result = result.replace(/MMMM/g, monthNames[parts.month - 1]);
+      result = result.replace(/MMM/g, monthShort[parts.month - 1]);
+      result = result.replace(/MM/g, String(parts.month).padStart(2, '0'));
+      result = result.replace(/dd/g, String(parts.day).padStart(2, '0'));
+      result = result.replace(/HH/g, String(parts.hour).padStart(2, '0'));
+      result = result.replace(/mm/g, String(parts.minute).padStart(2, '0'));
+      result = result.replace(/ss/g, String(parts.second).padStart(2, '0'));
 
       return result;
     };
@@ -415,13 +467,17 @@ export class ExpressionEngine {
       }
     };
 
-    // FORMAT_DATE(value) - formats date using org locale
+    // FORMAT_DATE(value) - formats date using org locale and timezone
     this.parser.functions.FORMAT_DATE = (value: unknown): string => {
       const date = this.toDate(value);
       try {
-        return new Intl.DateTimeFormat(this.locale).format(date);
+        return new Intl.DateTimeFormat(this.locale, { timeZone: this.timezone }).format(date);
       } catch {
-        return date.toLocaleDateString();
+        try {
+          return new Intl.DateTimeFormat(this.locale).format(date);
+        } catch {
+          return date.toLocaleDateString();
+        }
       }
     };
 

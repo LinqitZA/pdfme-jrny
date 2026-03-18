@@ -13,7 +13,7 @@ import { Controller, Post, Get, Body, BadRequestException, Req } from '@nestjs/c
 import { ExpressionEngine, ExpressionEngineOptions } from '../../packages/erp-schemas/src/expression-engine';
 
 /** In-memory locale config per org (in production, this would be stored in DB) */
-const orgLocaleConfigs: Map<string, { locale: string; currency: string }> = new Map();
+const orgLocaleConfigs: Map<string, { locale: string; currency: string; timezone: string }> = new Map();
 
 @Controller('api/pdfme/expressions')
 export class ExpressionController {
@@ -23,6 +23,7 @@ export class ExpressionController {
     context?: Record<string, unknown>;
     locale?: string;
     currency?: string;
+    timezone?: string;
     onError?: 'emptyString' | '#ERROR' | 'fail';
   }, @Req() req: any) {
     if (!body.expression || typeof body.expression !== 'string') {
@@ -35,6 +36,7 @@ export class ExpressionController {
     const engineOptions: ExpressionEngineOptions = {
       locale: body.locale || orgConfig?.locale || 'en-US',
       currency: body.currency || orgConfig?.currency || 'USD',
+      timezone: body.timezone || orgConfig?.timezone || 'UTC',
       onError: body.onError,
     };
 
@@ -48,6 +50,7 @@ export class ExpressionController {
         type: typeof result,
         locale: engineOptions.locale,
         currency: engineOptions.currency,
+        timezone: engineOptions.timezone,
       };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -60,17 +63,18 @@ export class ExpressionController {
    * POST body: { locale: 'en-ZA', currency: 'ZAR' }
    */
   @Post('locale')
-  setLocale(@Body() body: { locale?: string; currency?: string }, @Req() req: any) {
+  setLocale(@Body() body: { locale?: string; currency?: string; timezone?: string }, @Req() req: any) {
     const orgId = req.user?.orgId || '';
 
-    if (!body.locale && !body.currency) {
-      throw new BadRequestException('At least one of locale or currency is required');
+    if (!body.locale && !body.currency && !body.timezone) {
+      throw new BadRequestException('At least one of locale, currency, or timezone is required');
     }
 
-    const current = orgLocaleConfigs.get(orgId) || { locale: 'en-US', currency: 'USD' };
+    const current = orgLocaleConfigs.get(orgId) || { locale: 'en-US', currency: 'USD', timezone: 'UTC' };
 
     if (body.locale) current.locale = body.locale;
     if (body.currency) current.currency = body.currency;
+    if (body.timezone) current.timezone = body.timezone;
 
     orgLocaleConfigs.set(orgId, current);
 
@@ -78,6 +82,7 @@ export class ExpressionController {
       orgId,
       locale: current.locale,
       currency: current.currency,
+      timezone: current.timezone,
       message: 'Locale config updated',
     };
   }
@@ -88,11 +93,12 @@ export class ExpressionController {
   @Get('locale')
   getLocale(@Req() req: any) {
     const orgId = req.user?.orgId || '';
-    const config = orgLocaleConfigs.get(orgId) || { locale: 'en-US', currency: 'USD' };
+    const config = orgLocaleConfigs.get(orgId) || { locale: 'en-US', currency: 'USD', timezone: 'UTC' };
     return {
       orgId,
       locale: config.locale,
       currency: config.currency,
+      timezone: config.timezone,
     };
   }
 }

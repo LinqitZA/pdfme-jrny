@@ -116,12 +116,18 @@ export class RenderController {
     }
 
     if ('error' in result && 'document' in result) {
+      // Serialize Date objects to ISO strings for proper JSON response
+      const doc = result.document as Record<string, unknown>;
+      const serializedDoc = {
+        ...doc,
+        createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt,
+      };
       throw new HttpException(
         {
           statusCode: 500,
           error: 'Internal Server Error',
           message: result.error,
-          document: result.document,
+          document: serializedDoc,
         },
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
@@ -129,8 +135,14 @@ export class RenderController {
 
     // Add downloadUrl for the client to use
     if ('document' in result && result.document?.id) {
+      // Serialize Date objects to ISO strings for proper JSON response
+      const doc = result.document as Record<string, unknown>;
+      const serializedDoc = {
+        ...doc,
+        createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt,
+      };
       return {
-        ...result,
+        document: serializedDoc,
         downloadUrl: `/api/pdfme/render/document/${result.document.id}`,
       };
     }
