@@ -1,3 +1,29 @@
+## Session - 2026-03-18 - Feature #395 (Printer Selection UI in Designer)
+
+### Completed Feature:
+- **Feature #395**: Printer selection UI in designer — preview and print labels directly ✅
+  - Created PrintDialog component (apps/designer-sandbox/components/PrintDialog.tsx)
+  - Printer dropdown fetches from GET /api/pdfme/printers endpoint
+  - Auto-selects default printer or first available printer
+  - Quantity (copies) input with min=1, max=999 validation
+  - Actual-size preview panel at 1:1 scale (96 DPI screen, 72 DPI PDF conversion)
+  - Preview shows page dimensions in mm, scales to fit max 300px width
+  - Print button added to designer toolbar (btn-print, cyan #0891b2 color)
+  - Print confirmation calls POST /api/pdfme/print with templateId, printerId, inputs
+  - Success/error messages within dialog and via toast notifications
+  - No printers configured shows setup instructions with API endpoint reference
+  - Dialog close via X button, Cancel button, or overlay click
+  - 64/64 tests passing
+
+### Key Files Created/Modified:
+- apps/designer-sandbox/components/PrintDialog.tsx - NEW: Print dialog modal component
+- apps/designer-sandbox/components/ErpDesigner.tsx - Added Print button and PrintDialog integration
+- tests/test-feature-395-printer-selection-ui.js - 64 tests
+
+### Test Results: 64/64 tests passing
+
+---
+
 ## Session - 2026-03-18 - Features #391, #393, #394 (Label Printing Suite)
 
 ### Completed Features:
