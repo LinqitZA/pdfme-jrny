@@ -1950,3 +1950,40 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 104/104 tests passing across 3 test suites
 ### Current Status: ~140/388 features passing (36.1%)
+
+---
+
+## Session - 2026-03-18 - Features #220, #221, #222 (Double-click Prevention, Concurrent Renders)
+
+### Completed Features:
+- **Feature #220**: Double-click publish prevented ✅
+  - Added isPublishingRef guard to handlePublish callback
+  - Ref set to true before publish, reset in finally block
+  - Button already disabled via publishStatus state, ref prevents race condition
+  - 14/14 tests passing
+
+- **Feature #221**: Double-click delete prevented ✅
+  - Added archive button to TemplateList component (btn-archive-{id})
+  - archivingRef prevents concurrent archive calls for same template
+  - archivingId state disables button and shows "Archiving…" text
+  - stopPropagation prevents card click when archiving
+  - Template removed from local list on successful archive
+  - 16/16 tests passing
+
+- **Feature #222**: Concurrent render requests handled ✅
+  - Verified renderNow creates unique docId (cuid2) per call
+  - Simultaneous POST /render/now for same templateId both produce separate documents
+  - 5 concurrent renders all produce unique document IDs
+  - Same entityId concurrent renders create separate GeneratedDocument records
+  - No interference between concurrent renders (correct entityId/channel per request)
+  - 28/28 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - isPublishingRef for publish double-click guard
+- apps/designer-sandbox/components/TemplateList.tsx - Archive button with archivingRef guard
+- tests/test-feature-220-double-publish.js - 14 tests
+- tests/test-feature-221-double-delete.js - 16 tests
+- tests/test-feature-222-concurrent-render.js - 28 tests
+
+### Test Results: 58/58 tests passing across 3 test suites
+### Current Status: ~141/388 features passing (36.3%)
