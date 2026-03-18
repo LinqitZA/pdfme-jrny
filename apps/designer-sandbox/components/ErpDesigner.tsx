@@ -363,10 +363,18 @@ export default function ErpDesigner({
     }
 
     let cancelled = false;
+    const abortController = new AbortController();
 
     async function loadTemplate() {
       setIsLoading(true);
       setLoadError(null);
+      // Reset state immediately to prevent stale data flash during rapid navigation
+      setIsDirty(false);
+      isDirtyRef.current = false;
+      setSaveStatus('idle');
+      setSaveError(null);
+      setPublishStatus('idle');
+      setPublishError(null);
 
       try {
         const headers: Record<string, string> = {};
@@ -374,7 +382,7 @@ export default function ErpDesigner({
           headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
         }
 
-        const response = await fetch(`${apiBase}/templates/${templateId}`, { headers });
+        const response = await fetch(`${apiBase}/templates/${templateId}`, { headers, signal: abortController.signal });
 
         if (!response.ok) {
           const errBody = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
@@ -479,6 +487,8 @@ export default function ErpDesigner({
         setIsLoading(false);
       } catch (err: unknown) {
         if (cancelled) return;
+        // Abort errors are expected during rapid navigation - silently ignore
+        if (err instanceof DOMException && err.name === 'AbortError') return;
         const msg = err instanceof Error ? err.message : String(err);
         setLoadError(msg);
         setIsLoading(false);
@@ -489,6 +499,7 @@ export default function ErpDesigner({
 
     return () => {
       cancelled = true;
+      abortController.abort(); // Cancel in-flight fetch to prevent stale data
       // Release lock on unmount if we hold it
       if (templateId && !isReadOnly) {
         const headers: Record<string, string> = {};
