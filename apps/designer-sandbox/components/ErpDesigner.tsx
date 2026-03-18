@@ -5332,18 +5332,47 @@ export default function ErpDesigner({
             {/* Render elements on canvas - with page simulator visibility */}
             {currentPage && currentPage.elements.map((el) => {
               const simHidden = pageSimulatorCount !== null && !isElementVisibleInSimulation(el);
+              const scope = el.pageScope || 'all';
+              const isOutOfScope = simHidden;
+              const scopeLabels: Record<string, string> = { first: 'First only', last: 'Last only', notFirst: 'Not first' };
               return (
                 <div
                   key={`sim-wrap-${el.id}`}
                   data-sim-hidden={simHidden ? 'true' : 'false'}
-                  data-page-scope={el.pageScope || 'all'}
+                  data-page-scope={scope}
+                  data-out-of-scope={isOutOfScope ? 'true' : 'false'}
                   style={{
-                    opacity: simHidden ? 0.15 : 1,
-                    pointerEvents: simHidden ? 'none' : 'auto',
+                    position: 'relative',
+                    opacity: isOutOfScope ? 0.5 : 1,
+                    pointerEvents: isOutOfScope ? 'none' : 'auto',
                     transition: 'opacity 0.2s ease',
                   }}
                 >
                   {renderCanvasElement(el)}
+                  {isOutOfScope && scope !== 'all' && (
+                    <div
+                      data-testid={`scope-badge-${el.id}`}
+                      className="scope-badge"
+                      style={{
+                        position: 'absolute',
+                        top: `${-8 * (zoom / 100)}px`,
+                        right: `${-4 * (zoom / 100)}px`,
+                        fontSize: `${9 * (zoom / 100)}px`,
+                        color: '#9333ea',
+                        backgroundColor: '#f3e8ff',
+                        border: '1px solid #d8b4fe',
+                        padding: `${1 * (zoom / 100)}px ${4 * (zoom / 100)}px`,
+                        borderRadius: '3px',
+                        fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                        pointerEvents: 'auto',
+                        zIndex: 10,
+                        userSelect: 'none',
+                      }}
+                    >
+                      {scopeLabels[scope] || scope}
+                    </div>
+                  )}
                 </div>
               );
             })}
