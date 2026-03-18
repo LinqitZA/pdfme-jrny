@@ -2925,3 +2925,35 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 128/128 tests passing across 3 test suites
 ### Current Status: ~208/388 features passing (53.6%)
+
+---
+
+## Session - 2026-03-18 - Features #293, #294, #295 (Responsive Layout)
+
+### Completed Features:
+- **Feature #293**: Designer layout responsive at 1920px desktop
+  - Added data-testid to root, maxWidth 100vw, overflow hidden
+  - Added flexWrap wrap to toolbar
+  - Layout: left 260 + center 1380 + right 280 = 1920
+  - 49/49 tests passing
+
+- **Feature #294**: Designer layout at 1366px laptop
+  - Layout: left 260 + center 826 + right 280 = 1366
+  - A4 fits at 100-125 pct zoom, scrolls at higher
+  - 36/36 tests passing
+
+- **Feature #295**: Designer layout at 1024px tablet landscape
+  - Added medium breakpoint at max-width 1200px
+  - Left panel reduces to 220px, right to 240px
+  - Canvas padding reduces to 16px, toolbar gap to 8px
+  - Layout at 1024: left 220 + center 564 + right 240 = 1024
+  - 49/49 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Root constraints, toolbar flexWrap, medium breakpoint CSS
+- tests/test-responsive-1920-293.js - 49 tests
+- tests/test-responsive-1366-294.js - 36 tests
+- tests/test-responsive-1024-295.js - 49 tests
+
+### Test Results: 134/134 tests passing across 3 test suites
+### Current Status: ~218/388 features passing (56.2 pct)
