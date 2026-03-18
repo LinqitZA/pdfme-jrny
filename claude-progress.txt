@@ -5579,3 +5579,22 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-396-print-job-queue.js - 67 comprehensive tests
 
 ### Current Status: 392/396 features passing (99.0%)
+
+
+---
+
+## Session - 2026-03-18 - Feature #400 (Remove Error Suppression from Dockerfile)
+
+### Completed Feature:
+- **Feature #400**: Remove error suppression from Dockerfile build steps
+  - Removed error suppression (2>/dev/null || true) from lines 20-24 in nest-module/Dockerfile
+  - All 5 upstream package builds (pdf-lib, common, converter, schemas, generator) now run without suppression
+  - All build scripts exist and are required - errors should be visible for debugging
+  - erp-schemas and nest-module builds already had no suppression
+  - Verified docker build completes successfully with all errors visible
+  - Verified all dist/ folders populated in builder stage
+
+### Key Files Modified:
+- nest-module/Dockerfile - Removed error suppression from 5 upstream build steps
+
+### Current Status: 401/405 features passing (99.0%)
