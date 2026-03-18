@@ -392,6 +392,25 @@ export default function ErpDesigner({
   const saveRetryCountRef = useRef(0);
   const MAX_RECONNECT_RETRIES = 5;
 
+  // ─── Responsive viewport state ───
+  const NARROW_BREAKPOINT = 768;
+  const [isNarrowViewport, setIsNarrowViewport] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= NARROW_BREAKPOINT : false
+  );
+  const [mobilePanelOpen, setMobilePanelOpen] = useState<'left' | 'right' | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const narrow = window.innerWidth <= NARROW_BREAKPOINT;
+      setIsNarrowViewport(narrow);
+      if (!narrow) {
+        setMobilePanelOpen(null); // Close mobile drawers when going wide
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Keep isDirtyRef in sync with isDirty state
   useEffect(() => {
     isDirtyRef.current = isDirty;
@@ -2628,13 +2647,64 @@ export default function ErpDesigner({
 
   return (
     <>
-    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <style>{`
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (max-width: 768px) {
+        .erp-designer-toolbar {
+          flex-wrap: wrap !important;
+          gap: 6px !important;
+          padding: 6px 8px !important;
+          min-height: auto !important;
+        }
+        .erp-designer-toolbar > * {
+          flex-shrink: 1;
+        }
+        .erp-designer-toolbar select,
+        .erp-designer-toolbar input {
+          max-width: 120px;
+        }
+        .erp-designer-panels {
+          position: relative;
+        }
+        .erp-designer-left-panel,
+        .erp-designer-right-panel {
+          position: absolute !important;
+          top: 0 !important;
+          bottom: 0 !important;
+          z-index: 100 !important;
+          box-shadow: 2px 0 12px rgba(0,0,0,0.15) !important;
+          transition: transform 0.2s ease !important;
+        }
+        .erp-designer-left-panel {
+          left: 0 !important;
+        }
+        .erp-designer-right-panel {
+          right: 0 !important;
+          box-shadow: -2px 0 12px rgba(0,0,0,0.15) !important;
+        }
+        .erp-designer-left-panel.panel-hidden {
+          transform: translateX(-100%) !important;
+        }
+        .erp-designer-right-panel.panel-hidden {
+          transform: translateX(100%) !important;
+        }
+        .erp-designer-canvas {
+          padding: 8px !important;
+        }
+        .erp-designer {
+          overflow-x: hidden !important;
+        }
+      }
+    `}</style>
     <div
       className="erp-designer"
+      data-testid="erp-designer-root"
       style={{
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
+        maxWidth: '100vw',
+        overflow: 'hidden',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         color: '#1a1a2e',
         backgroundColor: '#f8f9fa',
@@ -2676,7 +2746,8 @@ export default function ErpDesigner({
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
+          flexWrap: 'wrap',
+          gap: '8px 12px',
           padding: '8px 16px',
           backgroundColor: '#ffffff',
           borderBottom: '1px solid #e2e8f0',
@@ -3180,7 +3251,7 @@ export default function ErpDesigner({
       >
         {/* ─── Left Panel ─── */}
         <div
-          className="erp-designer-left-panel"
+          className={`erp-designer-left-panel${isNarrowViewport && mobilePanelOpen !== 'left' ? ' panel-hidden' : ''}`}
           data-testid="left-panel"
           style={{
             width: '260px',
@@ -3550,6 +3621,23 @@ export default function ErpDesigner({
           </div>
         </div>
 
+        {/* ─── Mobile Panel Overlay Backdrop ─── */}
+        {isNarrowViewport && mobilePanelOpen && (
+          <div
+            data-testid="mobile-panel-backdrop"
+            onClick={() => setMobilePanelOpen(null)}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.3)',
+              zIndex: 99,
+            }}
+          />
+        )}
+
         {/* ─── Center Canvas ─── */}
         <div
           className="erp-designer-canvas"
@@ -3563,12 +3651,68 @@ export default function ErpDesigner({
             justifyContent: 'center',
             overflow: 'auto',
             padding: '24px',
+            position: 'relative',
           }}
           onClick={() => {
             setSelectedElementId(null);
             setShowBindingPicker(false);
           }}
         >
+          {/* ─── Mobile Panel Toggle Buttons ─── */}
+          {isNarrowViewport && (
+            <>
+              <button
+                data-testid="btn-toggle-left-panel"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMobilePanelOpen(mobilePanelOpen === 'left' ? null : 'left');
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  left: '8px',
+                  zIndex: 50,
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: mobilePanelOpen === 'left' ? '#3b82f6' : '#ffffff',
+                  color: mobilePanelOpen === 'left' ? '#fff' : '#334155',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                }}
+                title="Toggle blocks/fields panel"
+              >
+                ☰ Blocks
+              </button>
+              <button
+                data-testid="btn-toggle-right-panel"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMobilePanelOpen(mobilePanelOpen === 'right' ? null : 'right');
+                }}
+                style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  zIndex: 50,
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                  backgroundColor: mobilePanelOpen === 'right' ? '#3b82f6' : '#ffffff',
+                  color: mobilePanelOpen === 'right' ? '#fff' : '#334155',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                }}
+                title="Toggle properties panel"
+              >
+                ⚙ Properties
+              </button>
+            </>
+          )}
           {/* A4 Page */}
           <div
             data-testid="canvas-page"
@@ -3647,7 +3791,7 @@ export default function ErpDesigner({
 
         {/* ─── Right Properties Panel ─── */}
         <div
-          className="erp-designer-right-panel"
+          className={`erp-designer-right-panel${isNarrowViewport && mobilePanelOpen !== 'right' ? ' panel-hidden' : ''}`}
           data-testid="right-panel"
           style={{
             width: '280px',
