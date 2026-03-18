@@ -9,7 +9,7 @@
 import { Injectable, Inject, Optional } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
-import { templates } from './db/schema';
+import { templates, templateVersions } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { AuditService } from './audit.service';
 import { FileStorageService } from './file-storage.service';
@@ -125,12 +125,16 @@ export class TemplateService {
    * Cursor is based on createdAt descending + id for stable ordering.
    * The cursor format is: base64(JSON({createdAt, id}))
    */
-  async findAll(orgId?: string, options?: { limit?: number; cursor?: string }) {
+  async findAll(orgId?: string, options?: { limit?: number; cursor?: string; type?: string }) {
     const limit = options?.limit ?? 100;
     const conditions: SQL[] = [ne(templates.status, 'archived')];
 
     if (orgId) {
       conditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
+    }
+
+    if (options?.type) {
+      conditions.push(eq(templates.type, options.type));
     }
 
     // Decode cursor if provided
@@ -169,10 +173,13 @@ export class TemplateService {
       ).toString('base64');
     }
 
-    // Count total (without cursor filter, just org + status filter)
+    // Count total (without cursor filter, just org + status + type filter)
     const countConditions: SQL[] = [ne(templates.status, 'archived')];
     if (orgId) {
       countConditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
+    }
+    if (options?.type) {
+      countConditions.push(eq(templates.type, options.type));
     }
     const allRows = await this.db
       .select({ id: templates.id })
@@ -189,6 +196,25 @@ export class TemplateService {
         nextCursor,
       },
     };
+  }
+
+  /**
+   * Get distinct template types for the given org (plus system templates).
+   * Used to populate filter dropdowns from real database data.
+   */
+  async getDistinctTypes(orgId?: string): Promise<string[]> {
+    const conditions: SQL[] = [ne(templates.status, 'archived')];
+    if (orgId) {
+      conditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
+    }
+
+    const rows = await this.db
+      .select({ type: templates.type })
+      .from(templates)
+      .where(and(...conditions));
+
+    const types = [...new Set(rows.map(r => r.type).filter(Boolean))].sort();
+    return types;
   }
 
   /**
@@ -418,6 +444,18 @@ export class TemplateService {
       .where(eq(templates.id, id))
       .returning();
 
+    // Create version history entry
+    if (result) {
+      await this.createVersionEntry({
+        id: result.id,
+        orgId: result.orgId,
+        version: result.version,
+        status: 'published',
+        schema: result.schema,
+        createdBy: result.createdBy,
+      }, 'Published');
+    }
+
     // Audit log
     if (this.auditService && result) {
       await this.auditService.log({
@@ -462,6 +500,57 @@ export class TemplateService {
     }
 
     return result || null;
+  }
+
+  // ─── Version History ──────────────────────────────────────────────────
+
+  /**
+   * Create a version history entry for a template.
+   * Called on publish and other significant actions.
+   */
+  async createVersionEntry(template: {
+    id: string;
+    orgId: string | null;
+    version: number;
+    status: string;
+    schema: unknown;
+    createdBy: string;
+  }, changeNote?: string) {
+    const id = createId();
+    await this.db.insert(templateVersions).values({
+      id,
+      templateId: template.id,
+      orgId: template.orgId,
+      version: template.version,
+      status: template.status,
+      schema: template.schema as Record<string, unknown>,
+      savedBy: template.createdBy,
+      savedAt: new Date(),
+      changeNote: changeNote || null,
+    });
+    return id;
+  }
+
+  /**
+   * Get version history for a template, ordered by version descending.
+   * Capped at 50 entries.
+   */
+  async getVersionHistory(templateId: string, orgId?: string) {
+    const conditions: SQL[] = [eq(templateVersions.templateId, templateId)];
+    if (orgId) {
+      conditions.push(
+        or(eq(templateVersions.orgId, orgId), isNull(templateVersions.orgId))!,
+      );
+    }
+
+    const rows = await this.db
+      .select()
+      .from(templateVersions)
+      .where(and(...conditions))
+      .orderBy(desc(templateVersions.savedAt))
+      .limit(50);
+
+    return rows;
   }
 
   // ─── Template Export / Import ────────────────────────────────────────

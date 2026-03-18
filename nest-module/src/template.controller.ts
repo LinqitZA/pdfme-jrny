@@ -59,6 +59,7 @@ export class TemplateController {
     @Query('orgId') queryOrgId?: string,
     @Query('limit') queryLimit?: string,
     @Query('cursor') queryCursor?: string,
+    @Query('type') queryType?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     // Prefer orgId from JWT, fallback to query param for dev convenience
@@ -67,7 +68,19 @@ export class TemplateController {
 
     const limit = queryLimit ? Math.min(Math.max(parseInt(queryLimit, 10) || 100, 1), 1000) : 100;
 
-    return this.templateService.findAll(orgId, { limit, cursor: queryCursor });
+    return this.templateService.findAll(orgId, { limit, cursor: queryCursor, type: queryType });
+  }
+
+  @Get('types')
+  async getDistinctTypes(
+    @Query('orgId') queryOrgId?: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId || queryOrgId;
+
+    const types = await this.templateService.getDistinctTypes(orgId);
+    return { types };
   }
 
   @Post()
@@ -175,6 +188,18 @@ export class TemplateController {
       );
     }
     return result;
+  }
+
+  @Get(':id/versions')
+  async getVersionHistory(
+    @Param('id') id: string,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    const orgId = jwt?.orgId;
+
+    const versions = await this.templateService.getVersionHistory(id, orgId);
+    return { data: versions, total: versions.length };
   }
 
   @Get(':id/export')
