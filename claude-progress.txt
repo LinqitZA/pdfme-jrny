@@ -3643,3 +3643,44 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 89/89 tests passing across 3 features
 ### Current Status: ~262/388 features passing (67.5%)
+
+---
+
+## Session - 2026-03-18 - Features #340, #341, #342 (Queue Persistence and Export/Import)
+
+### Completed Features:
+- **Feature #340**: Bull queue job survives server restart
+  - Submitted delayed job (120s delay) to queue
+  - Verified job persisted in Redis (HGET bull:pdfme-render:id data)
+  - Killed server, verified job still in Redis while server down
+  - Restarted server, verified job accessible via API with data intact
+  - New jobs process successfully after restart
+  - Queue infrastructure (meta keys, delayed sorted set) preserved
+  - Added delay/priority support to queue submit endpoint
+  - 41/41 tests passing
+
+- **Feature #341**: Export creates valid JSON package
+  - Export returns version 1 package with ISO 8601 exportedAt
+  - Assets section: images base64-encoded with path and mimeType
+  - JSON round-trip preserves all data
+  - Import on different org creates new template with all data intact
+  - Re-export matches original schema exactly
+  - 52/52 tests passing
+
+- **Feature #342**: Import validates against current system
+  - Valid package imports successfully as draft (201)
+  - Unknown schema fields preserved (forward compatibility)
+  - Missing required fields return 400/422 with field-specific errors
+  - Invalid data types and unsupported versions rejected
+  - Auth required (401 for invalid token)
+  - Package with base64 assets extracts images correctly
+  - 46/46 tests passing
+
+### Key Files Modified:
+- nest-module/src/render-queue.controller.ts - delay/priority support
+- tests/test-feature-340-queue-restart.js - 41 tests
+- tests/test-feature-341-template-export.js - 52 tests
+- tests/test-feature-342-template-import-validation.js - 46 tests
+
+### Test Results: 139/139 tests passing across 3 features
+### Current Status: ~265/388 features passing (68.3%)
