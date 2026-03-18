@@ -21,6 +21,7 @@ import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
 import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
 import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
+import { PdfaProcessor } from './pdfa-processor';
 
 export interface RenderNowDto {
   templateId: string;
@@ -52,6 +53,7 @@ export class RenderService {
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
     private readonly signatureService: SignatureService,
+    private readonly pdfaProcessor: PdfaProcessor,
   ) {
     // Allow many listeners (one per SSE client)
     this.batchEvents.setMaxListeners(100);
@@ -234,6 +236,15 @@ export class RenderService {
         console.error('Watermark application failed:', err);
         // Continue without watermark rather than failing the entire render
       }
+    }
+
+    // 4d. Convert to PDF/A-3b (Ghostscript or pdf-lib fallback)
+    try {
+      const pdfaResult = await this.pdfaProcessor.convertToPdfA3b(pdfBuffer);
+      pdfBuffer = new Uint8Array(pdfaResult.pdfBuffer);
+    } catch (err: unknown) {
+      console.error('PDF/A-3b conversion failed:', err);
+      // Continue without PDF/A conversion rather than failing the entire render
     }
 
     // 5. Compute SHA-256 hash
@@ -917,5 +928,240 @@ export class RenderService {
         return field;
       });
     });
+  }
+
+  /**
+   * Generate a preview PDF from a template with sample data.
+   *
+   * This endpoint works on any template status (draft or published).
+   * It generates sample inputs from the template's field names,
+   * runs the full render pipeline, and applies a "PREVIEW — NOT A LEGAL DOCUMENT"
+   * watermark. The preview is stored temporarily and a download URL is returned.
+   *
+   * @param template - The template record (any status)
+   * @param orgId - Tenant org ID
+   * @param userId - User ID
+   * @param channel - Output channel (email/print)
+   * @param sampleRowCount - Number of sample line items (5, 15, or 30)
+   */
+  async generatePreview(
+    template: { id: string; schema: unknown; type: string; version: number; name: string },
+    orgId: string,
+    userId: string,
+    channel: string,
+    sampleRowCount: number,
+  ) {
+    // 1. Build pdfme template from the stored schema
+    const templateSchema = template.schema as Record<string, unknown>;
+    let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+
+    // 2. Generate sample inputs from template field names
+    let inputs = [this.buildSampleInputs(pdfmeTemplate, sampleRowCount)];
+
+    // 3. Run the full render pipeline (same as renderNow but without DB record)
+    // 3b. Resolve drawnSignature fields
+    await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+
+    // 3b2. Resolve erpImage elements
+    const erpImageResult = await resolveErpImages(pdfmeTemplate, inputs, {
+      readFile: (p: string) => this.fileStorage.read(p),
+      fileExists: (p: string) => this.fileStorage.exists(p),
+      listFiles: (p: string) => this.fileStorage.list(p),
+      orgId,
+    });
+    pdfmeTemplate = erpImageResult.template as typeof pdfmeTemplate;
+    inputs = erpImageResult.inputs;
+
+    // 3c. Resolve lineItemsTable elements
+    const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
+    inputs = resolvedLit.inputs;
+
+    // 3d. Resolve qrBarcode elements
+    const resolvedQr = resolveQrBarcodes(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedQr.template as typeof pdfmeTemplate;
+    inputs = resolvedQr.inputs;
+
+    // 3e. Resolve richText elements
+    const richTextResult = resolveRichText(pdfmeTemplate, inputs);
+    pdfmeTemplate = richTextResult.template as typeof pdfmeTemplate;
+    inputs = richTextResult.inputs;
+    const richTextInfo: RichTextRenderInfo[] = richTextResult.richTextInfo;
+
+    // 3e2. Resolve signatureBlock elements
+    const sigBlockResult = resolveSignatureBlocks(pdfmeTemplate, inputs);
+    pdfmeTemplate = sigBlockResult.template as typeof pdfmeTemplate;
+    inputs = sigBlockResult.inputs;
+
+    // 3f. Resolve page scopes
+    this.resolvePageScopes(pdfmeTemplate);
+
+    // 3g. Resolve conditions
+    this.resolveConditions(pdfmeTemplate, inputs);
+
+    // 3g2. Resolve output channels
+    this.resolveOutputChannels(pdfmeTemplate, channel);
+
+    // 3h. Resolve calculated fields
+    const resolvedCalc = resolveCalculatedFields(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
+    inputs = resolvedCalc.inputs;
+
+    // 3i. Extract and remove watermark elements (template's own watermark)
+    const _templateWatermark = extractWatermarkFromTemplate(pdfmeTemplate.schemas, inputs);
+    pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
+      if (!Array.isArray(page)) return page;
+      return page.filter((field: unknown) => {
+        if (field && typeof field === 'object' && 'type' in field) {
+          return (field as { type: string }).type !== 'watermark';
+        }
+        return true;
+      });
+    });
+
+    // 4. Generate PDF
+    let pdfBuffer: Uint8Array;
+    const { generate } = await import('@pdfme/generator');
+    const schemas = await import('@pdfme/schemas');
+
+    const plugins = {
+      text: schemas.text,
+      image: schemas.image,
+      table: schemas.table,
+      line: schemas.line,
+      rectangle: schemas.rectangle,
+      ellipse: schemas.ellipse,
+      svg: schemas.svg,
+      multiVariableText: schemas.multiVariableText,
+      dateTime: schemas.dateTime,
+      date: schemas.date,
+      time: schemas.time,
+      select: schemas.select,
+      radioGroup: schemas.radioGroup,
+      checkbox: schemas.checkbox,
+      ...schemas.barcodes,
+      drawnSignature: schemas.image,
+    };
+
+    pdfBuffer = await generate({
+      template: pdfmeTemplate,
+      inputs,
+      plugins,
+    });
+
+    // 4b. Apply rich text
+    if (richTextInfo.length > 0) {
+      try {
+        pdfBuffer = await applyRichText(pdfBuffer, richTextInfo);
+      } catch {
+        // Continue without rich text
+      }
+    }
+
+    // 5. Apply PREVIEW watermark (always, regardless of template's own watermark)
+    const previewWatermarkConfig = {
+      text: 'PREVIEW \u2014 NOT A LEGAL DOCUMENT',
+      opacity: 0.15,
+      rotation: 45,
+      color: { r: 0.6, g: 0.6, b: 0.6 },
+      fontSize: 48,
+    };
+    pdfBuffer = await applyWatermark(pdfBuffer, previewWatermarkConfig);
+
+    // 6. Store preview temporarily
+    const previewId = `prev_${createId()}`;
+    const filePath = `${orgId}/previews/${previewId}.pdf`;
+    await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
+
+    // 7. Return preview metadata
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+
+    return {
+      previewId,
+      downloadUrl: `/api/pdfme/render/download/${previewId}`,
+      expiresAt,
+      templateId: template.id,
+      templateName: template.name,
+      channel,
+      sampleRowCount,
+    };
+  }
+
+  /**
+   * Build sample inputs from template field names for preview generation.
+   * Generates realistic-looking sample values based on field name patterns.
+   */
+  private buildSampleInputs(
+    template: { schemas: unknown[] },
+    sampleRowCount: number,
+  ): Record<string, string> {
+    const inputs: Record<string, string> = {};
+
+    if (Array.isArray(template.schemas)) {
+      for (const page of template.schemas) {
+        if (Array.isArray(page)) {
+          for (const field of page) {
+            if (field && typeof field === 'object' && 'name' in field) {
+              const name = (field as { name: string }).name;
+              const type = (field as { type?: string }).type || 'text';
+              inputs[name] = this.generateSampleValue(name, type, sampleRowCount);
+            }
+          }
+        }
+      }
+    }
+    return inputs;
+  }
+
+  /**
+   * Generate a sample value for a field based on its name and type.
+   */
+  private generateSampleValue(fieldName: string, fieldType: string, sampleRowCount: number): string {
+    const lowerName = fieldName.toLowerCase();
+
+    // Line items table - generate sample rows as JSON
+    if (fieldType === 'lineItemsTable') {
+      const items = [];
+      for (let i = 1; i <= sampleRowCount; i++) {
+        items.push({
+          description: `Sample Item ${i}`,
+          qty: Math.floor(Math.random() * 10) + 1,
+          unitPrice: Math.floor(Math.random() * 10000) / 100,
+          total: 0,
+        });
+        items[items.length - 1].total = items[items.length - 1].qty * items[items.length - 1].unitPrice;
+      }
+      return JSON.stringify(items);
+    }
+
+    // Common field name patterns
+    if (lowerName.includes('date')) return '2026-03-15';
+    if (lowerName.includes('number') || lowerName.includes('invoiceno') || lowerName.includes('inv_no')) return 'INV-2026-001';
+    if (lowerName.includes('company') && lowerName.includes('name')) return 'Acme Corporation (Pty) Ltd';
+    if (lowerName.includes('customer') && lowerName.includes('name')) return 'Sample Customer';
+    if (lowerName.includes('name')) return 'Sample Name';
+    if (lowerName.includes('email')) return 'sample@example.com';
+    if (lowerName.includes('phone') || lowerName.includes('tel')) return '+27 11 555 0100';
+    if (lowerName.includes('address')) return '123 Sample Street, Sandton, 2196';
+    if (lowerName.includes('vat') && (lowerName.includes('no') || lowerName.includes('number'))) return '4123456789';
+    if (lowerName.includes('total') || lowerName.includes('amount') || lowerName.includes('subtotal')) return '12,500.00';
+    if (lowerName.includes('vat')) return '1,875.00';
+    if (lowerName.includes('tax')) return '1,875.00';
+    if (lowerName.includes('discount')) return '500.00';
+    if (lowerName.includes('price') || lowerName.includes('rate')) return '250.00';
+    if (lowerName.includes('qty') || lowerName.includes('quantity')) return '10';
+    if (lowerName.includes('description') || lowerName.includes('desc')) return 'Sample description text';
+    if (lowerName.includes('note') || lowerName.includes('comment')) return 'Sample note for preview';
+    if (lowerName.includes('currency')) return 'ZAR';
+    if (lowerName.includes('logo') || lowerName.includes('image') || lowerName.includes('stamp')) return '';
+    if (lowerName.includes('signature')) return '';
+    if (lowerName.includes('ref') || lowerName.includes('reference')) return 'REF-2026-001';
+    if (lowerName.includes('terms')) return 'Payment due within 30 days';
+    if (lowerName.includes('bank')) return 'First National Bank';
+    if (lowerName.includes('account')) return '62123456789';
+    if (lowerName.includes('branch')) return '250655';
+
+    // Default sample value
+    return `Sample ${fieldName}`;
   }
 }
