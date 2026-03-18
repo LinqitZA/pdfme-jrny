@@ -2715,3 +2715,41 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 96/96 tests passing across 3 test suites
 ### Current Status: ~192/388 features passing (49.5%)
+
+---
+
+## Session - 2026-03-18 - Features #276, #277, #278 (Parameter Validation)
+
+### Completed Features:
+- **Feature #276**: Render channel parameter validated ✅
+  - Added VALID_CHANNELS validation in render/now, render/bulk, render/async endpoints
+  - channel=invalid, fax, both, EMAIL all return 400 with descriptive error
+  - channel=email and channel=print succeed (pass through to render)
+  - Error response includes details array with field='channel' and lists valid options
+  - 17/17 tests passing
+
+- **Feature #277**: SaveMode parameter validated ✅
+  - Added VALID_SAVE_MODES validation in PUT /templates/:id/draft endpoint
+  - saveMode=invalid, overwrite, INPLACE, InPlace all return 400
+  - saveMode=inPlace and saveMode=newVersion succeed (200)
+  - Omitted, null, and empty string saveMode treated as unset (no error)
+  - Added saveMode to SaveDraftDto interface in template.service.ts
+  - 15/15 tests passing
+
+- **Feature #278**: Batch onFailure parameter validated ✅
+  - Added VALID_ON_FAILURE validation in POST /render/bulk endpoint
+  - onFailure=invalid, skip, retry, CONTINUE, Abort all return 400
+  - onFailure=continue and onFailure=abort succeed
+  - Omitted, null, and empty string treated as unset (no error)
+  - 13/13 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.controller.ts - Channel validation on 3 endpoints, onFailure on bulk
+- nest-module/src/template.controller.ts - SaveMode validation on PUT draft
+- nest-module/src/template.service.ts - Added saveMode to SaveDraftDto
+- tests/test-channel-validation-276.js - 17 tests
+- tests/test-savemode-validation-277.js - 15 tests
+- tests/test-onfailure-validation-278.js - 13 tests
+
+### Test Results: 45/45 tests passing across 3 test suites
+### Current Status: ~198/388 features passing (51.0%)
