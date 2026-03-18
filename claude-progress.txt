@@ -4306,3 +4306,56 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 69/69 tests passing across 3 features
 ### Current Status: ~311/388 features passing (80.2%)
+
+---
+
+## Session - 2026-03-18 - Features #385, #386, #387
+
+### Completed Features:
+- **Feature #385**: PDF/UA tagging optional per-org ✅
+  - Created OrgSettingsService for per-org configuration (pdfUA, pdfA flags)
+  - Created OrgSettingsController with GET/PUT/POST reset endpoints at /api/pdfme/org-settings
+  - Added applyPdfUATags to PdfaProcessor: MarkInfo, StructTreeRoot, Lang, ViewerPreferences, XMP pdfuaid:part
+  - Added validatePdfUA method and POST /render/validate-pdfua endpoint
+  - Integrated PDF/UA tagging into render pipeline (conditional on org settings)
+  - Fixed XMP metadata reading to use getContents() for PDFRawStream objects
+  - Multi-org isolation verified (different orgs have independent settings)
+  - Both email and print channels support UA tags
+  - Uses useObjectStreams: false for UA PDFs so structural tags are uncompressed
+  - 44/44 tests passing
+
+- **Feature #386**: Orphaned elements detected at validation ✅
+  - Enhanced validateTemplateForPublish to detect single-curly {field} bindings referencing unknown fields
+  - Added orphanedElements array to validation response with element name, field path, and binding
+  - Double-curly {{field}} orphans also tracked in orphanedElements
+  - Custom types skip orphan detection (no field schema)
+  - Static content not flagged as orphaned
+  - Specific element names identified in orphan reports
+  - Multi-page orphan detection works correctly
+  - 33/33 tests passing
+
+- **Feature #387**: Render pipeline handles empty line items gracefully ✅
+  - Empty array [], missing input, empty string all render without error
+  - Table with footer rows renders correctly with zero data rows (footers still compute)
+  - Table-only template, no-footer template both work
+  - Both email and print channels handle empty tables
+  - Bulk render with empty items succeeds
+  - PDF output valid with headers shown, no crash
+  - Full render (with data) confirmed to produce larger PDF
+  - 33/33 tests passing
+
+### Key Files Modified:
+- nest-module/src/org-settings.service.ts - NEW: Per-org settings management
+- nest-module/src/org-settings.controller.ts - NEW: REST API for org settings
+- nest-module/src/pdfa-processor.ts - PDF/UA tagging + validation methods
+- nest-module/src/render.service.ts - PDF/UA integration in render pipeline
+- nest-module/src/render.controller.ts - validate-pdfua endpoint
+- nest-module/src/app.module.ts - OrgSettings registration
+- nest-module/src/template.service.ts - Orphaned element detection
+- nest-module/src/template.controller.ts - orphanedElements in validation response
+- tests/test-feature-385-pdfua-per-org.js - 44 tests
+- tests/test-feature-386-orphaned-elements.js - 33 tests
+- tests/test-feature-387-empty-line-items.js - 33 tests
+
+### Test Results: 110/110 tests passing across 3 features
+### Current Status: ~308/388 features passing (79.4%)
