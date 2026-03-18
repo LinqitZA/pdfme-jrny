@@ -4835,3 +4835,84 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Test Results: 205/205 tests passing across 3 features
 ### Current Status: ~344/388 features passing (88.7%)
 
+
+---
+
+## Session - 2026-03-18 - Features #41, #42, #43 (Designer Tabs)
+
+### Completed Features:
+- **Feature #41**: Designer Blocks tab displays block cards ✅
+  - Added ERP category to BLOCK_CATEGORIES with ERP Image, Signature Block, Drawn Signature
+  - Reorganized blocks: Content (Text, Rich Text), Media (Image, QR/Barcode), Data (Line Items, Grouped Table, Calculated Field), Layout (Watermark), ERP (ERP Image, Signature Block, Drawn Signature)
+  - All 5 categories rendered in correct order: Content, Media, Data, Layout, ERP
+  - All 11 block cards have icons, labels, draggable, role=button, aria-label
+  - 2-column grid layout per category
+  - 28/28 tests passing
+
+- **Feature #42**: Designer Fields tab displays searchable tree ✅
+  - Fields tab already implemented with categorized field tree (Document, Customer, Company groups)
+  - Search input filters fields by key/label (case-insensitive, via useMemo)
+  - Empty state shown when no matches
+  - Field items are draggable with onDragStart handler
+  - Keyboard accessibility (Enter/Space to bind)
+  - 28/28 tests passing
+
+- **Feature #43**: Designer Assets tab displays uploaded assets ✅
+  - Assets tab already implemented with upload button and asset list
+  - loadAssets fetches from /api/pdfme/assets with JWT auth
+  - Upload progress bar with percentage and success/error states
+  - Asset items show image thumbnail or file icon
+  - File input accepts .png,.jpg,.jpeg,.svg,.webp,.gif formats
+  - 30/30 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Added ERP block category
+- tests/test-feature-41-blocks-tab.js - 28 tests (HTML verification)
+- tests/test-feature-42-fields-tab.js - 28 tests (source code + HTML)
+- tests/test-feature-43-assets-tab.js - 30 tests (source code + HTML)
+
+### Note: Browser-based testing not available (missing libatk-1.0.so.0 system dependency)
+### Used server-rendered HTML parsing and source code analysis for verification
+
+### Test Results: 86/86 tests passing across 3 features
+
+---
+
+## Session - 2026-03-18 - Features #45, #46, #47 (Designer UI Components)
+
+### Completed Features:
+- **Feature #45**: Left panel tab switching works ✅
+  - LeftTab type with blocks/fields/assets/pages
+  - activeTab state with useState (synchronous, safe for rapid switching)
+  - Tab buttons with role="tab", aria-selected, aria-controls
+  - Conditional rendering (&&) prevents stale state
+  - Each tab has unique content: blocks grid, fields search, assets upload, pages thumbnails
+  - Full ARIA accessibility (tablist, tab, tabpanel linkage)
+  - 42/42 tests passing
+
+- **Feature #46**: Toolbar template name inline edit ✅
+  - Input with data-testid="template-name-input" bound to name state
+  - onChange updates name and sets isDirty flag
+  - readOnly mode with not-allowed cursor
+  - Focus/blur background highlight for edit affordance
+  - No border, transparent background for inline appearance
+  - Name included in save/publish payloads
+  - 24/24 tests passing
+
+- **Feature #47**: Toolbar page size selector ✅
+  - PAGE_SIZE_DIMENSIONS map with A4/Letter/Legal/A3/A5 dimensions
+  - Canvas dimensions now respond to page size selection (was hardcoded A4)
+  - data-page-size, data-page-width, data-page-height attributes on canvas
+  - Zoom factor correctly applied to dynamic dimensions
+  - Smooth 0.2s transition for size changes
+  - ISO standard dimension relationships verified
+  - 30/30 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - PAGE_SIZE_DIMENSIONS map, dynamic canvas dims
+- tests/test-feature-45-left-panel-tabs.js - 42 tests
+- tests/test-feature-46-toolbar-name-edit.js - 24 tests
+- tests/test-feature-47-page-size-selector.js - 30 tests
+
+### Test Results: 96/96 tests passing across 3 features
+### Current Status: ~348/388 features passing (89.7%)
