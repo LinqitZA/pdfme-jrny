@@ -162,15 +162,17 @@ export class FontController {
       );
     }
 
-    // 1. Check file size (redundant with multer limit, but explicit)
+    // 1. Check file size
     if (file.size > MAX_FONT_SIZE) {
       throw new HttpException(
         {
-          statusCode: 400,
-          error: 'Bad Request',
+          statusCode: 413,
+          error: 'Payload Too Large',
           message: `Font file exceeds maximum size of 10MB (${(file.size / 1024 / 1024).toFixed(1)}MB provided)`,
+          maxSize: '10MB',
+          actualSize: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
         },
-        HttpStatus.BAD_REQUEST,
+        HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
 

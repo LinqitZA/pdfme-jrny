@@ -36,14 +36,47 @@ for the application you're building.
 
 ### STEP 2: START SERVERS (IF NOT RUNNING)
 
+The development environment uses a shared Docker Compose stack. Multiple coding agents
+run concurrently against the same stack.
+
+**CRITICAL RULES:**
+
+1. **NEVER run `docker compose down`** — this destroys the database and disrupts other running agents.
+2. **NEVER run `docker compose down -v`** — this permanently deletes the PostgreSQL data volume and all test data.
+3. **NEVER run `docker compose up --build --force-recreate`** — this restarts all containers and kills active connectio>
+4. **NEVER delete or recreate Docker volumes.**
+
+**INSTEAD, do this:**
+
+- **Check if containers are running first:**
+  ```bash
+  docker compose ps
+If containers are already running: Do nothing. Proceed to Step 3.
+
+If containers are stopped: Start them without rebuilding:
+
+docker compose up -d
+If only your service needs a restart (e.g., after backend code changes):
+
+docker compose restart backend
+If you need to rebuild a single service (e.g., dependency changes):
+
+docker compose up -d --build backend
+If you encounter database connection errors:
+
+Check if PostgreSQL is running: docker compose ps postgres
+Check logs: docker compose logs --tail=20 postgres
+Wait and retry — another agent may be running migrations
+NEVER assume the fix is to recreate the database
+Why this matters: Other agents depend on the same database and containers. Running docker compose down destroys their w>
+
 If `init.sh` exists, run it:
 
 ```bash
 chmod +x init.sh
 ./init.sh
-```
-
 Otherwise, start servers manually and document the process.
+```
 
 ### STEP 3: GET YOUR ASSIGNED FEATURE
 
@@ -109,12 +142,16 @@ when you need to verify visual appearance or find element refs.
 - Check for console errors with `playwright-cli console`
 - Verify complete user workflows end-to-end
 - Always run `playwright-cli close` when finished testing
+- Always place screenshots in the screenshots folder
+- Always place test scripts in the tests folder
 
 **DON'T:**
 - Only test with curl commands
 - Use JavaScript evaluation to bypass UI (`eval` and `run-code` are blocked)
 - Skip visual verification
 - Mark tests passing without thorough verification
+- create screenshots and tests in the project root
+- Never run kill node or pkill node as a broad command
 
 ### STEP 5.5: MANDATORY VERIFICATION CHECKLIST (BEFORE MARKING ANY TEST PASSING)
 
@@ -153,6 +190,7 @@ Use the feature_mark_passing tool with feature_id=42
 - Modify feature steps
 - Combine or consolidate features
 - Reorder features
+- Execute kill node or pkill node commands
 
 **ONLY MARK A FEATURE AS PASSING AFTER VERIFICATION WITH BROWSER AUTOMATION.**
 

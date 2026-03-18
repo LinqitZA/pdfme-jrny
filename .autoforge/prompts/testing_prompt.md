@@ -33,6 +33,8 @@ For the feature returned:
 3. Execute each verification step using browser automation
 4. Take screenshots and read them to verify visual appearance
 5. Check for console errors
+6. Ensure all test scripts are created in a directory called tests
+7. Ensure all screenshots are created in a directory called screenshots
 
 ### Browser Automation (Playwright CLI)
 
@@ -62,7 +64,11 @@ For the feature returned:
 
 #### If the feature PASSES:
 
-The feature still works correctly. **DO NOT** call feature_mark_passing again -- it's already passing. End your session.
+The feature still works correctly. **DO NOT** call feature_mark_passing again -- it's already passing.
+**Move to the next feature immediately.**
+Do not create additional test files if one already exists. Spending more than 2-3 minutes
+verifying a passing feature with no code changes is wasted effort.
+End your session.
 
 #### If the feature FAILS (regression found):
 
@@ -123,6 +129,16 @@ Use `playwright-cli` commands for browser interaction. Key commands:
 - `playwright-cli fill <ref> <text>` - Fill form field
 - `playwright-cli console` - Check for JS errors
 - `playwright-cli close` - Close browser (always do this when done)
+
+---
+
+### EFFICIENCY RULES (MANDATORY)
+
+- **Maximum 3 minutes per feature** if it appears to still be working correctly
+- **No duplicate test files** — check `tests/` before creating new files
+- **Skip unchanged features** — if `git diff` shows no changes to related files, do not open the browser or run any ver>
+- **Do NOT re-test features that have a passing regression report** unless related code has changed since that report w>
+- **Never regression test the same feature more than once per session**
 
 ---
 

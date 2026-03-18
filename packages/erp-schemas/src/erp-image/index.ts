@@ -81,6 +81,41 @@ export function imageBufferToDataUri(buffer: Buffer, storagePath: string): strin
 }
 
 /**
+ * Generate a placeholder PNG image for missing/unresolvable images.
+ * Creates a minimal valid PNG with a light grey background.
+ * pdfme will scale it to the element dimensions.
+ * The actual "Image not found" text overlay is applied via pdf-lib post-processing
+ * (see resolveMissingImages in render.service.ts).
+ */
+export function generatePlaceholderImage(_width: number, _height: number): string {
+  // Minimal valid 1x1 PNG with a light grey (#f0f0f0) pixel
+  const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP4z8BQDwAEgAF/pooBPQAAAABJRU5ErkJggg==';
+  return `data:image/png;base64,${pngBase64}`;
+}
+
+/** Sentinel value prefix to identify placeholder images in the pipeline */
+export const PLACEHOLDER_IMAGE_MARKER = 'PLACEHOLDER_IMG:';
+
+/**
+ * Generate a placeholder data URI and mark it as a placeholder for post-processing.
+ * The marker allows the render pipeline to identify placeholders and draw
+ * "Image not found" text on top via pdf-lib.
+ */
+export function generateMarkedPlaceholderImage(width: number, height: number): {
+  dataUri: string;
+  isPlaceholder: true;
+  width: number;
+  height: number;
+} {
+  return {
+    dataUri: generatePlaceholderImage(width, height),
+    isPlaceholder: true,
+    width,
+    height,
+  };
+}
+
+/**
  * Resolve an erpImage element's asset path to a storage path.
  * Returns the storage path to fetch from FileStorageService.
  */
@@ -197,6 +232,11 @@ export async function resolveErpImages(
           console.error(`Failed to resolve erpImage asset: ${storagePath}`, err);
         }
       }
+    }
+
+    // If no image could be resolved, generate a placeholder rectangle with "Image not found"
+    if (!dataUri) {
+      dataUri = generatePlaceholderImage(element.width, element.height);
     }
 
     page[elementIndex] = {

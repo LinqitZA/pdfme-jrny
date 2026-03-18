@@ -272,7 +272,117 @@ export class TemplateService {
    * Publish a template: sets status to 'published' and publishedVer to current version.
    * Only draft templates can be published.
    */
-  async publish(id: string, orgId?: string) {
+  /**
+   * Validate a template schema for publishing readiness.
+   * Checks for: invalid bindings, empty schemas, missing required fields, etc.
+   * Returns array of validation errors (empty = valid).
+   */
+  validateTemplateForPublish(template: { name: string; type: string; schema: Record<string, unknown> }): Array<{ field: string; message: string }> {
+    const errors: Array<{ field: string; message: string }> = [];
+
+    // Check template name
+    if (!template.name || typeof template.name !== 'string' || template.name.trim().length === 0) {
+      errors.push({ field: 'name', message: 'Template name is required' });
+    }
+
+    // Check template type
+    if (!template.type || typeof template.type !== 'string' || template.type.trim().length === 0) {
+      errors.push({ field: 'type', message: 'Template type is required' });
+    }
+
+    // Check schema exists
+    if (!template.schema || typeof template.schema !== 'object') {
+      errors.push({ field: 'schema', message: 'Template schema is required' });
+      return errors;
+    }
+
+    const schema = template.schema;
+
+    // Check pages/schemas array exists and has content
+    const pages = (schema.pages || schema.schemas) as unknown[] | undefined;
+    if (!pages || !Array.isArray(pages) || pages.length === 0) {
+      errors.push({ field: 'schema.pages', message: 'Template must have at least one page' });
+      return errors;
+    }
+
+    // Validate bindings in elements
+    const bindingPattern = /\{\{([^}]*)\}\}/g;
+    const validBindingPattern = /^[a-zA-Z_][a-zA-Z0-9_.]*$/;
+
+    const walkElements = (obj: unknown, path: string) => {
+      if (!obj || typeof obj !== 'object') return;
+      if (Array.isArray(obj)) {
+        obj.forEach((item, idx) => walkElements(item, `${path}[${idx}]`));
+        return;
+      }
+      const record = obj as Record<string, unknown>;
+
+      // Check string values for invalid bindings
+      for (const [key, val] of Object.entries(record)) {
+        if (typeof val === 'string') {
+          let match;
+          bindingPattern.lastIndex = 0;
+          while ((match = bindingPattern.exec(val)) !== null) {
+            const binding = match[1].trim();
+            if (!binding) {
+              errors.push({
+                field: `${path}.${key}`,
+                message: `Empty binding expression: {{}}`,
+              });
+            } else if (!validBindingPattern.test(binding)) {
+              errors.push({
+                field: `${path}.${key}`,
+                message: `Invalid binding expression: {{${binding}}}`,
+              });
+            }
+          }
+        } else if (typeof val === 'object') {
+          walkElements(val, `${path}.${key}`);
+        }
+      }
+    };
+
+    pages.forEach((page, pageIdx) => {
+      if (!page || typeof page !== 'object') {
+        errors.push({ field: `schema.pages[${pageIdx}]`, message: 'Page must be an object' });
+        return;
+      }
+      const pageObj = page as Record<string, unknown>;
+      const elements = pageObj.elements as unknown[] | undefined;
+
+      // Check for elements with position validation
+      if (elements && Array.isArray(elements)) {
+        elements.forEach((el, elIdx) => {
+          if (!el || typeof el !== 'object') return;
+          const elem = el as Record<string, unknown>;
+          const elPath = `schema.pages[${pageIdx}].elements[${elIdx}]`;
+
+          // Check element type
+          if (!elem.type || typeof elem.type !== 'string') {
+            errors.push({ field: `${elPath}.type`, message: 'Element must have a type' });
+          }
+
+          // Check position
+          const pos = elem.position as Record<string, unknown> | undefined;
+          if (pos) {
+            if (typeof pos.x !== 'number' || pos.x < 0) {
+              errors.push({ field: `${elPath}.position.x`, message: 'Position x must be a non-negative number' });
+            }
+            if (typeof pos.y !== 'number' || pos.y < 0) {
+              errors.push({ field: `${elPath}.position.y`, message: 'Position y must be a non-negative number' });
+            }
+          }
+
+          // Check for bindings in element content/value/text
+          walkElements(elem, elPath);
+        });
+      }
+    });
+
+    return errors;
+  }
+
+  async publish(id: string, orgId?: string, validate: boolean = true) {
     // First find the template to check its current status
     const template = await this.findById(id, orgId);
     if (!template) return null;
@@ -284,6 +394,18 @@ export class TemplateService {
 
     if (template.status === 'archived') {
       return { error: 'Cannot publish an archived template' };
+    }
+
+    // Validate template before publishing
+    if (validate) {
+      const validationErrors = this.validateTemplateForPublish({
+        name: template.name,
+        type: template.type,
+        schema: template.schema as Record<string, unknown>,
+      });
+      if (validationErrors.length > 0) {
+        return { validationErrors };
+      }
     }
 
     const [result] = await this.db
@@ -681,6 +803,34 @@ export class TemplateService {
       .where(eq(templates.id, id));
 
     return { released: true };
+  }
+
+  /**
+   * Check if a template is locked by another user.
+   * Returns null if the template is not locked or locked by the requesting user.
+   * Returns lock info if locked by a different user (active, non-expired lock).
+   */
+  async checkLockConflict(id: string, userId: string, orgId?: string): Promise<{ lockedBy: string; lockedAt: Date; expiresAt: Date } | null> {
+    const template = await this.findById(id, orgId);
+    if (!template) return null;
+
+    if (!template.lockedBy || !template.lockedAt) return null;
+
+    // Same user — no conflict
+    if (template.lockedBy === userId) return null;
+
+    const expiresAt = new Date(template.lockedAt.getTime() + LOCK_DURATION_MS);
+    const now = new Date();
+
+    // Expired lock — no conflict
+    if (now >= expiresAt) return null;
+
+    // Active lock held by another user — conflict!
+    return {
+      lockedBy: template.lockedBy,
+      lockedAt: template.lockedAt,
+      expiresAt,
+    };
   }
 
   /**

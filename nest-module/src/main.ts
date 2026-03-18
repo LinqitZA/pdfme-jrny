@@ -24,6 +24,9 @@ async function bootstrap() {
   // Enable CORS for development
   app.enableCors();
 
+  // Set global body size limit (50MB for JSON payloads like template import)
+  app.useBodyParser('json', { limit: '50mb' });
+
   await app.listen(port);
   console.log(`[pdfme-erp] Server running on http://localhost:${port}`);
   console.log(`[pdfme-erp] Health check: http://localhost:${port}/api/pdfme/health`);

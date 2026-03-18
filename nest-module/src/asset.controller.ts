@@ -46,6 +46,9 @@ function decodeJwt(authHeader?: string): { sub: string; orgId: string; roles: st
   }
 }
 
+/** Maximum asset file size: 10MB */
+const MAX_ASSET_SIZE = 10 * 1024 * 1024;
+
 @Controller('api/pdfme/assets')
 export class AssetController {
   constructor(private readonly assetService: AssetService) {}
@@ -53,7 +56,7 @@ export class AssetController {
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+    limits: { fileSize: MAX_ASSET_SIZE },
   }))
   async upload(
     @UploadedFile() file: Express.Multer.File,
@@ -64,6 +67,20 @@ export class AssetController {
       throw new HttpException(
         { statusCode: 400, error: 'Bad Request', message: 'No file provided. Use multipart/form-data with field name "file".' },
         HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Check file size - return 413 for oversized uploads
+    if (file.size > MAX_ASSET_SIZE) {
+      throw new HttpException(
+        {
+          statusCode: 413,
+          error: 'Payload Too Large',
+          message: `File exceeds maximum size of 10MB (${(file.size / 1024 / 1024).toFixed(1)}MB provided)`,
+          maxSize: '10MB',
+          actualSize: `${(file.size / 1024 / 1024).toFixed(1)}MB`,
+        },
+        HttpStatus.PAYLOAD_TOO_LARGE,
       );
     }
 

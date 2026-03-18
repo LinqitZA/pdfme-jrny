@@ -18,7 +18,7 @@ import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-item
 import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
 import { resolveRichText, applyRichText, RichTextRenderInfo } from '../../packages/erp-schemas/src/rich-text';
 import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
-import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
+import { resolveErpImages, generatePlaceholderImage } from '../../packages/erp-schemas/src/erp-image';
 import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 import { PdfaProcessor } from './pdfa-processor';
@@ -29,6 +29,16 @@ import * as path from 'path';
 export interface FontWarning {
   fontName: string;
   message: string;
+}
+
+/** Info about placeholder images that need "Image not found" text overlay */
+export interface PlaceholderImageInfo {
+  pageIndex: number;
+  x: number; // mm
+  y: number; // mm
+  width: number; // mm
+  height: number; // mm
+  fieldName: string;
 }
 
 export interface RenderNowDto {
@@ -229,6 +239,9 @@ export class RenderService {
     pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
     inputs = resolvedCalc.inputs;
 
+    // 3h2. Resolve missing images with placeholder rectangles
+    const placeholderImages = this.resolveMissingImages(pdfmeTemplate, inputs);
+
     // 3i. Extract watermark config (if any watermark element exists in template)
     const watermarkConfig = extractWatermarkFromTemplate(pdfmeTemplate.schemas, inputs);
 
@@ -327,6 +340,15 @@ export class RenderService {
         pdfBuffer = await applySignatureBlocks(pdfBuffer, signatureBlockInfo);
       } catch (err: unknown) {
         console.error('Signature block rendering failed:', err);
+      }
+    }
+
+    // 4b3. Apply placeholder image "Image not found" text overlay via pdf-lib
+    if (placeholderImages.length > 0) {
+      try {
+        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, placeholderImages);
+      } catch (err: unknown) {
+        console.error('Placeholder image overlay failed:', err);
       }
     }
 
@@ -832,6 +854,116 @@ export class RenderService {
   }
 
   /**
+   * Resolve missing images with placeholder rectangles.
+   * For any 'image' type element whose input is missing or empty (no data URI),
+   * generates a placeholder PNG and records the element info for pdf-lib
+   * post-processing (drawing "Image not found" text on the placeholder area).
+   * This prevents render failures from missing image references.
+   */
+  private resolveMissingImages(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    inputs: Record<string, string>[],
+  ): PlaceholderImageInfo[] {
+    const placeholders: PlaceholderImageInfo[] = [];
+
+    for (let pi = 0; pi < pdfmeTemplate.schemas.length; pi++) {
+      const page = pdfmeTemplate.schemas[pi];
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (!element || typeof element !== 'object') continue;
+        const el = element as Record<string, unknown>;
+        if (el.type !== 'image') continue;
+        const name = el.name as string | undefined;
+        if (!name) continue;
+
+        const width = (el.width as number) || 50;
+        const height = (el.height as number) || 50;
+        const position = el.position as { x: number; y: number } | undefined;
+
+        for (const inputRecord of inputs) {
+          const val = inputRecord[name];
+          if (!val || (typeof val === 'string' && !val.startsWith('data:'))) {
+            inputRecord[name] = generatePlaceholderImage(width, height);
+            if (position) {
+              placeholders.push({
+                pageIndex: pi,
+                x: position.x,
+                y: position.y,
+                width,
+                height,
+                fieldName: name,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return placeholders;
+  }
+
+  /**
+   * Apply "Image not found" text overlays on placeholder images via pdf-lib.
+   * Draws a dashed border rectangle and centered text on each placeholder area.
+   */
+  private async applyPlaceholderOverlays(
+    pdfBuffer: Uint8Array,
+    placeholders: PlaceholderImageInfo[],
+  ): Promise<Uint8Array> {
+    const { PDFDocument, rgb, StandardFonts } = await import('pdf-lib');
+    const pdfDoc = await PDFDocument.load(pdfBuffer);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const pages = pdfDoc.getPages();
+
+    const MM_TO_PT = 2.8346; // 1mm = 2.8346 points
+
+    for (const ph of placeholders) {
+      const page = pages[ph.pageIndex];
+      if (!page) continue;
+
+      const pageHeight = page.getHeight();
+      const x = ph.x * MM_TO_PT;
+      const y = pageHeight - (ph.y * MM_TO_PT) - (ph.height * MM_TO_PT);
+      const w = ph.width * MM_TO_PT;
+      const h = ph.height * MM_TO_PT;
+
+      // Draw light grey filled rectangle
+      page.drawRectangle({
+        x, y, width: w, height: h,
+        color: rgb(0.94, 0.94, 0.94), // #f0f0f0
+        borderColor: rgb(0.8, 0.8, 0.8), // #cccccc
+        borderWidth: 0.5,
+      });
+
+      // Draw diagonal cross lines
+      page.drawLine({
+        start: { x, y: y + h }, end: { x: x + w, y },
+        color: rgb(0.8, 0.8, 0.8), thickness: 0.3,
+      });
+      page.drawLine({
+        start: { x, y }, end: { x: x + w, y: y + h },
+        color: rgb(0.8, 0.8, 0.8), thickness: 0.3,
+      });
+
+      // Draw "Image not found" text centered in the rectangle
+      const text = 'Image not found';
+      const fontSize = Math.max(6, Math.min(10, w / 12));
+      const textWidth = font.widthOfTextAtSize(text, fontSize);
+      const textX = x + (w - textWidth) / 2;
+      const textY = y + (h - fontSize) / 2;
+
+      page.drawText(text, {
+        x: textX, y: textY,
+        size: fontSize,
+        font,
+        color: rgb(0.6, 0.6, 0.6), // #999999
+      });
+    }
+
+    return new Uint8Array(await pdfDoc.save());
+  }
+
+  /**
    * Resolve drawnSignature fields in the template.
    * Scans template schemas for drawnSignature type fields, fetches the user's
    * signature PNG from storage, and replaces input values with base64 data URIs.
@@ -1292,6 +1424,9 @@ export class RenderService {
     pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
     inputs = resolvedCalc.inputs;
 
+    // 3h2. Resolve missing images with placeholder rectangles
+    const previewPlaceholders = this.resolveMissingImages(pdfmeTemplate, inputs);
+
     // 3i. Extract and remove watermark elements (template's own watermark)
     const _templateWatermark = extractWatermarkFromTemplate(pdfmeTemplate.schemas, inputs);
     pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
@@ -1349,6 +1484,15 @@ export class RenderService {
         pdfBuffer = await applyRichText(pdfBuffer, richTextInfo);
       } catch {
         // Continue without rich text
+      }
+    }
+
+    // 4b3. Apply placeholder image overlays
+    if (previewPlaceholders.length > 0) {
+      try {
+        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, previewPlaceholders);
+      } catch {
+        // Continue without placeholder overlays
       }
     }
 
