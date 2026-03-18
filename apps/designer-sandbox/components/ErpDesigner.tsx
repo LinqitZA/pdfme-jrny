@@ -92,6 +92,8 @@ interface DesignElement {
   // Conditional visibility
   conditionalVisibility?: 'always' | 'conditional';
   visibilityCondition?: string;
+  // Accessibility
+  altText?: string;
 }
 
 /** Represents a single page in the template */
@@ -399,6 +401,8 @@ export default function ErpDesigner({
     typeof window !== 'undefined' ? window.innerWidth <= NARROW_BREAKPOINT : false
   );
   const [mobilePanelOpen, setMobilePanelOpen] = useState<'left' | 'right' | null>(null);
+  const [leftPanelCollapsed, setLeftPanelCollapsed] = useState(false);
+  const [rightPanelCollapsed, setRightPanelCollapsed] = useState(false);
 
   useEffect(() => {
     const handleResize = () => {
@@ -490,6 +494,7 @@ export default function ErpDesigner({
                 lineHeight: el.lineHeight,
                 src: el.src,
                 objectFit: el.objectFit,
+                altText: el.altText,
                 opacity: el.opacity,
                 columns: el.columns,
                 showHeader: el.showHeader,
@@ -1931,7 +1936,7 @@ export default function ErpDesigner({
           }}
         >
           {el.src ? (
-            <img src={el.src} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: el.objectFit || 'contain', imageRendering: 'auto' }} />
+            <img src={el.src} alt={el.altText || ''} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: el.objectFit || 'contain', imageRendering: 'auto' }} />
           ) : (
             getElementTypeLabel(el.type)
           )}
@@ -2296,6 +2301,21 @@ export default function ErpDesigner({
                   value={selectedElement.opacity ?? 100}
                   onChange={(e) => updateElement(selectedElement.id, { opacity: Number(e.target.value) })}
                 />
+              </div>
+              <div>
+                <span style={{ fontSize: '11px', color: '#64748b' }}>Alt Text (Accessibility)</span>
+                <input
+                  data-testid="prop-alt-text"
+                  type="text"
+                  aria-label="Alternative text for accessibility"
+                  style={propInputStyle}
+                  placeholder="Describe this image for screen readers"
+                  value={selectedElement.altText || ''}
+                  onChange={(e) => updateElement(selectedElement.id, { altText: e.target.value })}
+                />
+                <span style={{ fontSize: '10px', color: '#64748b', display: 'block', marginTop: '2px' }}>
+                  Used in PDF/UA output for accessibility compliance
+                </span>
               </div>
             </div>
           </div>
@@ -3475,16 +3495,57 @@ export default function ErpDesigner({
           overflow: 'hidden',
         }}
       >
+        {/* ─── Left Panel Collapse Button (when collapsed) ─── */}
+        {leftPanelCollapsed && !isNarrowViewport && (
+          <div
+            data-testid="left-panel-expand"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              backgroundColor: '#ffffff',
+              borderRight: '1px solid #e2e8f0',
+              flexShrink: 0,
+              width: '36px',
+            }}
+          >
+            <button
+              data-testid="btn-expand-left-panel"
+              aria-label="Expand left panel"
+              tabIndex={0}
+              onClick={() => setLeftPanelCollapsed(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setLeftPanelCollapsed(false);
+                }
+              }}
+              style={{
+                marginTop: '8px',
+                padding: '4px',
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontSize: '16px',
+                color: '#64748b',
+                borderRadius: '4px',
+              }}
+              title="Expand left panel"
+            >
+              ▶
+            </button>
+          </div>
+        )}
         {/* ─── Left Panel ─── */}
         <div
           className={`erp-designer-left-panel${isNarrowViewport && mobilePanelOpen !== 'left' ? ' panel-hidden' : ''}`}
           data-testid="left-panel"
           style={{
-            width: '260px',
-            maxWidth: '260px',
+            width: leftPanelCollapsed && !isNarrowViewport ? '0px' : '260px',
+            maxWidth: leftPanelCollapsed && !isNarrowViewport ? '0px' : '260px',
             backgroundColor: '#ffffff',
-            borderRight: '1px solid #e2e8f0',
-            display: 'flex',
+            borderRight: leftPanelCollapsed && !isNarrowViewport ? 'none' : '1px solid #e2e8f0',
+            display: leftPanelCollapsed && !isNarrowViewport ? 'none' : 'flex',
             flexDirection: 'column',
             flexShrink: 0,
             overflow: 'hidden',
@@ -4471,7 +4532,7 @@ export default function ErpDesigner({
                 ))}
               </tbody>
             </table>
-            <p style={{ marginTop: '12px', fontSize: '11px', color: '#94a3b8', textAlign: 'center' }}>
+            <p style={{ marginTop: '12px', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
               Shortcuts are disabled while typing in input fields. Screen readers can navigate all controls via Tab.
             </p>
           </div>
