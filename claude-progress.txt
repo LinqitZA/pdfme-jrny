@@ -2753,3 +2753,57 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 45/45 tests passing across 3 test suites
 ### Current Status: ~198/388 features passing (51.0%)
+
+---
+
+## Session - 2026-03-18 - Features #279, #280, #281 (Server Validation, Multi-Errors, Save Confirmation)
+
+### Completed Features:
+- **Feature #279**: Server-side validation matches client-side ✅
+  - Tested all major API endpoints with invalid data bypassing UI
+  - Template create: missing fields, invalid types, bad schemas, whitespace-only values
+  - Template update: null/array/string schema, invalid schema structure (422)
+  - Draft save: invalid saveMode, invalid schema
+  - Render now: missing fields, invalid channel, nonexistent/empty templateId
+  - Bulk render: missing entityIds, empty array, duplicates, empty entries, invalid onFailure
+  - Import: missing version/template, wrong version, missing sub-fields
+  - Signature: missing/empty data, invalid image format (JPEG rejected)
+  - Preview: invalid sampleRowCount
+  - Render history: invalid status filter
+  - All error responses have statusCode, specific messages, and details arrays
+  - Version endpoint validates positive integers
+  - 58/58 tests passing
+
+- **Feature #280**: Validation errors list all issues at once ✅
+  - Template create with 3 missing fields returns all 3 in details array
+  - Template create with 2 missing fields returns both
+  - Import with empty body lists all missing top-level fields
+  - Import with bad template sub-fields reports all 3+ structural errors at once
+  - Bulk render missing all 3 fields returns all in one response
+  - Render now missing all 3 fields returns all together
+  - Publish validation reports multiple template issues
+  - All details entries have both "field" and "reason" properties
+  - No endpoint stops at just the first error
+  - 42/42 tests passing
+
+- **Feature #281**: Save success shows confirmation indicator ✅
+  - Added save-success-toast component to ErpDesigner
+  - Toast shows "Draft saved successfully" with checkmark icon
+  - Toast includes "(manual save)" label to distinguish from auto-save
+  - Auto-save indicator now shows "Auto-saved" (not just "Saved")
+  - Idle state shows "Last auto-saved" with timestamp
+  - Save status state machine: idle → saving → saved → idle (auto-dismiss after 3s)
+  - Save button shows proper state text: "Save Draft" / "Saving…" / "Retry Save"
+  - Success toast and error banner are mutually exclusive (different saveStatus states)
+  - Success toast has blue/positive styling, error banner has red styling
+  - API-level save verification included
+  - 32/32 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Save success toast, auto-save label distinction
+- tests/test-feature-279-server-validation.js - 58 tests
+- tests/test-feature-280-multi-errors.js - 42 tests
+- tests/test-feature-281-save-confirmation.js - 32 tests
+
+### Test Results: 132/132 tests passing across 3 test suites
+### Current Status: ~201/388 features passing (51.8%)
