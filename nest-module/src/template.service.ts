@@ -9,10 +9,12 @@
 import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc, inArray, ilike } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
+import { Parser } from 'expr-eval';
 import { templates, templateVersions } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { AuditService } from './audit.service';
 import { FileStorageService } from './file-storage.service';
+import { FieldSchemaRegistry } from './field-schema.registry';
 
 export interface CreateTemplateDto {
   orgId?: string | null;
@@ -76,6 +78,7 @@ export class TemplateService {
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Optional() private readonly auditService?: AuditService,
     @Optional() @Inject('FILE_STORAGE') private readonly storage?: FileStorageService,
+    @Optional() @Inject('FIELD_SCHEMA_REGISTRY') private readonly fieldSchemaRegistry?: FieldSchemaRegistry,
   ) {}
 
   /**
@@ -337,6 +340,66 @@ export class TemplateService {
    * Checks for: invalid bindings, empty schemas, missing required fields, etc.
    * Returns array of validation errors (empty = valid).
    */
+  /**
+   * Try to parse an expression string using expr-eval.
+   * Returns null if valid, or an error message string if invalid.
+   */
+  private validateExpression(expression: string): string | null {
+    try {
+      const parser = new Parser({
+        operators: {
+          add: true, concatenate: true, conditional: true,
+          divide: true, factorial: false, multiply: true,
+          power: true, remainder: true, subtract: true,
+          logical: true, comparison: true, 'in': false, assignment: false,
+        },
+      });
+      // Register known function names so they don't cause parse errors
+      const knownFunctions = [
+        'IF', 'AND', 'OR', 'NOT', 'LEFT', 'RIGHT', 'MID', 'UPPER', 'LOWER',
+        'TRIM', 'CONCAT', 'LEN', 'FORMAT', 'ROUND', 'ABS', 'TODAY', 'YEAR',
+        'MONTH', 'DAY', 'DATEDIFF', 'FORMAT_CURRENCY', 'FORMAT_DATE', 'FORMAT_NUMBER',
+      ];
+      for (const fn of knownFunctions) {
+        parser.functions[fn] = (..._args: unknown[]) => 0;
+      }
+      parser.parse(expression);
+      return null;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return message;
+    }
+  }
+
+  /**
+   * Get all known field keys for a given template type from the field schema registry.
+   * Returns null if no registry or no schema for this type (skip validation).
+   */
+  private getKnownFieldKeys(templateType: string): Set<string> | null {
+    if (!this.fieldSchemaRegistry) return null;
+    const fieldGroups = this.fieldSchemaRegistry.resolve(templateType);
+    if (!fieldGroups) return null;
+
+    const keys = new Set<string>();
+    const walkGroups = (groups: Array<{ key: string; label: string; fields: Array<{ key: string }>; children?: unknown[] }>) => {
+      for (const group of groups) {
+        for (const field of group.fields) {
+          keys.add(field.key);
+          // Also add the base key without array notation for line items
+          // e.g. lineItems[].description -> lineItems.description (also valid in bindings)
+          if (field.key.includes('[]')) {
+            keys.add(field.key.replace('[]', ''));
+          }
+        }
+        if (group.children && Array.isArray(group.children)) {
+          walkGroups(group.children as any);
+        }
+      }
+    };
+    walkGroups(fieldGroups as any);
+    return keys;
+  }
+
   validateTemplateForPublish(template: { name: string; type: string; schema: Record<string, unknown> }): Array<{ field: string; message: string }> {
     const errors: Array<{ field: string; message: string }> = [];
 
@@ -365,9 +428,12 @@ export class TemplateService {
       return errors;
     }
 
+    // Build set of known field keys for binding validation (#268)
+    const knownFields = this.getKnownFieldKeys(template.type);
+
     // Validate bindings in elements
     const bindingPattern = /\{\{([^}]*)\}\}/g;
-    const validBindingPattern = /^[a-zA-Z_][a-zA-Z0-9_.]*$/;
+    const validBindingPattern = /^[a-zA-Z_][a-zA-Z0-9_.\[\]]*$/;
 
     const walkElements = (obj: unknown, path: string) => {
       if (!obj || typeof obj !== 'object') return;
@@ -394,6 +460,12 @@ export class TemplateService {
                 field: `${path}.${key}`,
                 message: `Invalid binding expression: {{${binding}}}`,
               });
+            } else if (knownFields && !knownFields.has(binding)) {
+              // Feature #268: Check binding against known field schema
+              errors.push({
+                field: `${path}.${key}`,
+                message: `Unresolvable binding: {{${binding}}} - field '${binding}' is not defined in the '${template.type}' field schema`,
+              });
             }
           }
         } else if (typeof val === 'object') {
@@ -416,9 +488,10 @@ export class TemplateService {
           if (!el || typeof el !== 'object') return;
           const elem = el as Record<string, unknown>;
           const elPath = `schema.pages[${pageIdx}].elements[${elIdx}]`;
+          const elemType = elem.type as string;
 
           // Check element type
-          if (!elem.type || typeof elem.type !== 'string') {
+          if (!elemType || typeof elemType !== 'string') {
             errors.push({ field: `${elPath}.type`, message: 'Element must have a type' });
           }
 
@@ -430,6 +503,62 @@ export class TemplateService {
             }
             if (typeof pos.y !== 'number' || pos.y < 0) {
               errors.push({ field: `${elPath}.position.y`, message: 'Position y must be a non-negative number' });
+            }
+          }
+
+          // Feature #267: Validate expressions in calculated fields and conditional visibility
+          if (elemType === 'calculated' || elemType === 'calculated-field') {
+            const expression = (elem.expression || elem.content) as string | undefined;
+            if (expression && typeof expression === 'string' && expression.trim()) {
+              // Don't validate pure binding references like {{field.name}}
+              const exprStr = expression.trim();
+              const isPureBinding = /^\{\{[^}]+\}\}$/.test(exprStr);
+              if (!isPureBinding) {
+                const exprError = this.validateExpression(exprStr);
+                if (exprError) {
+                  errors.push({
+                    field: `${elPath}.expression`,
+                    message: `Invalid expression: ${exprError}`,
+                  });
+                }
+              }
+            }
+          }
+
+          // Validate conditionalVisibility expressions
+          const condVis = elem.conditionalVisibility as Record<string, unknown> | string | undefined;
+          if (condVis && typeof condVis === 'object' && condVis.type === 'expression') {
+            const condExpr = condVis.expression as string | undefined;
+            if (condExpr && typeof condExpr === 'string' && condExpr.trim()) {
+              const exprError = this.validateExpression(condExpr.trim());
+              if (exprError) {
+                errors.push({
+                  field: `${elPath}.conditionalVisibility.expression`,
+                  message: `Invalid conditional visibility expression: ${exprError}`,
+                });
+              }
+            }
+          }
+
+          // Feature #269: Validate line items table column widths
+          if (elemType === 'line-items-table' || elemType === 'lineItemsTable' || elemType === 'line_items_table' || elemType === 'grouped-table') {
+            const columns = elem.columns as Array<Record<string, unknown>> | undefined;
+            if (columns && Array.isArray(columns) && columns.length > 0) {
+              const totalWidth = columns.reduce((sum: number, col: Record<string, unknown>) => {
+                const w = typeof col.width === 'number' ? col.width : 0;
+                return sum + w;
+              }, 0);
+              const elementWidth = (typeof elem.width === 'number' ? elem.width : typeof elem.w === 'number' ? elem.w : null);
+              if (elementWidth !== null && elementWidth > 0) {
+                // Allow a small tolerance (0.5mm) for floating point rounding
+                const diff = Math.abs(totalWidth - elementWidth);
+                if (diff > 0.5) {
+                  errors.push({
+                    field: `${elPath}.columns`,
+                    message: `Column widths sum to ${totalWidth}mm but element width is ${elementWidth}mm. Column widths must sum to the element width.`,
+                  });
+                }
+              }
             }
           }
 

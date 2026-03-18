@@ -39,9 +39,25 @@ export default function TemplateList({
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [typeFilter, setTypeFilter] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  // Restore filters from sessionStorage for within-session persistence
+  const [typeFilter, setTypeFilter] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tpl_filter_type') || '';
+    }
+    return '';
+  });
+  const [statusFilter, setStatusFilter] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tpl_filter_status') || '';
+    }
+    return '';
+  });
+  const [searchQuery, setSearchQuery] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('tpl_filter_search') || '';
+    }
+    return '';
+  });
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
   const [loadingTypes, setLoadingTypes] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -176,16 +192,19 @@ export default function TemplateList({
   const handleTypeChange = (newType: string) => {
     setTypeFilter(newType);
     setCursor(null);
+    sessionStorage.setItem('tpl_filter_type', newType);
   };
 
   const handleStatusChange = (newStatus: string) => {
     setStatusFilter(newStatus);
     setCursor(null);
+    sessionStorage.setItem('tpl_filter_status', newStatus);
   };
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
     setCursor(null);
+    sessionStorage.setItem('tpl_filter_search', value);
   };
 
   const formatDate = (dateStr: string) => {

@@ -194,9 +194,17 @@ export class TemplateController {
     @Body() body: CreateTemplateDto,
     @Headers('authorization') authHeader?: string,
   ) {
+    // Valid template type enum values
+    const VALID_TEMPLATE_TYPES = [
+      'invoice', 'statement', 'purchase_order', 'delivery_note', 'credit_note',
+      'report_aged_debtors', 'report_stock_on_hand', 'report_sales_summary',
+      'report', 'custom',
+    ];
+
     // Validate required fields with detailed error envelope
     const missingFields: string[] = [];
-    if (!body.name) missingFields.push('name');
+    if (!body.name || (typeof body.name === 'string' && !body.name.trim())) missingFields.push('name');
+    if (!body.type || (typeof body.type === 'string' && !body.type.trim())) missingFields.push('type');
     if (!body.schema) missingFields.push('schema');
     if (missingFields.length > 0) {
       throw new HttpException(
@@ -209,6 +217,20 @@ export class TemplateController {
         HttpStatus.BAD_REQUEST,
       );
     }
+
+    // Validate type is a valid enum value
+    if (!VALID_TEMPLATE_TYPES.includes(body.type)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Invalid template type: "${body.type}". Must be one of: ${VALID_TEMPLATE_TYPES.join(', ')}`,
+          details: [{ field: 'type', reason: `must be one of: ${VALID_TEMPLATE_TYPES.join(', ')}` }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
     // Validate schema is an object
     if (typeof body.schema !== 'object' || Array.isArray(body.schema)) {
       throw new HttpException(
@@ -228,7 +250,6 @@ export class TemplateController {
 
     const result = await this.templateService.create({
       ...body,
-      type: body.type || 'custom',
       orgId,
       createdBy,
     });
