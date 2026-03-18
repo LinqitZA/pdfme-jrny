@@ -5178,3 +5178,51 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-88-asset-download-binary.js
 
 ### Test Results: 68/68 tests passing across 3 features
+
+---
+
+## Session - 2026-03-18 - Features #69, #77, #79 (Channel Toggle, Fork, Version Restore)
+
+### Completed Features:
+- **Feature #69**: Channel preview toggle email print both ✅
+  - Added channelFilter state ('all' | 'email' | 'print') defaulting to 'all'
+  - Channel filter toggle buttons in toolbar with All/Email/Print options
+  - Elements with outputChannel='email' hidden when filter is 'print' (and vice versa)
+  - Elements with outputChannel='both' always visible regardless of filter
+  - Hidden elements use display:none for clean filtering
+  - data-channel and data-channel-hidden attributes on element wrappers
+  - Buttons have aria-pressed, aria-label, and distinct active colors
+  - 43/43 tests passing
+
+- **Feature #77**: Template fork creates org copy ✅
+  - POST /api/pdfme/templates/:id/fork already existed and works correctly
+  - Forked template gets user's orgId from JWT
+  - forkedFromId references the source template
+  - Status set to 'draft', version=1
+  - Default name includes "(Fork)", custom name supported
+  - Cross-org fork returns 404, no auth returns 401
+  - Non-existent template returns 404
+  - Forked template can be modified and deleted
+  - 24/24 tests passing
+
+- **Feature #79**: Template restore from historical version ✅
+  - Added POST /api/pdfme/templates/:id/restore endpoint
+  - Accepts { version: number } in body
+  - Restores template schema from historical version entry
+  - Sets status to 'draft' (published version unaffected)
+  - Creates version history entry with "Restored from version N" note
+  - Audit log entry with template.restored action
+  - Validation: version must be positive integer, returns 400 otherwise
+  - Non-existent version returns 404
+  - Cross-org and no-auth properly handled
+  - 25/25 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Channel filter toggle UI
+- nest-module/src/template.controller.ts - POST :id/restore endpoint
+- nest-module/src/template.service.ts - restoreVersion method
+- tests/test-feature-69-channel-preview-toggle.js - 43 tests
+- tests/test-feature-77-template-fork-org-copy.js - 24 tests
+- tests/test-feature-79-template-restore-version.js - 25 tests
+
+### Test Results: 92/92 tests passing across 3 features
