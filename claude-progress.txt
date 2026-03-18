@@ -3004,3 +3004,48 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 134/134 tests passing across 3 test suites
 ### Current Status: ~212/388 features passing (54.6%)
+
+---
+
+## Session - 2026-03-18 - Features #296, #297, #298 (Designer Style/Layout)
+
+### Completed Features:
+- **Feature #296**: Designer handles narrow viewport gracefully ✅
+  - Added isNarrowViewport state with window.innerWidth resize listener
+  - Added mobilePanelOpen state for toggling left/right panel drawers
+  - CSS @media (max-width: 768px) rules: toolbar wraps, panels become absolute overlays
+  - Left/right panels slide in/out with transform: translateX and smooth transitions
+  - Toggle buttons (☰ Blocks, ⚙ Properties) appear on canvas in narrow mode
+  - Backdrop overlay dismisses open panels on click
+  - overflow-x: hidden on designer root prevents horizontal scroll
+  - Panels auto-close when viewport goes wide
+  - 47/47 tests passing
+
+- **Feature #297**: Properties panel scrolls on long content ✅
+  - Properties panel already had overflow: auto and flex: 1 structure
+  - Added data-testid="properties-scroll-container" for testability
+  - Added overscrollBehavior: contain to prevent scroll propagation to canvas
+  - 9 property sections (position/size, typography, text overflow, image, table, binding, page visibility, output channel, conditional visibility) all within scrollable container
+  - Panel header stays fixed while content scrolls
+  - 36/36 tests passing
+
+- **Feature #298**: Canvas centered in viewport ✅
+  - Canvas container uses flex: 1 + display: flex + alignItems/justifyContent: center
+  - Fixed 260px left panel and 280px right panel with canvas filling remaining space
+  - 24px padding around canvas page for adequate spacing
+  - Page scales with zoom (595*zoom/100 x 842*zoom/100) with smooth CSS transitions
+  - overflow: auto enables scrolling at large zoom levels
+  - Gray (#e2e8f0) canvas background contrasts with white page + box shadow
+  - Consistent behavior across all 7 zoom levels (25%-200%)
+  - 33/33 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Responsive viewport handling, scroll container improvements
+- tests/test-feature-296-narrow-viewport.js - 47 tests
+- tests/test-feature-297-properties-scroll.js - 36 tests
+- tests/test-feature-298-canvas-centered.js - 33 tests
+
+### Test Results: 116/116 tests passing across 3 test suites
+### Current Status: ~216/388 features passing (55.7%)
+
+### Note: Browser automation (playwright-cli) unavailable this session due to missing system library (libatk-1.0.so.0). Tests verified via HTML output analysis and source code inspection.
