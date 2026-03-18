@@ -1349,3 +1349,51 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 ### Note: Another agent added template loading from API (isLoading/loadError state) to ErpDesigner
 
 ### Current Status: ~91/388 features passing (23.5%)
+
+---
+
+## Session - 2026-03-18 - Features #178, #179, #180 (Designer Preview, Template List UI, Type Dropdowns)
+
+### Completed Features:
+- **Feature #178**: Designer preview PDF generation via API ✅
+  - ErpDesigner has "Preview" button (data-testid="btn-preview") calling handlePreview
+  - handlePreview POSTs to /api/pdfme/templates/:id/preview with sampleRowCount and channel
+  - Preview returns previewId, downloadUrl, expiresAt
+  - PDF has "PREVIEW — NOT A LEGAL DOCUMENT" watermark applied
+  - Works on draft templates (no publish required)
+  - Download via /api/pdfme/render/download/:previewId returns application/pdf
+  - 21/21 tests passing
+
+- **Feature #179**: Template list in UI loads from API ✅
+  - Created TemplateList component (apps/designer-sandbox/components/TemplateList.tsx)
+  - Created /templates page (apps/designer-sandbox/app/templates/page.tsx)
+  - Fetches templates from GET /api/pdfme/templates with pagination
+  - Shows template name, type, status, version, date
+  - Cursor-based pagination with "Load More" button
+  - Template count shown in header
+  - Click navigates to designer with templateId
+  - 27/27 tests passing
+
+- **Feature #180**: Database-driven dropdowns populated from API ✅
+  - Added getDistinctTypes() to TemplateService - queries actual DB for unique types
+  - Added GET /api/pdfme/templates/types endpoint returning sorted type list
+  - Added type filter support to findAll() and list endpoint (?type=invoice)
+  - TemplateList component fetches types and populates <select> dropdown
+  - Filter updates list in real-time, count reflects filtered results
+  - Types match actual template data in database
+  - New types appear when templates created, disappear when archived
+  - 20/20 tests passing
+
+### Key Files Created/Modified:
+- apps/designer-sandbox/components/TemplateList.tsx - New template management UI component
+- apps/designer-sandbox/app/templates/page.tsx - New /templates route
+- nest-module/src/template.service.ts - Added getDistinctTypes(), type filter in findAll()
+- nest-module/src/template.controller.ts - Added GET /templates/types, ?type query param
+- tests/test-features-178-179-180.js - 68 tests
+
+### API Endpoints Added/Modified:
+- GET  /api/pdfme/templates/types - Get distinct template types from database
+- GET  /api/pdfme/templates?type=X - Filter templates by type
+
+### Test Results: 68/68 tests passing, persistence verified across server restart
+### Current Status: 99/388 features passing (25.5%)
