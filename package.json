@@ -83,6 +83,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@nestjs/platform-express": "^11.1.17"
+    "@nestjs/platform-express": "^11.1.17",
+    "@types/archiver": "^7.0.0",
+    "archiver": "^7.0.1",
+    "pdf-lib": "^1.17.1"
   }
 }

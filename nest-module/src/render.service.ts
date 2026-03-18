@@ -6,13 +6,14 @@
  */
 
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
-import { templates, generatedDocuments } from './db/schema';
+import { templates, generatedDocuments, renderBatches } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
 import { SignatureService } from './signature.service';
+import { EventEmitter } from 'events';
 
 export interface RenderNowDto {
   templateId: string;
@@ -22,13 +23,32 @@ export interface RenderNowDto {
   inputs?: Record<string, string>[];
 }
 
+export interface RenderBulkDto {
+  templateId: string;
+  entityIds: string[];
+  entityType?: string;
+  channel: string;
+  onFailure?: 'continue' | 'abort';
+  notifyUrl?: string;
+  inputs?: Record<string, string>[];
+}
+
 @Injectable()
 export class RenderService {
+  /** EventEmitter for SSE progress streams, keyed by batchId */
+  public readonly batchEvents = new EventEmitter();
+
+  /** Track document IDs per batch for merge operations */
+  private batchDocuments = new Map<string, string[]>();
+
   constructor(
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
     private readonly signatureService: SignatureService,
-  ) {}
+  ) {
+    // Allow many listeners (one per SSE client)
+    this.batchEvents.setMaxListeners(100);
+  }
 
   /**
    * Synchronous render: generates a PDF immediately and returns the document record.
@@ -150,6 +170,316 @@ export class RenderService {
       .returning();
 
     return { document };
+  }
+
+  /**
+   * Bulk render: creates a RenderBatch record, then processes each entityId asynchronously.
+   * Returns immediately with 202 and the batchId.
+   */
+  async renderBulk(dto: RenderBulkDto, orgId: string, userId: string) {
+    const batchId = createId();
+    const onFailure = dto.onFailure || 'continue';
+
+    // Create batch record
+    const [batch] = await this.db
+      .insert(renderBatches)
+      .values({
+        id: batchId,
+        orgId,
+        templateType: dto.entityType || 'document',
+        channel: dto.channel,
+        totalJobs: dto.entityIds.length,
+        completedJobs: 0,
+        failedJobs: 0,
+        failedIds: [],
+        status: 'running',
+        onFailure,
+        notifyUrl: dto.notifyUrl || null,
+      })
+      .returning();
+
+    // Process entities asynchronously (fire and forget)
+    this.processBatchAsync(batchId, dto, orgId, userId).catch((err) => {
+      console.error(`Batch ${batchId} processing error:`, err);
+    });
+
+    return { batchId: batch.id, status: batch.status, totalJobs: batch.totalJobs };
+  }
+
+  /**
+   * Process batch entities sequentially in the background.
+   */
+  private async processBatchAsync(
+    batchId: string,
+    dto: RenderBulkDto,
+    orgId: string,
+    userId: string,
+  ) {
+    let completedJobs = 0;
+    let failedJobs = 0;
+    const failedIds: string[] = [];
+    const documentIds: string[] = [];
+    let aborted = false;
+
+    // Initialize batch document tracking
+    this.batchDocuments.set(batchId, documentIds);
+
+    for (const entityId of dto.entityIds) {
+      if (aborted) break;
+
+      const renderDto: RenderNowDto = {
+        templateId: dto.templateId,
+        entityId,
+        entityType: dto.entityType,
+        channel: dto.channel,
+        inputs: dto.inputs ? [dto.inputs] : undefined,
+      };
+
+      const result = await this.renderNow(renderDto, orgId, userId);
+
+      if ('error' in result && !('document' in result)) {
+        // Template not found error
+        failedJobs++;
+        failedIds.push(entityId);
+
+        this.batchEvents.emit(`batch:${batchId}`, {
+          type: 'job_failed',
+          entityId,
+          error: result.error,
+          completedJobs,
+          failedJobs,
+          totalJobs: dto.entityIds.length,
+        });
+
+        if (dto.onFailure === 'abort') {
+          aborted = true;
+        }
+      } else if ('error' in result && 'document' in result) {
+        // PDF generation failed
+        failedJobs++;
+        failedIds.push(entityId);
+
+        this.batchEvents.emit(`batch:${batchId}`, {
+          type: 'job_failed',
+          entityId,
+          error: result.error,
+          completedJobs,
+          failedJobs,
+          totalJobs: dto.entityIds.length,
+        });
+
+        if (dto.onFailure === 'abort') {
+          aborted = true;
+        }
+      } else {
+        // Success
+        completedJobs++;
+        const docId = (result as { document: { id: string } }).document.id;
+        documentIds.push(docId);
+
+        this.batchEvents.emit(`batch:${batchId}`, {
+          type: 'job_completed',
+          entityId,
+          documentId: docId,
+          completedJobs,
+          failedJobs,
+          totalJobs: dto.entityIds.length,
+        });
+      }
+
+      // Update batch progress in DB
+      const batchStatus = aborted
+        ? 'aborted'
+        : (completedJobs + failedJobs >= dto.entityIds.length)
+          ? (failedJobs > 0 ? 'completedWithErrors' : 'completed')
+          : 'running';
+
+      await this.db
+        .update(renderBatches)
+        .set({
+          completedJobs,
+          failedJobs,
+          failedIds: failedIds.length > 0 ? failedIds : [],
+          status: batchStatus,
+          ...(batchStatus !== 'running' ? { completedAt: new Date() } : {}),
+        })
+        .where(eq(renderBatches.id, batchId));
+    }
+
+    // Final status
+    const finalStatus = aborted
+      ? 'aborted'
+      : (failedJobs > 0 ? 'completedWithErrors' : 'completed');
+
+    await this.db
+      .update(renderBatches)
+      .set({
+        completedJobs,
+        failedJobs,
+        failedIds: failedIds.length > 0 ? failedIds : [],
+        status: finalStatus,
+        completedAt: new Date(),
+      })
+      .where(eq(renderBatches.id, batchId));
+
+    // Emit batch complete event
+    this.batchEvents.emit(`batch:${batchId}`, {
+      type: 'batch_complete',
+      status: finalStatus,
+      completedJobs,
+      failedJobs,
+      totalJobs: dto.entityIds.length,
+    });
+
+    // Webhook callback if configured
+    if (dto.notifyUrl) {
+      try {
+        await fetch(dto.notifyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            batchId,
+            status: finalStatus,
+            completedJobs,
+            failedJobs,
+            totalJobs: dto.entityIds.length,
+          }),
+        });
+      } catch {
+        console.error(`Webhook callback failed for batch ${batchId}`);
+      }
+    }
+  }
+
+  /**
+   * Get batch status by ID.
+   */
+  async getBatchStatus(batchId: string, orgId: string) {
+    const [batch] = await this.db
+      .select()
+      .from(renderBatches)
+      .where(
+        and(
+          eq(renderBatches.id, batchId),
+          eq(renderBatches.orgId, orgId),
+        ),
+      );
+
+    if (!batch) {
+      return null;
+    }
+
+    return {
+      id: batch.id,
+      status: batch.status,
+      totalJobs: batch.totalJobs,
+      completedJobs: batch.completedJobs,
+      failedJobs: batch.failedJobs,
+      failedIds: batch.failedIds,
+      channel: batch.channel,
+      onFailure: batch.onFailure,
+      createdAt: batch.createdAt,
+      completedAt: batch.completedAt,
+    };
+  }
+
+  /**
+   * Merge all PDFs from a completed batch into a single PDF file.
+   */
+  async mergeBatchPdfs(batchId: string, orgId: string) {
+    // 1. Get batch
+    const [batch] = await this.db
+      .select()
+      .from(renderBatches)
+      .where(
+        and(
+          eq(renderBatches.id, batchId),
+          eq(renderBatches.orgId, orgId),
+        ),
+      );
+
+    if (!batch) {
+      return { error: 'Batch not found' };
+    }
+
+    if (batch.status === 'running') {
+      return { error: 'Batch is still running' };
+    }
+
+    // 2. Get all successful documents for this batch using tracked document IDs
+    const batchDocIds = this.batchDocuments.get(batchId) || [];
+
+    let relevantDocs: { id: string; filePath: string }[] = [];
+    if (batchDocIds.length > 0) {
+      relevantDocs = await this.db
+        .select({ id: generatedDocuments.id, filePath: generatedDocuments.filePath })
+        .from(generatedDocuments)
+        .where(
+          and(
+            eq(generatedDocuments.orgId, orgId),
+            eq(generatedDocuments.status, 'done'),
+            inArray(generatedDocuments.id, batchDocIds),
+          ),
+        );
+    }
+
+    if (relevantDocs.length === 0) {
+      return { error: 'No completed documents found in batch' };
+    }
+
+    // 3. Read all PDF buffers
+    const pdfBuffers: Buffer[] = [];
+    for (const doc of relevantDocs) {
+      try {
+        const buffer = await this.fileStorage.read(doc.filePath);
+        if (buffer) {
+          pdfBuffers.push(buffer);
+        }
+      } catch {
+        console.error(`Failed to read PDF: ${doc.filePath}`);
+      }
+    }
+
+    if (pdfBuffers.length === 0) {
+      return { error: 'No PDF files could be read' };
+    }
+
+    // 4. Merge PDFs using pdf-lib
+    const { PDFDocument } = await import('pdf-lib');
+    const mergedPdf = await PDFDocument.create();
+
+    let totalPages = 0;
+    for (const pdfBuffer of pdfBuffers) {
+      try {
+        const sourcePdf = await PDFDocument.load(pdfBuffer);
+        const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+        for (const page of copiedPages) {
+          mergedPdf.addPage(page);
+          totalPages++;
+        }
+      } catch (err) {
+        console.error('Failed to merge a PDF:', err);
+      }
+    }
+
+    // 5. Save merged PDF
+    const mergedBytes = await mergedPdf.save();
+    const mergedHash = crypto
+      .createHash('sha256')
+      .update(Buffer.from(mergedBytes))
+      .digest('hex');
+
+    const mergedDocId = createId();
+    const mergedFilePath = `${orgId}/documents/merged_${batchId}_${mergedDocId}.pdf`;
+    await this.fileStorage.write(mergedFilePath, Buffer.from(mergedBytes));
+
+    return {
+      mergedDocumentId: mergedDocId,
+      filePath: mergedFilePath,
+      pdfHash: mergedHash,
+      totalPages,
+      documentsIncluded: relevantDocs.length,
+    };
   }
 
   /**
