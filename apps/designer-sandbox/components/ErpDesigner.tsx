@@ -308,6 +308,7 @@ export default function ErpDesigner({
   const [isDirty, setIsDirty] = useState(false);
   const [showBindingPicker, setShowBindingPicker] = useState(false);
   const [bindingSearch, setBindingSearch] = useState('');
+  const [fieldTabSearch, setFieldTabSearch] = useState('');
 
   // Auto-save state
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -1642,6 +1643,18 @@ export default function ErpDesigner({
       ),
     })).filter((g) => g.fields.length > 0);
   }, [bindingSearch]);
+
+  // Filtered data fields for Fields tab search
+  const filteredFieldTabFields = useMemo(() => {
+    if (!fieldTabSearch) return DATA_FIELDS;
+    const q = fieldTabSearch.toLowerCase();
+    return DATA_FIELDS.map((group) => ({
+      ...group,
+      fields: group.fields.filter(
+        (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
+      ),
+    })).filter((g) => g.fields.length > 0);
+  }, [fieldTabSearch]);
 
   // ─── Element visual representation on canvas ───
   const renderCanvasElement = useCallback((el: DesignElement) => {
@@ -3030,7 +3043,10 @@ export default function ErpDesigner({
             {activeTab === 'fields' && (
               <div data-testid="fields-content">
                 <input
+                  data-testid="field-tab-search"
                   placeholder="Search fields..."
+                  value={fieldTabSearch}
+                  onChange={(e) => setFieldTabSearch(e.target.value)}
                   style={{
                     width: '100%',
                     padding: '6px 10px',
@@ -3041,28 +3057,40 @@ export default function ErpDesigner({
                   }}
                 />
                 <div style={{ fontSize: '13px', color: '#64748b' }}>
-                  {DATA_FIELDS.map((group) => (
-                    <div key={group.group}>
-                      <div style={{ fontWeight: 600, marginBottom: '4px' }}>{group.group}</div>
-                      {group.fields.map((field) => (
-                        <div
-                          key={field.key}
-                          data-testid={`field-${field.key}`}
-                          draggable
-                          onDragStart={(e) => handleFieldDragStart(e, field.key)}
-                          style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab' }}
-                          onClick={() => {
-                            if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
-                              handleBindField(field.key);
-                            }
-                          }}
-                        >
-                          {`{{${field.key}}}`}
-                        </div>
-                      ))}
-                      <div style={{ height: '8px' }} />
+                  {filteredFieldTabFields.length === 0 && fieldTabSearch ? (
+                    <div data-testid="fields-empty-state" style={{
+                      textAlign: 'center',
+                      padding: '24px 12px',
+                      color: '#94a3b8',
+                    }}>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>🔍</div>
+                      <div style={{ fontWeight: 500, marginBottom: '4px', color: '#64748b' }}>No matching fields</div>
+                      <div style={{ fontSize: '12px' }}>No fields match &quot;{fieldTabSearch}&quot;</div>
                     </div>
-                  ))}
+                  ) : (
+                    filteredFieldTabFields.map((group) => (
+                      <div key={group.group}>
+                        <div style={{ fontWeight: 600, marginBottom: '4px' }}>{group.group}</div>
+                        {group.fields.map((field) => (
+                          <div
+                            key={field.key}
+                            data-testid={`field-${field.key}`}
+                            draggable
+                            onDragStart={(e) => handleFieldDragStart(e, field.key)}
+                            style={{ paddingLeft: '12px', marginBottom: '2px', cursor: 'grab' }}
+                            onClick={() => {
+                              if (selectedElementId && selectedElement && (getElementCategory(selectedElement.type) === 'text' || selectedElement.type === 'qr-barcode')) {
+                                handleBindField(field.key);
+                              }
+                            }}
+                          >
+                            {`{{${field.key}}}`}
+                          </div>
+                        ))}
+                        <div style={{ height: '8px' }} />
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
