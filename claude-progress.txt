@@ -5131,3 +5131,31 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-feature-68-out-of-scope-dimmed.js - 38 tests
 
 ### Test Results: 112/112 tests passing across 3 features
+## Session - 2026-03-18 - Feature #389 (Configurable Document Hashing Algorithm)
+
+### Completed Feature:
+- Feature #389: Configurable document hashing algorithm - SHA-256 and BLAKE3
+  - Created HashService as centralised NestJS injectable service
+  - Added hashing.algorithm config option to PdfmeErpModuleConfig
+  - Default is sha256 for backward compatibility
+  - Replaced all 4 inline crypto.createHash calls
+  - Hash values now prefixed with algorithm identifier
+  - Verification logic parses algorithm prefix from stored hash
+  - Legacy un-prefixed hashes treated as SHA-256 for backward compatibility
+  - Added blake3 npm dependency to nest-module package.json
+  - Registered HashService in AppModule and PdfmeErpModule
+  - 47/47 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/hash.service.ts - NEW: Centralised hash service
+- nest-module/src/types.ts - Added hashing section to PdfmeErpModuleConfig
+- nest-module/src/render.service.ts - Replaced inline crypto.createHash with HashService
+- nest-module/src/grouped-table.controller.ts - Replaced inline crypto.createHash with HashService
+- nest-module/src/app.module.ts - Registered HashService
+- nest-module/src/pdfme-erp.module.ts - Registered HashService, pass hashing config
+- nest-module/src/db/schema.ts - Updated pdfHash column comment
+- nest-module/package.json - Added blake3 dependency
+- tests/test-feature-389-configurable-hashing.js - 47 tests
+
+### Test Results: 47/47 tests passing
+### Current Status: 364/389 features passing
