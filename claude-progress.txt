@@ -1816,3 +1816,40 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 98/98 tests passing across 3 test suites
 ### Current Status: ~123/388 features passing (31.7%)
+
+---
+
+## Session - 2026-03-18 - Features #211, #212, #213 (Version Deep Link, Field Schema Unknown, Health No Auth)
+
+### Completed Features:
+- **Feature #211**: Deep link to specific template version ✅
+  - Added GET /api/pdfme/templates/:id/versions/:version endpoint
+  - Added getVersionByNumber() method to TemplateService
+  - Fixed version incrementing on publish (was always 1, now increments)
+  - Returns specific version with schema, status, savedBy, savedAt
+  - 400 for malformed/invalid version numbers (abc, 0, -1)
+  - 404 for nonexistent versions
+  - 404 for nonexistent template
+  - 33/33 tests passing
+
+- **Feature #212**: Field schema endpoint handles unknown type ✅
+  - GET /api/pdfme/field-schema/:type already returns 404 for unknown types
+  - Response includes error, message with the unknown type name
+  - No server errors - server remains healthy after invalid requests
+  - Multiple unknown types tested (special chars, spaces, random strings)
+  - 12/12 tests passing
+
+- **Feature #213**: Health endpoint accessible without any auth ✅
+  - GET /api/pdfme/health works with no headers, empty auth, expired JWT, invalid JWT, tampered JWT, Basic auth
+  - All return 200 with status: ok and database info
+  - Valid JWT also works
+  - 17/17 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.controller.ts - Added GET :id/versions/:version endpoint
+- nest-module/src/template.service.ts - Added getVersionByNumber(), fixed version increment on publish
+- tests/test-deep-link-version-211.js - 33 tests
+- tests/test-field-schema-unknown-212.js - 12 tests
+- tests/test-health-no-auth-213.js - 17 tests
+
+### Current Status: ~132/388 features passing (34.0%)
