@@ -1838,7 +1838,12 @@ export default function ErpDesigner({
       boxSizing: 'border-box',
       overflow: 'hidden',
       backgroundColor: category === 'image' ? '#f8fafc' : 'transparent',
-    };
+      // Crisp rendering at all zoom levels
+      backfaceVisibility: 'hidden',
+      WebkitFontSmoothing: 'antialiased',
+      willChange: 'transform',
+      transform: 'translateZ(0)',
+    } as React.CSSProperties;
 
     let content: React.ReactNode = null;
     if (category === 'text') {
@@ -1867,6 +1872,7 @@ export default function ErpDesigner({
             whiteSpace: 'nowrap',
             textOverflow: 'ellipsis',
             userSelect: 'none',
+            textRendering: 'optimizeLegibility',
           }}
         >
           {displayText}
@@ -1887,7 +1893,7 @@ export default function ErpDesigner({
           }}
         >
           {el.src ? (
-            <img src={el.src} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: el.objectFit || 'contain' }} />
+            <img src={el.src} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: el.objectFit || 'contain', imageRendering: 'auto' }} />
           ) : (
             getElementTypeLabel(el.type)
           )}
@@ -2010,7 +2016,7 @@ export default function ErpDesigner({
         {/* Position & Size (always shown) */}
         <div style={{ marginBottom: '16px' }} data-testid="properties-position-size">
           <label style={labelStyle}>Position &amp; Size</label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>X</span>
               <input
@@ -2058,7 +2064,7 @@ export default function ErpDesigner({
         {category === 'text' && (
           <div data-testid="properties-typography" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Typography</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Family</span>
                 <select
@@ -2072,7 +2078,7 @@ export default function ErpDesigner({
                   ))}
                 </select>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div>
                   <span style={{ fontSize: '11px', color: '#94a3b8' }}>Font Size</span>
                   <input
@@ -2141,7 +2147,7 @@ export default function ErpDesigner({
               </div>
               <div>
                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>Color</span>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     data-testid="prop-color"
                     type="color"
@@ -2195,7 +2201,7 @@ export default function ErpDesigner({
         {category === 'image' && (
           <div data-testid="properties-image" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Image Options</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>Source URL</span>
                 <input
@@ -2240,7 +2246,7 @@ export default function ErpDesigner({
         {category === 'table' && (
           <div data-testid="properties-table" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Table Configuration</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
                   data-testid="prop-show-header"
@@ -2335,7 +2341,7 @@ export default function ErpDesigner({
         {(category === 'text' || selectedElement.type === 'qr-barcode') && (
           <div data-testid="properties-binding" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Data Binding</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
                 <span style={{ fontSize: '11px', color: '#94a3b8' }}>Bound Field</span>
                 <div style={{ display: 'flex', gap: '4px' }}>
@@ -2435,7 +2441,7 @@ export default function ErpDesigner({
         {/* Page Visibility section - always shown */}
         <div data-testid="properties-page-visibility" style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Page Visibility</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>Page Scope</span>
               <select
@@ -2477,7 +2483,7 @@ export default function ErpDesigner({
         {/* Output Channel section - always shown */}
         <div data-testid="properties-output-channel" style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Output Channel</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>Channel</span>
               <select
@@ -2517,7 +2523,7 @@ export default function ErpDesigner({
         {/* Conditional Visibility section - always shown */}
         <div data-testid="properties-conditional-visibility" style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Conditional Visibility</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div>
               <span style={{ fontSize: '11px', color: '#94a3b8' }}>Visibility</span>
               <select
@@ -2664,6 +2670,18 @@ export default function ErpDesigner({
     <>
     <style>{`
       @keyframes spin { to { transform: rotate(360deg); } }
+      .block-card {
+        transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+      }
+      .block-card:hover {
+        background-color: #eef2ff !important;
+        border-color: #c7d2fe !important;
+        box-shadow: 0 1px 3px rgba(99,102,241,0.1);
+      }
+      .block-card:active {
+        background-color: #e0e7ff !important;
+        border-color: #a5b4fc !important;
+      }
       @media (max-width: 1200px) and (min-width: 769px) {
         .erp-designer-left-panel {
           width: 220px !important;
@@ -3293,11 +3311,13 @@ export default function ErpDesigner({
           data-testid="left-panel"
           style={{
             width: '260px',
+            maxWidth: '260px',
             backgroundColor: '#ffffff',
             borderRight: '1px solid #e2e8f0',
             display: 'flex',
             flexDirection: 'column',
             flexShrink: 0,
+            overflow: 'hidden',
           }}
         >
           {/* Tabs */}
@@ -3337,13 +3357,14 @@ export default function ErpDesigner({
               <div data-testid="blocks-content">
                 {BLOCK_CATEGORIES.map((cat) => (
                   <div key={cat.name} style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>
                       {cat.name}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                       {cat.blocks.map((block) => (
                         <div
                           key={block.id}
+                          className="block-card"
                           data-testid={`block-${block.id}`}
                           role="button"
                           tabIndex={0}
@@ -3360,6 +3381,11 @@ export default function ErpDesigner({
                             cursor: 'grab',
                             textAlign: 'center',
                             fontSize: '11px',
+                            minHeight: '52px',
+                            display: 'flex',
+                            flexDirection: 'column' as const,
+                            alignItems: 'center',
+                            justifyContent: 'center',
                           }}
                         >
                           <div style={{ fontSize: '16px', marginBottom: '2px' }}>{block.icon}</div>
@@ -3507,7 +3533,7 @@ export default function ErpDesigner({
                     No assets uploaded yet
                   </div>
                 ) : (
-                  <div data-testid="assets-list" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div data-testid="assets-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {assets.map((asset) => (
                       <div
                         key={asset.id}
@@ -3703,6 +3729,7 @@ export default function ErpDesigner({
           ref={canvasRef}
           style={{
             flex: 1,
+            minWidth: 0,
             backgroundColor: '#e2e8f0',
             display: 'flex',
             alignItems: 'center',
@@ -3784,7 +3811,11 @@ export default function ErpDesigner({
               borderRadius: '2px',
               position: 'relative',
               transition: 'width 0.2s, height 0.2s',
-            }}
+              // Crisp rendering at all zoom levels
+              imageRendering: 'auto' as React.CSSProperties['imageRendering'],
+              textRendering: 'optimizeLegibility' as React.CSSProperties['textRendering'],
+              WebkitFontSmoothing: 'antialiased',
+            } as React.CSSProperties}
           >
             {/* Page label overlay */}
             <div
@@ -4255,6 +4286,7 @@ const labelStyle: React.CSSProperties = {
   color: '#64748b',
   marginBottom: '6px',
   textTransform: 'uppercase',
+  letterSpacing: '0.5px',
 };
 
 const propInputStyle: React.CSSProperties = {
