@@ -1474,3 +1474,51 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 95/95 tests passing
 ### Current Status: ~107/388 features passing (27.6%)
+
+---
+
+## Session - 2026-03-18 - Features #187, #188, #189 (Render Polling, SSE Progress, Locale Config)
+
+### Completed Features:
+- **Feature #187**: Render status polling shows progress ✅
+  - Added POST /api/pdfme/render/async endpoint (202) to submit queue jobs
+  - Added GET /api/pdfme/render/status/:jobId for status polling
+  - Maps BullMQ states to user-friendly: queued → generating → done → failed
+  - Added handleAsyncRender() in ErpDesigner with 1-second polling interval
+  - Added async job status step indicator (queued/generating/done badges) in render overlay
+  - Polling auto-stops on done/failed, cleaned up on unmount/dismiss
+  - 35/35 tests passing
+
+- **Feature #188**: SSE batch progress updates UI ✅
+  - Fixed event name mismatch: UI now handles both job_complete and job_completed
+  - Verified SSE stream delivers job_completed, job_failed, batch_complete events
+  - Progress counts increase monotonically with each SSE event
+  - Individual job events include entityId for tracking
+  - Already-completed batches send immediate batch_complete on SSE connect
+  - 32/32 tests passing
+
+- **Feature #189**: LocaleConfig applied to expression functions ✅
+  - Updated ExpressionController to accept locale/currency per-request
+  - Added POST/GET /api/pdfme/expressions/locale for org-level locale config
+  - Locale priority: explicit request > org config > defaults (en-US/USD)
+  - Verified en-ZA/ZAR (R 1 500,50), en-US/USD ($1,500.50), de-DE/EUR (1.000,00 €), en-GB/GBP (£1,000.00)
+  - FORMAT_CURRENCY, FORMAT_NUMBER, FORMAT_DATE all locale-aware via Intl APIs
+  - 39/39 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/render.controller.ts - Added render/async and render/status/:jobId endpoints
+- nest-module/src/render-queue.service.ts - Injected into RenderController
+- nest-module/src/expression.controller.ts - Locale config support, per-request locale/currency
+- apps/designer-sandbox/components/ErpDesigner.tsx - handleAsyncRender, polling, async status indicator, SSE event fix
+- tests/test-render-status-polling-187.js - 35 tests
+- tests/test-sse-batch-progress-188.js - 32 tests
+- tests/test-locale-expression-189.js - 39 tests
+
+### API Endpoints Added:
+- POST /api/pdfme/render/async - Submit async render job (202)
+- GET  /api/pdfme/render/status/:jobId - Poll render job status
+- POST /api/pdfme/expressions/locale - Set org locale config
+- GET  /api/pdfme/expressions/locale - Get org locale config
+
+### Test Results: 106/106 tests passing across 3 test suites
+### Current Status: ~108/388 features passing (27.8%)
