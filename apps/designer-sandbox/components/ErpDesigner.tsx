@@ -18,6 +18,16 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
  * - Data binding picker with {{field.key}} syntax (#56)
  */
 
+/** Uploaded asset metadata */
+export interface AssetInfo {
+  id: string;
+  filename: string;
+  path: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+}
+
 export interface ErpDesignerProps {
   templateId?: string;
   templateName?: string;
@@ -27,6 +37,7 @@ export interface ErpDesignerProps {
   autoSaveInterval?: number; // ms, default 30000
   onSave?: (template: unknown) => void;
   onChange?: (template: unknown) => void;
+  onAssetUpload?: (asset: AssetInfo) => void;
 }
 
 type LeftTab = 'blocks' | 'fields' | 'assets' | 'pages';
@@ -248,6 +259,7 @@ export default function ErpDesigner({
   apiBase = '/api/pdfme',
   autoSaveInterval = 30000,
   onSave,
+  onAssetUpload,
 }: ErpDesignerProps) {
   const [activeTab, setActiveTab] = useState<LeftTab>('blocks');
   const [zoom, setZoom] = useState(100);
@@ -278,6 +290,12 @@ export default function ErpDesigner({
   // Template loading state
   const [isLoading, setIsLoading] = useState(!!templateId);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Asset management state
+  const [assets, setAssets] = useState<AssetInfo[]>([]);
+  const [assetUploadStatus, setAssetUploadStatus] = useState<'idle' | 'uploading' | 'error'>('idle');
+  const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
+  const assetFileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep isDirtyRef in sync with isDirty state
   useEffect(() => {
@@ -574,6 +592,117 @@ export default function ErpDesigner({
     if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
     return headers;
   }, [authToken]);
+
+  // ─── Load assets list from API ───
+  const loadAssets = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
+      if (authToken) {
+        headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+      }
+
+      const response = await fetch(`${apiBase}/assets`, { headers });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.data && Array.isArray(result.data)) {
+          const assetList: AssetInfo[] = result.data.map((filePath: string, idx: number) => {
+            const filename = filePath.split('/').pop() || filePath;
+            const ext = filename.split('.').pop()?.toLowerCase() || '';
+            const mimeMap: Record<string, string> = {
+              png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+              svg: 'image/svg+xml', webp: 'image/webp', gif: 'image/gif',
+            };
+            return {
+              id: `asset-${idx}-${filename}`,
+              filename,
+              path: filePath,
+              mimeType: mimeMap[ext] || 'application/octet-stream',
+              size: 0,
+              uploadedAt: new Date().toISOString(),
+            };
+          });
+          setAssets(assetList);
+        }
+      }
+    } catch {
+      // Silent fail on asset list load - not critical
+    }
+  }, [authToken, apiBase]);
+
+  // Load assets on mount
+  useEffect(() => {
+    if (authToken) {
+      loadAssets();
+    }
+  }, [loadAssets, authToken]);
+
+  // ─── Asset upload handler ───
+  const handleAssetUpload = useCallback(async (file: File) => {
+    setAssetUploadStatus('uploading');
+    setAssetUploadError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const headers: Record<string, string> = {};
+      if (authToken) {
+        headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+      }
+
+      const response = await fetch(`${apiBase}/assets/upload`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({ message: `Upload failed (${response.status})` }));
+        throw new Error(errBody.message || `Upload failed with status ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      const newAsset: AssetInfo = {
+        id: result.id || result.assetId || `asset-${Date.now()}`,
+        filename: result.filename || file.name,
+        path: result.path || result.storagePath || '',
+        mimeType: result.mimeType || file.type,
+        size: result.size || file.size,
+        uploadedAt: result.uploadedAt || new Date().toISOString(),
+      };
+
+      setAssets((prev) => [...prev, newAsset]);
+      setAssetUploadStatus('idle');
+
+      // Call the onAssetUpload callback if provided
+      if (onAssetUpload) {
+        onAssetUpload(newAsset);
+      }
+
+      return newAsset;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setAssetUploadStatus('error');
+      setAssetUploadError(msg);
+      setTimeout(() => {
+        setAssetUploadStatus((prev) => prev === 'error' ? 'idle' : prev);
+        setAssetUploadError(null);
+      }, 5000);
+      return null;
+    }
+  }, [authToken, apiBase, onAssetUpload]);
+
+  const handleAssetFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleAssetUpload(file);
+    }
+    // Reset file input so same file can be selected again
+    if (assetFileInputRef.current) {
+      assetFileInputRef.current.value = '';
+    }
+  }, [handleAssetUpload]);
 
   /** Single PDF render (preview or render/now) */
   const handlePreview = useCallback(async () => {
@@ -1932,12 +2061,104 @@ export default function ErpDesigner({
             )}
             {activeTab === 'assets' && (
               <div data-testid="assets-content">
-                <button style={{ ...toolbarBtnStyle, width: '100%', marginBottom: '12px' }}>
-                  Upload Asset
+                <input
+                  ref={assetFileInputRef}
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.svg,.webp,.gif"
+                  style={{ display: 'none' }}
+                  data-testid="asset-file-input"
+                  onChange={handleAssetFileChange}
+                />
+                <button
+                  data-testid="asset-upload-btn"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    marginBottom: '12px',
+                    opacity: assetUploadStatus === 'uploading' ? 0.6 : 1,
+                    cursor: assetUploadStatus === 'uploading' ? 'wait' : 'pointer',
+                  }}
+                  disabled={assetUploadStatus === 'uploading'}
+                  onClick={() => assetFileInputRef.current?.click()}
+                >
+                  {assetUploadStatus === 'uploading' ? 'Uploading...' : 'Upload Asset'}
                 </button>
-                <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>
-                  No assets uploaded yet
-                </div>
+                {assetUploadStatus === 'error' && assetUploadError && (
+                  <div
+                    data-testid="asset-upload-error"
+                    style={{
+                      fontSize: '12px',
+                      color: '#ef4444',
+                      backgroundColor: '#fef2f2',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    {assetUploadError}
+                  </div>
+                )}
+                {assets.length === 0 ? (
+                  <div style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', padding: '20px 0' }}>
+                    No assets uploaded yet
+                  </div>
+                ) : (
+                  <div data-testid="assets-list" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {assets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        data-testid={`asset-item-${asset.id}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '6px 8px',
+                          borderRadius: '6px',
+                          backgroundColor: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                        }}
+                        title={asset.filename}
+                      >
+                        {asset.mimeType.startsWith('image/') ? (
+                          <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '4px',
+                            backgroundColor: '#e2e8f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '10px',
+                            color: '#64748b',
+                            flexShrink: 0,
+                          }}>
+                            IMG
+                          </div>
+                        ) : (
+                          <div style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '4px',
+                            backgroundColor: '#e2e8f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '10px',
+                            color: '#64748b',
+                            flexShrink: 0,
+                          }}>
+                            FILE
+                          </div>
+                        )}
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                          {asset.filename}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
             {activeTab === 'pages' && (
