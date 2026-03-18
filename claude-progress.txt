@@ -2500,3 +2500,45 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 67/67 tests passing across 3 test suites
 ### Current Status: ~182/388 features passing (46.9%)
+
+
+---
+
+## Session - 2026-03-18 - Features #264, #265, #266 (Upload Validations)
+
+### Completed Features:
+- **Feature #264**: Asset upload validates file size ✅
+  - Small files (100B, 1KB, 5MB, 9MB) all upload with 201
+  - Oversized files (11MB, 15MB) rejected with 413 Payload Too Large
+  - Enhanced global exception filter for multer size errors with specific limit info
+  - Error response includes maxSize='10MB', statusCode=413, descriptive message
+  - Server remains healthy after rejection
+  - 17/17 tests passing
+
+- **Feature #265**: Font upload validates fsType flag ✅
+  - fsType=0 (installable) accepted with validation details
+  - fsType=4 (preview/print) accepted
+  - fsType=8 (editable) accepted
+  - fsType=2 (restricted license) rejected with 400
+  - fsType=6 (restricted+preview, preview overrides) accepted
+  - fsType=0x0100 (no subsetting) accepted
+  - Error message includes fsType hex value and PDF restriction explanation
+  - 21/21 tests passing
+
+- **Feature #266**: Font upload validates file format ✅
+  - TTF (.ttf with 0x00010000 magic) accepted
+  - OTF (.otf with OTTO magic) accepted
+  - WOFF2 (.woff2 with wOF2 magic) accepted
+  - .exe, .woff (v1), .zip, .pdf, .png all rejected with 400
+  - Fake font data with .ttf extension rejected (magic bytes mismatch)
+  - Error messages list allowed formats (.ttf, .otf, .woff2)
+  - 19/19 tests passing
+
+### Key Files Modified:
+- nest-module/src/global-exception.filter.ts - Enhanced 413 error handling with specific size limit info
+- tests/test-feature-264-asset-size.js - 17 tests
+- tests/test-feature-265-font-fstype.js - 21 tests
+- tests/test-feature-266-font-format.js - 19 tests
+
+### Test Results: 57/57 tests passing across 3 test suites
+### Current Status: ~183/388 features passing (47.2%)
