@@ -2411,3 +2411,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 85/85 tests passing across 3 test suites
 ### Current Status: ~176/388 features passing (45.4%)
+
+---
+
+## Session - 2026-03-18 - Features #252, #253, #254 (Audit Log Filtering, Render History)
+
+### Completed Features:
+- **Feature #252**: Audit log filter by entityType ✅
+  - Added audit logging for rendered documents (entityType=generatedDocument) in RenderService
+  - AuditService.log called after successful renderNow with metadata (templateId, channel, etc.)
+  - GET /api/pdfme/audit?entityType=template returns only template entries
+  - GET /api/pdfme/audit?entityType=generatedDocument returns only render entries
+  - No filter returns all entries; non-existent type returns empty
+  - Pagination respects entityType filter
+  - Combined filters (entityType + action, entityType + entityId) work correctly
+  - 42/42 tests passing
+
+- **Feature #253**: Audit log filter by date range ✅
+  - Added from/to query parameters to GET /api/pdfme/audit endpoint
+  - AuditService.query uses gte/lte operators for date range filtering
+  - from=date returns entries after that date; to=date returns entries before
+  - Both from and to can be used independently or together
+  - Combined with entityType filter works correctly
+  - Future/past date ranges return empty results
+  - Invalid date strings handled gracefully (ignored, not errored)
+  - 31/31 tests passing
+
+- **Feature #254**: Render history filter by template type ✅
+  - Added GET /api/pdfme/render/documents endpoint for listing all documents across templates
+  - RenderService.listDocuments supports entityType and status filters
+  - entityType=invoice returns only invoice docs; entityType=statement returns only statement docs
+  - No filter returns all documents
+  - Combined entityType + status filter works
+  - Non-existent entityType returns empty
+  - Document data integrity verified (id, templateId, templateVer, pdfHash, etc.)
+  - 37/37 tests passing
+
+### Key Files Modified:
+- nest-module/src/render.service.ts - Added AuditService injection, audit logging for renders, listDocuments()
+- nest-module/src/render.controller.ts - Added GET /render/documents endpoint with entityType filter
+- nest-module/src/audit.controller.ts - Added from/to query params
+- nest-module/src/audit.service.ts - Added gte/lte date range filtering, from/to in AuditQueryParams
+- tests/test-audit-filter-entitytype-252.js - 42 tests
+- tests/test-audit-filter-daterange-253.js - 31 tests
+- tests/test-render-history-filter-254.js - 37 tests
+
+### Test Results: 110/110 tests passing across 3 test suites
+### Current Status: ~178/388 features passing (45.9%)
