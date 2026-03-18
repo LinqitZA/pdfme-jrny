@@ -546,3 +546,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 40/40 tests passing
 ### Current Status: Features #121, #122, #123 marked passing
+
+---
+
+## Session - 2026-03-18 - Features #118, #119, #120 (Line Items Table)
+
+### Completed Features:
+- **Feature #118**: Line items table footer rows ✅
+  - Implemented full LineItemsTable schema plugin in packages/erp-schemas/src/line-items-table/index.ts
+  - Footer row types: sum, percentage, sumWithFooters, expression, static
+  - Subtotal/VAT/total computed correctly (e.g., 1000 + 150 = 1150)
+  - Integrated with RenderService via resolveLineItemsTables() pre-processor
+  - Converts lineItemsTable schema to pdfme table with footer rows in body data
+  - PDF generation verified end-to-end (9104 bytes)
+
+- **Feature #119**: Line items table alternating group shading ✅
+  - alternateRowShading flag controls pdfme alternateBackgroundColor
+  - Custom color via alternateRowColor (default #f7fafc)
+  - Both shading and no-shading variants render PDFs correctly
+  - Unit tests verify schema transformation
+
+- **Feature #120**: Line items table sub-rows render conditionally ✅
+  - SubRowConfig with RowCondition evaluation (fieldNonEmpty, expression)
+  - Sub-rows render only when condition is met per line item
+  - {{field.key}} bindings resolved in sub-row cell content
+  - Expression conditions support: >, <, >=, <=, ==, != operators
+  - Verified: mixed (2/3 match), none matching, all matching scenarios
+  - Correctly interleaves sub-rows between primary rows before footer
+
+### Key Files Created/Modified:
+- packages/erp-schemas/src/line-items-table/index.ts - Full implementation (was placeholder)
+- nest-module/src/render.service.ts - Added resolveLineItemsTables() step in render pipeline
+- tests/test-lit-unit.js - 30+ unit tests for footer computation
+- tests/test-lit-shading-unit.js - 11 unit tests for alternating shading
+- tests/test-lit-subrows-unit.js - 40+ unit tests for conditional sub-rows
+- tests/test-line-items-footer.sh - Integration test for feature #118
+- tests/test-lit-shading.sh - Integration test for feature #119
+- tests/test-lit-subrows.sh - Integration test for feature #120
+
+### Architecture:
+- LineItemsTable is a pre-processor plugin, not a direct pdfme Plugin
+- resolveLineItemsTables() runs before pdfme generate() in RenderService.renderNow()
+- Converts lineItemsTable type to standard pdfme table type
+- Line items data passed as JSON string in inputs, parsed during resolution
+- Footer rows computed from line items data and appended to table body
+- Sub-rows evaluated per line item and interleaved between primary rows
+
+### Current Status: Features #118, #119, #120 marked passing
