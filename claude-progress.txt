@@ -1167,3 +1167,63 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - packages/erp-schemas/src/erp-image/index.ts
 
 ### Current Status: ~75/388 features passing (19.3%)
+
+---
+
+## Session - 2026-03-18 - Features #163, #164, #165 (Preview Expiry, Retry Logic, DLQ)
+
+### Completed Features:
+- **Feature #163**: API returns 410 Gone for expired previews ✅
+  - GET /api/pdfme/render/download/:previewId serves preview PDFs
+  - In-memory PreviewRecord registry tracks previewId, orgId, filePath, expiresAt
+  - Expired previews return 410 Gone with descriptive message
+  - Non-existent previews return 410 Gone
+  - Org isolation enforced (different org gets 410)
+  - Force-expire endpoint for testing: POST /api/pdfme/render/force-expire-preview
+  - 16/16 tests passing
+
+- **Feature #164**: Render retry logic with exponential backoff ✅
+  - withRetry() generic async retry wrapper on RenderService
+  - writeWithRetry() and readWithRetry() wrap file storage operations
+  - Default: 3 retries, 200ms base delay, exponential backoff (200, 400, 800ms)
+  - Configurable via API: POST /api/pdfme/render/retry-config
+  - Transient failure simulation: POST /api/pdfme/render/simulate-storage-failure
+  - LocalDiskStorageAdapter.setSimulatedFailures() for testing
+  - lastRetryAttempts tracked for observability
+  - All critical render pipeline writes use retry wrapper
+  - 23/23 tests passing
+
+- **Feature #165**: Dead letter queue for failed render jobs ✅
+  - RenderQueueService with BullMQ (Redis-backed) queue
+  - Jobs retry 3x with exponential backoff (1s base)
+  - Failed jobs after exhausting retries moved to pdfme-render-dlq
+  - DLQ jobs contain: originalJobId, originalData, error, attempts, failedAt
+  - Job attempt logging for debugging
+  - RenderQueueController with endpoints: submit, test-retry, jobs/:id, dlq, stats, drain
+  - Registered in AppModule (controller + provider)
+  - 27/27 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/render.service.ts - PreviewRecord registry, withRetry(), writeWithRetry(), readWithRetry()
+- nest-module/src/render.controller.ts - download/:previewId, force-expire-preview, simulate-storage-failure, retry-config
+- nest-module/src/local-disk-storage.adapter.ts - Simulated failure support
+- nest-module/src/render-queue.service.ts - Full BullMQ queue with DLQ
+- nest-module/src/render-queue.controller.ts - Queue management endpoints
+- nest-module/src/app.module.ts - Registered RenderQueueController + RenderQueueService
+
+### API Endpoints Added:
+- GET    /api/pdfme/render/download/:previewId  - Download preview PDF (410 if expired)
+- POST   /api/pdfme/render/force-expire-preview  - Force expire a preview (testing)
+- POST   /api/pdfme/render/simulate-storage-failure - Simulate transient failures
+- POST   /api/pdfme/render/retry-config - Configure retry settings
+- GET    /api/pdfme/render/retry-config - Get retry config and last attempt count
+- POST   /api/pdfme/queue/submit - Submit render job
+- POST   /api/pdfme/queue/test-retry - Submit test job with configurable failures
+- GET    /api/pdfme/queue/jobs/:jobId - Job status with attempt history
+- GET    /api/pdfme/queue/jobs/:jobId/wait - Wait for job completion
+- GET    /api/pdfme/queue/dlq - View DLQ jobs
+- GET    /api/pdfme/queue/stats - Queue statistics
+- POST   /api/pdfme/queue/drain - Drain all queues (testing)
+
+### Test Results: 66/66 tests passing across 3 test suites
+### Current Status: ~86/388 features passing (22.2%)
