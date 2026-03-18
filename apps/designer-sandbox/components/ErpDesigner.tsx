@@ -348,6 +348,9 @@ export default function ErpDesigner({
   const [assetUploadError, setAssetUploadError] = useState<string | null>(null);
   const assetFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Template status (draft/published/archived) - shown in UI
+  const [templateStatus, setTemplateStatus] = useState<'draft' | 'published' | 'archived' | null>(null);
+
   // Lock state - multi-tab editing protection
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [lockHolder, setLockHolder] = useState<string | null>(null);
@@ -404,6 +407,9 @@ export default function ErpDesigner({
         if (cancelled) return;
 
         // Populate state from template data
+        if (template.status) {
+          setTemplateStatus(template.status);
+        }
         if (template.name) {
           setName(template.name);
         }
@@ -852,6 +858,7 @@ export default function ErpDesigner({
 
       if (response.ok) {
         setPublishStatus('published');
+        setTemplateStatus('published');
         setTimeout(() => setPublishStatus((prev) => prev === 'published' ? 'idle' : prev), 5000);
       } else {
         const errBody = await response.json().catch(() => ({ message: `Publish failed with status ${response.status}` }));
@@ -2593,6 +2600,26 @@ export default function ErpDesigner({
           onBlur={(e) => { if (!isReadOnly) e.target.style.backgroundColor = 'transparent'; }}
         />
 
+        {/* Template Status Badge */}
+        {templateStatus && (
+          <span
+            data-testid="template-status-badge"
+            style={{
+              padding: '2px 8px',
+              borderRadius: '9999px',
+              fontSize: '11px',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              backgroundColor: templateStatus === 'published' ? '#dcfce7' : templateStatus === 'archived' ? '#f1f5f9' : '#fef9c3',
+              color: templateStatus === 'published' ? '#166534' : templateStatus === 'archived' ? '#64748b' : '#854d0e',
+              border: `1px solid ${templateStatus === 'published' ? '#bbf7d0' : templateStatus === 'archived' ? '#e2e8f0' : '#fde68a'}`,
+            }}
+          >
+            {templateStatus}
+          </span>
+        )}
+
         <div style={{ width: '1px', height: '24px', backgroundColor: '#e2e8f0' }} />
 
         {/* Page Size Selector */}
@@ -2712,13 +2739,13 @@ export default function ErpDesigner({
               <><span data-testid="auto-save-spinner" style={{ display: 'inline-block', width: 10, height: 10, border: '2px solid #f59e0b', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />Saving...</>
             )}
             {autoSaveStatus === 'saved' && (
-              <><span style={{ fontSize: '14px' }}>✓</span>Saved</>
+              <><span style={{ fontSize: '14px' }}>✓</span>Auto-saved</>
             )}
             {autoSaveStatus === 'error' && (
               <><span style={{ fontSize: '14px' }}>✗</span>Save failed</>
             )}
             {autoSaveStatus === 'idle' && lastAutoSave && (
-              <>Last saved {lastAutoSave.toLocaleTimeString()}</>
+              <>Last auto-saved {lastAutoSave.toLocaleTimeString()}</>
             )}
           </span>
         )}
@@ -2863,6 +2890,27 @@ export default function ErpDesigner({
               ✕
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ─── Save Success Toast ─── */}
+      {saveStatus === 'saved' && (
+        <div
+          data-testid="save-success-toast"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            backgroundColor: '#eff6ff',
+            borderBottom: '1px solid #bfdbfe',
+            padding: '8px 16px',
+            fontSize: '13px',
+            color: '#1e40af',
+          }}
+        >
+          <span data-testid="save-success-icon" style={{ fontSize: '16px' }}>✓</span>
+          <span data-testid="save-success-message">Draft saved successfully</span>
+          <span data-testid="save-success-type" style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>(manual save)</span>
         </div>
       )}
 
