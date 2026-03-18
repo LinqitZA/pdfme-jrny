@@ -372,6 +372,26 @@ export class RenderController {
     res.send(result.buffer);
   }
 
+  @Get('documents/:templateId')
+  async listDocumentsByTemplate(
+    @Param('templateId') templateId: string,
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const documents = await this.renderService.listDocumentsByTemplate(templateId, user.orgId);
+    return {
+      data: documents,
+      pagination: { total: documents.length },
+    };
+  }
+
   @Post('simulate-storage-failure')
   async simulateStorageFailure(
     @Body() body: { failureCount: number },

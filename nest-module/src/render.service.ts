@@ -1911,6 +1911,43 @@ export class RenderService {
   }
 
   /**
+   * List generated documents for a specific template, optionally filtered by orgId.
+   * Documents persist independently of template status (including archived templates).
+   */
+  async listDocumentsByTemplate(templateId: string, orgId: string): Promise<Array<{
+    id: string;
+    templateId: string;
+    templateVer: number;
+    entityType: string;
+    entityId: string;
+    status: string;
+    outputChannel: string;
+    createdAt: Date;
+    pdfHash: string;
+  }>> {
+    const docs = await this.db
+      .select({
+        id: generatedDocuments.id,
+        templateId: generatedDocuments.templateId,
+        templateVer: generatedDocuments.templateVer,
+        entityType: generatedDocuments.entityType,
+        entityId: generatedDocuments.entityId,
+        status: generatedDocuments.status,
+        outputChannel: generatedDocuments.outputChannel,
+        createdAt: generatedDocuments.createdAt,
+        pdfHash: generatedDocuments.pdfHash,
+      })
+      .from(generatedDocuments)
+      .where(
+        and(
+          eq(generatedDocuments.templateId, templateId),
+          eq(generatedDocuments.orgId, orgId),
+        ),
+      );
+    return docs;
+  }
+
+  /**
    * Build sample inputs from template field names for preview generation.
    * Generates realistic-looking sample values based on field name patterns.
    */
