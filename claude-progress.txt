@@ -2033,3 +2033,48 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 58/58 tests passing across 3 test suites
 ### Current Status: ~145/388 features passing (37.4%)
+
+---
+
+## Session - 2026-03-18 - Features #223, #224, #225 (Save Button, Stale Data, Back Resubmit)
+
+### Completed Features:
+- **Feature #223**: Button disabled during save processing ✅
+  - Save button already had disabled={saveStatus === 'saving'} and "Saving…" text
+  - Added isSavingRef guard to prevent double-click race condition
+  - isSavingRef cleared in finally block after save completes
+  - Visual indicators: opacity 0.7, cursor not-allowed during saving
+  - Publish button also has same protection with isPublishingRef
+  - 22/22 tests passing
+
+- **Feature #224**: Rapid navigation doesn't cause stale data ✅
+  - Added AbortController to cancel in-flight fetch on template switch
+  - AbortError silently ignored (not shown as error to user)
+  - State reset (isDirty, saveStatus, publishStatus, errors) at start of loadTemplate
+  - Already had cancelled flag pattern for React state updates
+  - Lock acquisition checked for cancellation before state updates
+  - Undo history cleared on new template load
+  - 24/24 tests passing
+
+- **Feature #225**: Back and resubmit prevented ✅
+  - history.replaceState called after successful save (prevents browser resubmit)
+  - Save uses onClick (not form submit) - no browser resubmit dialog
+  - isDirty cleared after save, preserved on error for retry
+  - Save endpoint is idempotent (multiple identical saves produce same result)
+  - isSavingRef prevents concurrent save calls
+  - Back button checks isDirty before navigation
+  - beforeunload warns about unsaved changes
+  - 21/21 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx
+  - Added isSavingRef guard for save handler
+  - Added AbortController for template fetch cancellation
+  - Added AbortError handling
+  - Added state reset at start of loadTemplate
+- tests/test-feature-223-save-disabled.js - 22 tests
+- tests/test-feature-224-rapid-navigation.js - 24 tests
+- tests/test-feature-225-back-resubmit.js - 21 tests
+
+### Test Results: 67/67 tests passing across 3 test suites
+### Current Status: ~145/388 features passing (37.4%)
