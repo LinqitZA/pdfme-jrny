@@ -1,3 +1,25 @@
+## Session - 2026-03-18 - Features #97, #103, #104 (Template Publishing & Save Modes)
+
+### Completed Features:
+- **Feature #97**: Published version accessible during draft edit - 32/32 tests passing
+  - Added publishedSchema JSONB column to templates table
+  - On publish, schema snapshotted to publishedSchema; saveDraft keeps status=published
+  - Render service uses publishedSchema when available
+- **Feature #103**: All template types accepted - 63/63 tests passing
+  - All 10 types verified: invoice, statement, purchase_order, delivery_note, credit_note, report types, custom
+- **Feature #104**: Save mode inPlace vs newVersion - 23/23 tests passing
+  - inPlace overwrites without version bump; newVersion increments version
+  - Invalid saveMode rejected with 400
+
+### Key Files Modified:
+- nest-module/src/db/schema.ts, nest-module/src/db/migrate.ts - publishedSchema column
+- nest-module/src/template.service.ts - publish/saveDraft/newVersion logic
+- nest-module/src/render.service.ts - Use publishedSchema for rendering
+
+### Test Results: 118/118 tests passing across 3 features
+
+---
+
 ## Session 1 - 2026-03-18 - Features #1, #2, #3 (Infrastructure)
 
 ### Completed Features:
