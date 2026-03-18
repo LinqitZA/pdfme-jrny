@@ -176,13 +176,51 @@ export const pdfRender = async (arg: PDFRenderProps<TextSchema>) => {
   const descent = getFontDescentInPt(fontKitFont, fontSize);
   const halfLineHeightAdjustment = lineHeight === 0 ? 0 : ((lineHeight - 1) * fontSize) / 2;
 
-  const lines = splitTextToSize({
+  let lines = splitTextToSize({
     value,
     characterSpacing,
     fontSize,
     fontKitFont,
     boxWidthInPt: width,
   });
+
+  // Truncate mode: limit visible lines to element height and add ellipsis to last visible line
+  if (textOverflow === 'truncate') {
+    const lineHeightPt = lineHeight * fontSize;
+    const maxLines = Math.max(1, Math.floor(height / lineHeightPt));
+    const ellipsis = '...';
+    const ellipsisWidth = widthOfTextAtSize(ellipsis, fontKitFont, fontSize, characterSpacing);
+
+    if (lines.length > maxLines) {
+      lines = lines.slice(0, maxLines);
+      // Add ellipsis to the last visible line
+      let lastLine = lines[maxLines - 1].replace('\n', '');
+      const lastLineWidth = widthOfTextAtSize(lastLine, fontKitFont, fontSize, characterSpacing);
+
+      if (lastLineWidth + ellipsisWidth > width) {
+        // Need to trim the last line to fit ellipsis
+        while (lastLine.length > 0 && widthOfTextAtSize(lastLine + ellipsis, fontKitFont, fontSize, characterSpacing) > width) {
+          lastLine = lastLine.slice(0, -1);
+        }
+      }
+      lines[maxLines - 1] = lastLine + ellipsis;
+    } else {
+      // Even with all lines fitting vertically, check each line width
+      // (splitTextToSize should handle this, but just in case for single lines)
+      lines = lines.map((line, idx) => {
+        const trimmedLine = line.replace('\n', '');
+        const lineWidth = widthOfTextAtSize(trimmedLine, fontKitFont, fontSize, characterSpacing);
+        if (lineWidth > width && trimmedLine.length > 3) {
+          let truncated = trimmedLine;
+          while (truncated.length > 0 && widthOfTextAtSize(truncated + ellipsis, fontKitFont, fontSize, characterSpacing) > width) {
+            truncated = truncated.slice(0, -1);
+          }
+          return truncated + ellipsis;
+        }
+        return line;
+      });
+    }
+  }
 
   // Text lines are rendered from the bottom upwards, we need to adjust the position down
   let yOffset = 0;
