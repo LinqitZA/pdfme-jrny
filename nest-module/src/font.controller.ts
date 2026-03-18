@@ -130,9 +130,76 @@ function readFsTypeFromFont(buffer: Buffer): number | null {
   return null;
 }
 
+/**
+ * System font registry - declares fonts that ship with the system.
+ * All system fonts MUST be open-licence (SIL OFL 1.1 or Apache 2.0).
+ * Proprietary fonts are never included as system fonts.
+ */
+const SYSTEM_FONTS = [
+  {
+    name: 'Roboto',
+    licence: 'Apache-2.0',
+    licenceUrl: 'https://github.com/googlefonts/roboto/blob/main/LICENSE',
+    source: 'Google Fonts',
+    embeddable: true,
+    fsType: 0x0000,
+    role: 'Default fallback font (pdfme built-in)',
+    openLicence: true,
+  },
+  {
+    name: 'Inter',
+    licence: 'SIL-OFL-1.1',
+    licenceUrl: 'https://github.com/rsms/inter/blob/master/LICENSE.txt',
+    source: 'Google Fonts / rsms',
+    embeddable: true,
+    fsType: 0x0000,
+    role: 'Primary UI and document font',
+    openLicence: true,
+  },
+  {
+    name: 'Noto Sans',
+    licence: 'SIL-OFL-1.1',
+    licenceUrl: 'https://github.com/notofonts/latin-greek-cyrillic/blob/main/OFL.txt',
+    source: 'Google Fonts / Noto Project',
+    embeddable: true,
+    fsType: 0x0000,
+    role: 'Fallback and multilingual support',
+    openLicence: true,
+  },
+  {
+    name: 'IBM Plex Sans',
+    licence: 'SIL-OFL-1.1',
+    licenceUrl: 'https://github.com/IBM/plex/blob/master/LICENSE.txt',
+    source: 'Google Fonts / IBM',
+    embeddable: true,
+    fsType: 0x0000,
+    role: 'Alternative document font',
+    openLicence: true,
+  },
+];
+
 @Controller('api/pdfme/fonts')
 export class FontController {
   constructor(private readonly assetService: AssetService) {}
+
+  /**
+   * List system fonts with licence information.
+   * All system fonts are verified open-licence (SIL OFL or Apache 2.0).
+   * No proprietary fonts are included in the system font registry.
+   */
+  @Get('system')
+  getSystemFonts() {
+    const allOpen = SYSTEM_FONTS.every(f => f.openLicence);
+    const proprietaryFonts = SYSTEM_FONTS.filter(f => !f.openLicence);
+    return {
+      fonts: SYSTEM_FONTS,
+      count: SYSTEM_FONTS.length,
+      allOpenLicence: allOpen,
+      proprietaryCount: proprietaryFonts.length,
+      proprietaryFonts: proprietaryFonts.map(f => f.name),
+      licences: [...new Set(SYSTEM_FONTS.map(f => f.licence))],
+    };
+  }
 
   /**
    * Upload and validate a font file.

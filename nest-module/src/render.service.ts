@@ -1074,6 +1074,69 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       return flatPage;
     });
 
+    // Normalize table elements: if a table has a simplified 'columns' array
+    // but is missing pdfme's required properties (head, headWidthPercentages,
+    // tableStyles, headStyles, bodyStyles, columnStyles), fill in defaults.
+    for (const page of schemas) {
+      if (!Array.isArray(page)) continue;
+      for (let i = 0; i < page.length; i++) {
+        const el = page[i] as Record<string, unknown>;
+        if (!el || el.type !== 'table') continue;
+        // If 'columns' is present but 'head' is missing, convert from simplified format
+        if (Array.isArray(el.columns) && !el.head) {
+          const cols = el.columns as string[];
+          const numCols = cols.length || 1;
+          const pct = Math.round(10000 / numCols) / 100; // equal width
+          el.head = cols;
+          el.headWidthPercentages = cols.map((_: string, idx: number) =>
+            idx < numCols - 1 ? pct : Math.round((100 - pct * (numCols - 1)) * 100) / 100
+          );
+          el.showHead = el.showHead !== undefined ? el.showHead : true;
+          el.tableStyles = el.tableStyles || { borderColor: '#000000', borderWidth: 0.3 };
+          el.headStyles = el.headStyles || {
+            fontName: undefined,
+            alignment: 'left',
+            verticalAlignment: 'middle',
+            fontSize: 10,
+            lineHeight: 1,
+            characterSpacing: 0,
+            fontColor: '#ffffff',
+            backgroundColor: '#2980ba',
+            borderColor: '',
+            borderWidth: { top: 0, right: 0, bottom: 0, left: 0 },
+            padding: { top: 5, bottom: 5, left: 5, right: 5 },
+          };
+          el.bodyStyles = el.bodyStyles || {
+            fontName: undefined,
+            alignment: 'left',
+            verticalAlignment: 'middle',
+            fontSize: 10,
+            lineHeight: 1,
+            characterSpacing: 0,
+            fontColor: '#000000',
+            backgroundColor: '',
+            borderColor: '#888888',
+            borderWidth: { top: 0.1, right: 0.1, bottom: 0.1, left: 0.1 },
+            padding: { top: 5, bottom: 5, left: 5, right: 5 },
+            alternateBackgroundColor: '#f5f5f5',
+          };
+          el.columnStyles = el.columnStyles || {};
+          // Ensure content is set (empty body if not provided via inputs)
+          if (!el.content) {
+            el.content = '[]';
+          }
+        }
+        // If head exists but headWidthPercentages is missing, compute equal widths
+        if (Array.isArray(el.head) && !el.headWidthPercentages) {
+          const numCols = (el.head as string[]).length || 1;
+          const pct = Math.round(10000 / numCols) / 100;
+          el.headWidthPercentages = (el.head as string[]).map((_: string, idx: number) =>
+            idx < numCols - 1 ? pct : Math.round((100 - pct * (numCols - 1)) * 100) / 100
+          );
+        }
+      }
+    }
+
     return { basePdf, schemas };
   }
 
