@@ -38,12 +38,14 @@ import { DataSourceController } from './datasource.controller';
 import { FontController } from './font.controller';
 import { RenderQueueController } from './render-queue.controller';
 import { RenderQueueService } from './render-queue.service';
+import { OrgSettingsController } from './org-settings.controller';
+import { OrgSettingsService } from './org-settings.service';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController, WatermarkController, DataSourceController, FontController, RenderQueueController, OrgSettingsController],
   providers: [
     {
       provide: 'PG_POOL',
@@ -203,8 +205,9 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     PdfaProcessor,
     DataSourceRegistry,
     RenderQueueService,
+    OrgSettingsService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService, OrgSettingsService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

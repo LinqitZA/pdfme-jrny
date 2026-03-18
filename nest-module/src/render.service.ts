@@ -25,6 +25,7 @@ import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculat
 import { resolveCurrencyFields } from '../../packages/erp-schemas/src/currency-field';
 import { PdfaProcessor } from './pdfa-processor';
 import { DataSourceRegistry } from './datasource.registry';
+import { OrgSettingsService } from './org-settings.service';
 import * as path from 'path';
 
 /** Warnings emitted during font resolution */
@@ -127,6 +128,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     private readonly signatureService: SignatureService,
     private readonly pdfaProcessor: PdfaProcessor,
     private readonly auditService: AuditService,
+    private readonly orgSettingsService: OrgSettingsService,
     @Optional() private readonly dataSourceRegistry?: DataSourceRegistry,
   ) {
     // Allow many listeners (one per SSE client)
@@ -609,6 +611,21 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       pdfaErrorMessage = err instanceof Error ? err.message : String(err);
       console.error(`[RenderService] PDF/A-3b conversion failed: ${pdfaErrorMessage}`);
       console.error('[RenderService] Storing raw (non-PDF/A) PDF for debugging');
+    }
+
+    // 4e. Apply PDF/UA accessibility tags if enabled for this org
+    if (this.orgSettingsService && this.orgSettingsService.isPdfUAEnabled(orgId)) {
+      try {
+        const pdfuaBuffer = await this.pdfaProcessor.applyPdfUATags(
+          Buffer.from(pdfBuffer),
+          { lang: 'en', title: template.name || 'Document' },
+        );
+        pdfBuffer = new Uint8Array(pdfuaBuffer);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[RenderService] PDF/UA tagging failed: ${errMsg}`);
+        // Continue without PDF/UA tags rather than failing the render
+      }
     }
 
     // 5. Compute SHA-256 hash

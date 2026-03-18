@@ -682,6 +682,39 @@ export class RenderController {
     }
   }
 
+  @Post('validate-pdfua')
+  async validatePdfUA(
+    @Body() body: { documentId: string },
+    @Req() req: any,
+  ) {
+    const user = req.user;
+    if (!user?.orgId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!body.documentId) {
+      throw new HttpException(
+        { statusCode: 400, error: 'Bad Request', message: 'documentId is required' },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Get the document to find its file path
+    const docResult = await this.renderService.getDocumentForDownload(body.documentId, user.orgId);
+    if ('error' in docResult) {
+      throw new HttpException(
+        { statusCode: docResult.statusCode, error: 'Not Found', message: docResult.error },
+        docResult.statusCode,
+      );
+    }
+
+    const result = await this.pdfaProcessor.validatePdfUA(docResult.buffer);
+    return result;
+  }
+
   @Post('force-pdfa-failure')
   async forcePdfaFailure(
     @Body() body: { errorMessage?: string | null },

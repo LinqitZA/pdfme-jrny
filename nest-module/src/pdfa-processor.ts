@@ -292,7 +292,11 @@ export class PdfaProcessor {
     modifyDate: string;
     pdfaConformance: string;
     pdfaPart: string;
+    pdfuaPart?: string;
   }): string {
+    const pdfuaNamespace = opts.pdfuaPart ? '\n      xmlns:pdfuaid="http://www.aiim.org/pdfua/ns/id/"' : '';
+    const pdfuaElement = opts.pdfuaPart ? `\n      <pdfuaid:part>${opts.pdfuaPart}</pdfuaid:part>` : '';
+
     return `<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
   <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -303,7 +307,7 @@ export class PdfaProcessor {
       xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/"
       xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/"
       xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#"
-      xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">
+      xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#"${pdfuaNamespace}>
 
       <dc:title>
         <rdf:Alt>
@@ -324,7 +328,7 @@ export class PdfaProcessor {
       <pdf:Producer>${this.escapeXml(opts.producer)}</pdf:Producer>
 
       <pdfaid:part>${opts.pdfaPart}</pdfaid:part>
-      <pdfaid:conformance>${opts.pdfaConformance}</pdfaid:conformance>
+      <pdfaid:conformance>${opts.pdfaConformance}</pdfaid:conformance>${pdfuaElement}
 
     </rdf:Description>
   </rdf:RDF>
@@ -409,14 +413,21 @@ export class PdfaProcessor {
       // Try to read the XMP content and verify PDF/A identification
       try {
         const metadataObj = pdfDoc.context.lookup(metadataRef);
-        if (metadataObj && typeof (metadataObj as any).decode === 'function') {
-          const xmpBytes = (metadataObj as any).decode();
-          const xmpStr = new TextDecoder().decode(xmpBytes);
-          if (!xmpStr.includes('pdfaid:part')) {
-            errors.push('XMP metadata missing pdfaid:part identifier');
+        if (metadataObj) {
+          let xmpBytes: Uint8Array | undefined;
+          if (typeof (metadataObj as any).getContents === 'function') {
+            xmpBytes = (metadataObj as any).getContents();
+          } else if (typeof (metadataObj as any).decode === 'function') {
+            xmpBytes = (metadataObj as any).decode();
           }
-          if (!xmpStr.includes('pdfaid:conformance')) {
-            errors.push('XMP metadata missing pdfaid:conformance identifier');
+          if (xmpBytes) {
+            const xmpStr = new TextDecoder().decode(xmpBytes);
+            if (!xmpStr.includes('pdfaid:part')) {
+              errors.push('XMP metadata missing pdfaid:part identifier');
+            }
+            if (!xmpStr.includes('pdfaid:conformance')) {
+              errors.push('XMP metadata missing pdfaid:conformance identifier');
+            }
           }
         }
       } catch {
@@ -486,6 +497,223 @@ export class PdfaProcessor {
         pageCount: pdfDoc.getPageCount(),
         hasOutputIntents: !!outputIntents,
       },
+    };
+  }
+
+  /**
+   * Apply PDF/UA (Universal Accessibility) tagging to a PDF buffer.
+   *
+   * PDF/UA (ISO 14289) requires:
+   * 1. MarkInfo dictionary with Marked = true
+   * 2. StructTreeRoot in the document catalog
+   * 3. Language specification
+   * 4. Document title in ViewerPreferences
+   *
+   * This implementation adds the structural markers that declare PDF/UA conformance.
+   * For full PDF/UA compliance, content would need semantic tagging (paragraphs, headings, etc.)
+   * but this provides the document-level accessibility structure.
+   */
+  async applyPdfUATags(pdfBuffer: Buffer | Uint8Array, options?: { lang?: string; title?: string }): Promise<Buffer> {
+    const { PDFDocument, PDFName, PDFDict, PDFString, PDFBool, PDFArray, PDFNumber } = await import('pdf-lib');
+
+    const inputBuffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    const pdfDoc = await PDFDocument.load(inputBuffer);
+    const catalog = pdfDoc.catalog;
+
+    const lang = options?.lang || 'en';
+    const title = options?.title || pdfDoc.getTitle() || 'Accessible Document';
+
+    // 1. Set MarkInfo dictionary: { Marked: true }
+    const markInfoDict = pdfDoc.context.obj({
+      Marked: PDFBool.True,
+    });
+    catalog.set(PDFName.of('MarkInfo'), markInfoDict);
+
+    // 2. Create a minimal StructTreeRoot
+    // The StructTreeRoot is required for PDF/UA. We create a minimal valid one
+    // with a single Document structure element.
+    const documentStructElemDict = pdfDoc.context.obj({
+      Type: PDFName.of('StructElem'),
+      S: PDFName.of('Document'),
+      K: pdfDoc.context.obj([]), // empty children array
+    });
+    const documentStructElemRef = pdfDoc.context.register(documentStructElemDict);
+
+    const structTreeRootDict = pdfDoc.context.obj({
+      Type: PDFName.of('StructTreeRoot'),
+      K: documentStructElemRef,
+      ParentTree: pdfDoc.context.obj({
+        Type: PDFName.of('NumberTree'),
+        Nums: pdfDoc.context.obj([]),
+      }),
+    });
+    const structTreeRootRef = pdfDoc.context.register(structTreeRootDict);
+
+    // Set ParentTreeNextKey
+    (structTreeRootDict as any).set(PDFName.of('ParentTreeNextKey'), PDFNumber.of(0));
+
+    // Link Document struct elem back to StructTreeRoot
+    (documentStructElemDict as any).set(PDFName.of('P'), structTreeRootRef);
+
+    catalog.set(PDFName.of('StructTreeRoot'), structTreeRootRef);
+
+    // 3. Set Language
+    catalog.set(PDFName.of('Lang'), PDFString.of(lang));
+
+    // 4. Set ViewerPreferences with DisplayDocTitle = true
+    const existingViewerPrefs = catalog.get(PDFName.of('ViewerPreferences'));
+    if (existingViewerPrefs) {
+      // Merge into existing
+      try {
+        const vpDict = pdfDoc.context.lookup(existingViewerPrefs);
+        if (vpDict && typeof (vpDict as any).set === 'function') {
+          (vpDict as any).set(PDFName.of('DisplayDocTitle'), PDFBool.True);
+        }
+      } catch {
+        // Replace with new
+        const vpDict = pdfDoc.context.obj({ DisplayDocTitle: PDFBool.True });
+        catalog.set(PDFName.of('ViewerPreferences'), vpDict);
+      }
+    } else {
+      const vpDict = pdfDoc.context.obj({ DisplayDocTitle: PDFBool.True });
+      catalog.set(PDFName.of('ViewerPreferences'), vpDict);
+    }
+
+    // 5. Ensure document title is set
+    pdfDoc.setTitle(title);
+
+    // 6. Create/replace XMP metadata with PDF/UA identifier
+    // Always create a fresh XMP stream that includes both PDF/A and PDF/UA identifiers.
+    // This is necessary because existing XMP may be in a compressed object stream
+    // that cannot be easily modified.
+    {
+      const now = new Date();
+      const xmpXml = this.buildXmpMetadata({
+        title: this.escapeXml(title),
+        creator: 'pdfme ERP Edition',
+        producer: 'pdfme ERP Edition - PDF/A-3b + PDF/UA Processor',
+        createDate: now.toISOString(),
+        modifyDate: now.toISOString(),
+        pdfaConformance: 'B',
+        pdfaPart: '3',
+        pdfuaPart: '1',
+      });
+
+      const xmpBytes = new TextEncoder().encode(xmpXml);
+      const newMetadataStreamRef = pdfDoc.context.register(
+        pdfDoc.context.stream(xmpBytes, {
+          Type: PDFName.of('Metadata'),
+          Subtype: PDFName.of('XML'),
+          Length: xmpBytes.length,
+        }),
+      );
+      catalog.set(PDFName.of('Metadata'), newMetadataStreamRef);
+    }
+
+    // Save with useObjectStreams: false so catalog entries and metadata stream
+    // remain as direct objects (not compressed into ObjStm). This is important
+    // for PDF/UA validators that need to find MarkInfo, StructTreeRoot, etc.
+    const savedBytes = await pdfDoc.save({ useObjectStreams: false });
+    return Buffer.from(savedBytes);
+  }
+
+  /**
+   * Validate PDF/UA structural requirements in a PDF buffer.
+   * Checks for MarkInfo, StructTreeRoot, Lang, and ViewerPreferences.
+   */
+  async validatePdfUA(pdfBuffer: Buffer | Uint8Array): Promise<{
+    valid: boolean;
+    hasMarkInfo: boolean;
+    hasStructTreeRoot: boolean;
+    hasLang: boolean;
+    hasDisplayDocTitle: boolean;
+    hasPdfUAIdentifier: boolean;
+    errors: string[];
+  }> {
+    const { PDFDocument, PDFName, PDFBool } = await import('pdf-lib');
+
+    const inputBuffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+    const pdfDoc = await PDFDocument.load(inputBuffer);
+    const catalog = pdfDoc.catalog;
+    const errors: string[] = [];
+
+    // 1. Check MarkInfo
+    let hasMarkInfo = false;
+    const markInfoRef = catalog.get(PDFName.of('MarkInfo'));
+    if (markInfoRef) {
+      try {
+        const markInfoObj = pdfDoc.context.lookup(markInfoRef);
+        if (markInfoObj && typeof (markInfoObj as any).get === 'function') {
+          const marked = (markInfoObj as any).get(PDFName.of('Marked'));
+          hasMarkInfo = marked === PDFBool.True;
+        }
+      } catch {
+        // Could not read MarkInfo
+      }
+    }
+    if (!hasMarkInfo) errors.push('Missing or invalid MarkInfo with Marked=true');
+
+    // 2. Check StructTreeRoot
+    const hasStructTreeRoot = !!catalog.get(PDFName.of('StructTreeRoot'));
+    if (!hasStructTreeRoot) errors.push('Missing StructTreeRoot');
+
+    // 3. Check Lang
+    let hasLang = false;
+    const langRef = catalog.get(PDFName.of('Lang'));
+    if (langRef) {
+      hasLang = true;
+    }
+    if (!hasLang) errors.push('Missing Lang specification');
+
+    // 4. Check ViewerPreferences.DisplayDocTitle
+    let hasDisplayDocTitle = false;
+    const vpRef = catalog.get(PDFName.of('ViewerPreferences'));
+    if (vpRef) {
+      try {
+        const vpObj = pdfDoc.context.lookup(vpRef);
+        if (vpObj && typeof (vpObj as any).get === 'function') {
+          const ddt = (vpObj as any).get(PDFName.of('DisplayDocTitle'));
+          hasDisplayDocTitle = ddt === PDFBool.True;
+        }
+      } catch {
+        // Could not read ViewerPreferences
+      }
+    }
+    if (!hasDisplayDocTitle) errors.push('Missing ViewerPreferences.DisplayDocTitle=true');
+
+    // 5. Check XMP for pdfuaid:part
+    let hasPdfUAIdentifier = false;
+    const metadataRef = catalog.get(PDFName.of('Metadata'));
+    if (metadataRef) {
+      try {
+        const metadataObj = pdfDoc.context.lookup(metadataRef);
+        if (metadataObj) {
+          // Try getContents() first (works for PDFRawStream), then decode() (for PDFStream)
+          let xmpBytes: Uint8Array | undefined;
+          if (typeof (metadataObj as any).getContents === 'function') {
+            xmpBytes = (metadataObj as any).getContents();
+          } else if (typeof (metadataObj as any).decode === 'function') {
+            xmpBytes = (metadataObj as any).decode();
+          }
+          if (xmpBytes) {
+            const xmpStr = new TextDecoder().decode(xmpBytes);
+            hasPdfUAIdentifier = xmpStr.includes('pdfuaid:part');
+          }
+        }
+      } catch {
+        // Could not read XMP
+      }
+    }
+    if (!hasPdfUAIdentifier) errors.push('Missing pdfuaid:part in XMP metadata');
+
+    return {
+      valid: errors.length === 0,
+      hasMarkInfo,
+      hasStructTreeRoot,
+      hasLang,
+      hasDisplayDocTitle,
+      hasPdfUAIdentifier,
+      errors,
     };
   }
 
