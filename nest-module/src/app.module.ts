@@ -29,12 +29,13 @@ import { FieldSchemaRegistry } from './field-schema.registry';
 import { AuditController } from './audit.controller';
 import { AuditService } from './audit.service';
 import { ExpressionController } from './expression.controller';
+import { GroupedTableController } from './grouped-table.controller';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
 
 @Module({
-  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController],
+  controllers: [HealthController, TemplateController, AssetController, SignatureController, RenderController, ConfigController, FieldSchemaController, AuditController, ExpressionController, GroupedTableController],
   providers: [
     {
       provide: 'PG_POOL',
