@@ -5309,3 +5309,47 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 91/91 tests passing across 3 features
 ### Current Status: 377/389 features passing (96.9%)
+
+---
+
+## Session - 2026-03-18 - Features #107, #108, #84 (E2E Workflow, Publish Validation, PDF Download)
+
+### Completed Features:
+- **Feature #107**: Template create to publish to render full workflow ✅
+  - POST create template with schema (201)
+  - PUT save draft with updated elements (200)
+  - POST publish template (201)
+  - POST render/now generates PDF (201)
+  - GET download PDF returns valid binary with %PDF- header
+  - Audit entries verified for template.created, template.updated, template.published, document.rendered
+  - All audit entries have correct userId and orgId
+  - Render audit has templateId and channel in metadata
+  - 39/39 tests passing
+
+- **Feature #108**: Template validation runs at publish time ✅
+  - Empty binding {{}} correctly rejected with 422
+  - Invalid binding syntax {{123invalid}} rejected
+  - Empty page (no elements) rejected
+  - Invalid calculated field expressions rejected
+  - Fix binding then re-publish succeeds
+  - 422 response has correct envelope: statusCode, error, message, details array
+  - Each detail has field and message properties
+  - 31/31 tests passing
+
+- **Feature #84**: Render download streams PDF binary ✅
+  - GET /render/document/:documentId returns 200 with application/pdf
+  - Content-Disposition has filename, Content-Length > 0, ETag present
+  - Valid PDF structure: %PDF- header, obj/endobj markers, EOF/xref
+  - Non-existent document returns 404
+  - No auth returns 401
+  - Cross-org download blocked (404)
+  - Multiple downloads return consistent data with matching ETags
+  - 27/27 tests passing
+
+### Key Files Created:
+- tests/test-feature-107-e2e-workflow.js - 39 tests
+- tests/test-feature-108-publish-validation.js - 31 tests
+- tests/test-feature-84-render-download-pdf.js - 27 tests
+
+### Test Results: 97/97 tests passing across 3 features
+### Current Status: 386/389 features passing (99.2%)
