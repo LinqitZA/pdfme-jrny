@@ -2,7 +2,7 @@
  * RenderService - PDF generation pipeline
  *
  * Pipeline: Fetch published template -> resolve inputs -> pdfme generate() ->
- *   SHA-256 hash -> FileStorageService store -> GeneratedDocument record
+ *   Hash (configurable: SHA-256 or BLAKE3) -> FileStorageService store -> GeneratedDocument record
  */
 
 import { Injectable, Inject, Optional, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
@@ -26,6 +26,7 @@ import { resolveCurrencyFields } from '../../packages/erp-schemas/src/currency-f
 import { PdfaProcessor } from './pdfa-processor';
 import { DataSourceRegistry } from './datasource.registry';
 import { OrgSettingsService } from './org-settings.service';
+import { HashService } from './hash.service';
 import * as path from 'path';
 
 /** Warnings emitted during font resolution */
@@ -129,6 +130,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     private readonly pdfaProcessor: PdfaProcessor,
     private readonly auditService: AuditService,
     private readonly orgSettingsService: OrgSettingsService,
+    private readonly hashService: HashService,
     @Optional() @Inject('PDFME_MODULE_CONFIG') private readonly moduleConfig?: any,
     @Optional() private readonly dataSourceRegistry?: DataSourceRegistry,
   ) {
@@ -659,11 +661,8 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // 5. Compute SHA-256 hash
-    const pdfHash = crypto
-      .createHash('sha256')
-      .update(pdfBuffer)
-      .digest('hex');
+    // 5. Compute document hash (algorithm configurable via module config)
+    const pdfHash = this.hashService.computeHash(pdfBuffer);
 
     // 5b. Check document storage quota before storing
     const quotaCheck = await this.checkDocumentStorageQuota(orgId, pdfBuffer.length);
@@ -1065,10 +1064,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     // 5. Save merged PDF
     const mergedBytes = await mergedPdf.save();
-    const mergedHash = crypto
-      .createHash('sha256')
-      .update(Buffer.from(mergedBytes))
-      .digest('hex');
+    const mergedHash = this.hashService.computeHash(Buffer.from(mergedBytes));
 
     const mergedDocId = createId();
     const mergedFilePath = `${orgId}/documents/merged_${batchId}_${mergedDocId}.pdf`;
@@ -2147,8 +2143,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Verify document integrity by comparing the stored SHA-256 hash with the
-   * actual hash of the PDF file on disk.
+   * Verify document integrity by comparing the stored hash with the
+   * actual hash of the PDF file on disk. Supports both SHA-256 and BLAKE3,
+   * with backward compatibility for legacy un-prefixed SHA-256 hashes.
    *
    * @param documentId - The ID of the generated document
    * @param orgId - Tenant org ID
@@ -2194,24 +2191,19 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
-    // 3. Compute the current SHA-256 hash of the file
-    const currentHash = crypto
-      .createHash('sha256')
-      .update(pdfBuffer)
-      .digest('hex');
-
-    // 4. Compare hashes
-    const verified = currentHash === doc.pdfHash;
+    // 3. Verify hash using HashService (handles algorithm prefix and legacy hashes)
+    const verification = this.hashService.verifyHash(pdfBuffer, doc.pdfHash);
 
     return {
       documentId: doc.id,
-      verified,
-      status: verified ? 'intact' : 'tampered',
-      message: verified
+      verified: verification.verified,
+      status: verification.verified ? 'intact' : 'tampered',
+      message: verification.verified
         ? 'Document integrity confirmed — hash matches'
         : 'Document integrity check failed — PDF has been modified (tamper detected)',
       storedHash: doc.pdfHash,
-      currentHash,
+      currentHash: verification.currentHash,
+      algorithm: verification.algorithm,
       filePath: doc.filePath,
       createdAt: doc.createdAt,
     };

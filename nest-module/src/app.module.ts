@@ -42,6 +42,7 @@ import { OrgSettingsController } from './org-settings.controller';
 import { OrgSettingsService } from './org-settings.service';
 import { SystemController } from './system.controller';
 import { RateLimiterService } from './rate-limiter.service';
+import { HashService } from './hash.service';
 
 const STORAGE_ROOT = process.env.PDFME_STORAGE_ROOT || path.join(process.cwd(), 'storage');
 const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 'storage', 'tmp');
@@ -213,8 +214,9 @@ const STORAGE_TEMP = process.env.PDFME_STORAGE_TEMP || path.join(process.cwd(), 
     RenderQueueService,
     OrgSettingsService,
     RateLimiterService,
+    HashService,
   ],
-  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService, OrgSettingsService, RateLimiterService],
+  exports: ['PG_POOL', 'DRIZZLE_DB', 'FILE_STORAGE', 'FIELD_SCHEMA_REGISTRY', TemplateService, AssetService, SignatureService, RenderService, AuditService, PdfaProcessor, DataSourceRegistry, RenderQueueService, OrgSettingsService, RateLimiterService, HashService],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

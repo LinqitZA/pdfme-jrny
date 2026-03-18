@@ -41,6 +41,7 @@ import { RenderQueueController } from './render-queue.controller';
 import { RenderQueueService } from './render-queue.service';
 import { JwtAuthGuard } from './auth.guard';
 import { SeedService } from './seeds/seed.service';
+import { HashService } from './hash.service';
 
 @Module({})
 export class PdfmeErpModule {
@@ -115,6 +116,9 @@ export class PdfmeErpModule {
         storage: {
           tempRetentionMinutes: config.storage.tempRetentionMinutes ?? 60,
         },
+        hashing: {
+          algorithm: config.hashing?.algorithm || 'sha256',
+        },
       },
     };
 
@@ -172,6 +176,7 @@ export class PdfmeErpModule {
         PdfaProcessor,
         DataSourceRegistry,
         RenderQueueService,
+        HashService,
       ],
       exports: [
         'DRIZZLE_DB',
@@ -188,6 +193,7 @@ export class PdfmeErpModule {
         PdfaProcessor,
         DataSourceRegistry,
         RenderQueueService,
+        HashService,
       ],
     };
   }

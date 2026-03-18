@@ -18,10 +18,10 @@ import {
 import { GroupedTable } from '../../packages/erp-schemas/src/grouped-table';
 import type { GroupedTableConfig } from '../../packages/erp-schemas/src/grouped-table';
 import { createId } from '@paralleldrive/cuid2';
-import * as crypto from 'crypto';
 import { templates, generatedDocuments } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
+import { HashService } from './hash.service';
 import { eq, and } from 'drizzle-orm';
 
 @Controller('api/pdfme/grouped-table')
@@ -29,6 +29,7 @@ export class GroupedTableController {
   constructor(
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
+    private readonly hashService: HashService,
   ) {}
 
   /**
@@ -260,10 +261,7 @@ export class GroupedTableController {
 
       // Store PDF
       const docId = createId();
-      const pdfHash = crypto
-        .createHash('sha256')
-        .update(pdfBuffer)
-        .digest('hex');
+      const pdfHash = this.hashService.computeHash(pdfBuffer);
       const filePath = `${user.orgId}/documents/grouped_${docId}.pdf`;
       await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
 

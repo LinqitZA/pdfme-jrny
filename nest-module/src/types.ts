@@ -45,6 +45,9 @@ export interface PdfmeErpModuleConfig {
   verapdf?: {
     binary?: string; // default 'verapdf'
   };
+  hashing?: {
+    algorithm?: 'sha256' | 'blake3'; // default 'sha256'
+  };
 }
 
 export interface DataSource {

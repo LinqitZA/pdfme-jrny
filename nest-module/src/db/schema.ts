@@ -50,7 +50,7 @@ export const generatedDocuments = pgTable('generated_documents', {
   entityType: text('entity_type').notNull(),
   entityId: text('entity_id').notNull(),
   filePath: text('file_path').notNull(),
-  pdfHash: text('pdf_hash').notNull(), // SHA-256
+  pdfHash: text('pdf_hash').notNull(), // Configurable: SHA-256 or BLAKE3 (prefixed, e.g. "sha256:..." or "blake3:...")
   status: text('status').notNull().default('queued'), // queued | generating | done | failed
   outputChannel: text('output_channel').notNull(), // email | print
   triggeredBy: text('triggered_by').notNull(), // userId
