@@ -350,3 +350,37 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-properties-panel.js: 59 tests covering all three features
 
 ### Current Status: ~20/388 features passing (sessions 1-6 combined)
+
+---
+
+## Session - 2026-03-18 - Features #72, #73, #80 (Template Pagination and System Seeds)
+
+### Completed Features:
+- **Feature #72**: Template list with cursor pagination ✅
+  - GET /api/pdfme/templates supports ?limit=N&cursor=X params
+  - Cursor-based: base64(JSON({createdAt, id})) for stable ordering (createdAt DESC, id DESC)
+  - Response: {data, pagination: {total, limit, hasMore, nextCursor}}
+  - Tested with 25 templates: 10+10+5 across 3 pages, all retrieved correctly
+
+- **Feature #73**: Template get by ID returns full schema ✅
+  - GET /api/pdfme/templates/:id returns all fields including full schema JSON
+  - Verified with complex schema (basePdf, schemas with text/image/table, columns, sampledata)
+  - All fields present: id, orgId, type, name, schema, status, version, createdAt, updatedAt, createdBy
+
+- **Feature #80**: System templates list returns 9 seeds ✅
+  - Created SeedService (OnModuleInit) that seeds 9 system templates on startup
+  - Templates: invoice-standard, invoice-simple, statement-account, purchase-order, delivery-note, credit-note, report-aged-debtors, report-stock-on-hand, report-sales-summary
+  - All orgId=null, status=published, createdBy=system
+  - Deterministic IDs (sys-*) for idempotent upsert
+  - GET /api/pdfme/templates/system returns all 9
+  - GET /api/pdfme/templates/system/:id returns individual system template
+  - Persists across restart (verified: 0 created, 9 updated on re-seed)
+
+### Key Files Created/Modified:
+- nest-module/src/template.service.ts: Added cursor pagination to findAll(), findSystemTemplates()
+- nest-module/src/template.controller.ts: Added limit/cursor query params, GET system and system/:id endpoints
+- nest-module/src/seeds/seed.service.ts: SeedService with OnModuleInit seeding
+- nest-module/src/seeds/templates/system-templates.ts: 9 system template definitions with A4 schemas
+- nest-module/src/app.module.ts: Registered SeedService
+
+### Current Status: ~25/388 features passing
