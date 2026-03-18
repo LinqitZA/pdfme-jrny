@@ -407,6 +407,12 @@ export default function ErpDesigner({
   const [lockHolder, setLockHolder] = useState<string | null>(null);
   const [lockExpiresAt, setLockExpiresAt] = useState<string | null>(null);
 
+  // Expression editor state - for calculated fields
+  const [exprTestResult, setExprTestResult] = useState<{ result?: string; error?: string; type?: string } | null>(null);
+  const [exprTestLoading, setExprTestLoading] = useState(false);
+  const [showExprFieldPicker, setShowExprFieldPicker] = useState(false);
+  const [exprFieldSearch, setExprFieldSearch] = useState('');
+
   // Network connectivity / session recovery state
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pendingRetrySave, setPendingRetrySave] = useState(false);
@@ -2424,16 +2430,194 @@ export default function ErpDesigner({
                   />
                 </div>
               </div>
-              <div>
-                <label htmlFor="prop-content" style={{ fontSize: '11px', color: '#64748b' }}>Content</label>
-                <textarea
-                  id="prop-content"
-                  data-testid="prop-content"
-                  style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical' }}
-                  value={selectedElement.content || ''}
-                  onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
-                />
-              </div>
+              {/* Rich Text WYSIWYG Editor - for rich-text elements */}
+              {selectedElement.type === 'rich-text' ? (
+                <div data-testid="rich-text-editor-section">
+                  <label style={{ fontSize: '11px', color: '#64748b', display: 'block', marginBottom: '4px' }}>Rich Text Content</label>
+                  {/* WYSIWYG Toolbar */}
+                  <div
+                    data-testid="rich-text-toolbar"
+                    style={{
+                      display: 'flex',
+                      gap: '2px',
+                      padding: '4px',
+                      backgroundColor: '#f8fafc',
+                      border: '1px solid #e2e8f0',
+                      borderBottom: 'none',
+                      borderRadius: '6px 6px 0 0',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      data-testid="rt-bold"
+                      aria-label="Bold"
+                      title="Bold (Ctrl+B)"
+                      style={{
+                        ...toolbarBtnStyle,
+                        fontWeight: 700,
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '13px',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        document.execCommand('bold', false);
+                        // Sync content back to element
+                        const editor = document.querySelector('[data-testid="rt-editor"]') as HTMLDivElement;
+                        if (editor) updateElement(selectedElement.id, { content: editor.innerHTML });
+                      }}
+                    >
+                      B
+                    </button>
+                    <button
+                      data-testid="rt-italic"
+                      aria-label="Italic"
+                      title="Italic (Ctrl+I)"
+                      style={{
+                        ...toolbarBtnStyle,
+                        fontStyle: 'italic',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '13px',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        document.execCommand('italic', false);
+                        const editor = document.querySelector('[data-testid="rt-editor"]') as HTMLDivElement;
+                        if (editor) updateElement(selectedElement.id, { content: editor.innerHTML });
+                      }}
+                    >
+                      I
+                    </button>
+                    <button
+                      data-testid="rt-underline"
+                      aria-label="Underline"
+                      title="Underline (Ctrl+U)"
+                      style={{
+                        ...toolbarBtnStyle,
+                        textDecoration: 'underline',
+                        width: '28px',
+                        height: '28px',
+                        fontSize: '13px',
+                      }}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        document.execCommand('underline', false);
+                        const editor = document.querySelector('[data-testid="rt-editor"]') as HTMLDivElement;
+                        if (editor) updateElement(selectedElement.id, { content: editor.innerHTML });
+                      }}
+                    >
+                      U
+                    </button>
+                    <span style={{ width: '1px', backgroundColor: '#e2e8f0', margin: '2px 4px' }} />
+                    <select
+                      data-testid="rt-font-size"
+                      aria-label="Font size"
+                      title="Font size"
+                      style={{
+                        ...propInputStyle,
+                        width: '60px',
+                        height: '28px',
+                        fontSize: '11px',
+                        padding: '2px 4px',
+                      }}
+                      defaultValue=""
+                      onChange={(e) => {
+                        const size = e.target.value;
+                        if (size) {
+                          document.execCommand('fontSize', false, '7');
+                          // Replace the font size=7 with actual span style
+                          const editor = document.querySelector('[data-testid="rt-editor"]') as HTMLDivElement;
+                          if (editor) {
+                            const bigFonts = editor.querySelectorAll('font[size="7"]');
+                            bigFonts.forEach((el) => {
+                              const span = document.createElement('span');
+                              span.style.fontSize = size + 'px';
+                              span.innerHTML = el.innerHTML;
+                              el.parentNode?.replaceChild(span, el);
+                            });
+                            updateElement(selectedElement.id, { content: editor.innerHTML });
+                          }
+                        }
+                        e.target.value = '';
+                      }}
+                    >
+                      <option value="" disabled>Size</option>
+                      {[8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72].map((s) => (
+                        <option key={s} value={s}>{s}px</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* WYSIWYG Editable Area */}
+                  <div
+                    data-testid="rt-editor"
+                    contentEditable
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-label="Rich text editor"
+                    aria-multiline="true"
+                    style={{
+                      ...propInputStyle,
+                      minHeight: '80px',
+                      maxHeight: '200px',
+                      overflow: 'auto',
+                      padding: '8px',
+                      borderRadius: '0 0 6px 6px',
+                      lineHeight: '1.5',
+                      whiteSpace: 'pre-wrap',
+                      wordWrap: 'break-word',
+                      outline: 'none',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: selectedElement.content || '' }}
+                    onInput={(e) => {
+                      const target = e.currentTarget as HTMLDivElement;
+                      updateElement(selectedElement.id, { content: target.innerHTML });
+                    }}
+                    onKeyDown={(e) => {
+                      // Handle keyboard shortcuts for formatting
+                      if (e.ctrlKey || e.metaKey) {
+                        if (e.key === 'b') {
+                          e.preventDefault();
+                          document.execCommand('bold', false);
+                          const target = e.currentTarget as HTMLDivElement;
+                          updateElement(selectedElement.id, { content: target.innerHTML });
+                        } else if (e.key === 'i') {
+                          e.preventDefault();
+                          document.execCommand('italic', false);
+                          const target = e.currentTarget as HTMLDivElement;
+                          updateElement(selectedElement.id, { content: target.innerHTML });
+                        } else if (e.key === 'u') {
+                          e.preventDefault();
+                          document.execCommand('underline', false);
+                          const target = e.currentTarget as HTMLDivElement;
+                          updateElement(selectedElement.id, { content: target.innerHTML });
+                        }
+                      }
+                    }}
+                  />
+                  {/* Raw HTML toggle for advanced users */}
+                  <details style={{ marginTop: '4px' }}>
+                    <summary style={{ fontSize: '10px', color: '#94a3b8', cursor: 'pointer' }}>View HTML source</summary>
+                    <textarea
+                      data-testid="rt-html-source"
+                      style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical', marginTop: '4px', fontFamily: 'monospace', fontSize: '11px' }}
+                      value={selectedElement.content || ''}
+                      onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
+                    />
+                  </details>
+                </div>
+              ) : (
+                <div>
+                  <label htmlFor="prop-content" style={{ fontSize: '11px', color: '#64748b' }}>Content</label>
+                  <textarea
+                    id="prop-content"
+                    data-testid="prop-content"
+                    style={{ ...propInputStyle, minHeight: '48px', resize: 'vertical' }}
+                    value={selectedElement.content || ''}
+                    onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
+                  />
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -2720,6 +2904,219 @@ export default function ErpDesigner({
                       return selectedElement.binding;
                     })()}
                   </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Expression Editor section - for calculated field elements */}
+        {selectedElement.type === 'calculated' && (
+          <div data-testid="expression-editor-section" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Expression Editor</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {/* Expression input */}
+              <div>
+                <label htmlFor="prop-expression" style={{ fontSize: '11px', color: '#64748b' }}>Expression</label>
+                <div style={{ position: 'relative' }}>
+                  <textarea
+                    id="prop-expression"
+                    data-testid="prop-expression"
+                    style={{
+                      ...propInputStyle,
+                      minHeight: '60px',
+                      resize: 'vertical',
+                      fontFamily: 'monospace',
+                      fontSize: '12px',
+                      lineHeight: '1.4',
+                    }}
+                    placeholder="e.g. totals.subtotal * 0.15"
+                    value={selectedElement.binding || ''}
+                    onChange={(e) => updateElement(selectedElement.id, { binding: e.target.value })}
+                  />
+                </div>
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px' }}>
+                  Use field names from the picker below. Supports +, -, *, /, IF(), ROUND(), etc.
+                </div>
+              </div>
+
+              {/* Field picker button */}
+              <div>
+                <button
+                  data-testid="btn-expr-field-picker"
+                  aria-label="Insert field reference"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '11px',
+                    padding: '6px 8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                  onClick={() => setShowExprFieldPicker(!showExprFieldPicker)}
+                >
+                  <span>Insert Field Reference</span>
+                  <span style={{ fontSize: '10px', color: '#94a3b8' }}>{showExprFieldPicker ? '▲' : '▼'}</span>
+                </button>
+              </div>
+
+              {/* Expression field picker dropdown */}
+              {showExprFieldPicker && (
+                <div
+                  data-testid="expr-field-picker"
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    backgroundColor: '#fff',
+                    maxHeight: '200px',
+                    overflow: 'auto',
+                  }}
+                >
+                  <div style={{ padding: '6px', borderBottom: '1px solid #e2e8f0' }}>
+                    <input
+                      data-testid="expr-field-search"
+                      type="text"
+                      style={{ ...propInputStyle, width: '100%' }}
+                      placeholder="Search fields..."
+                      value={exprFieldSearch}
+                      onChange={(e) => setExprFieldSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+                  {DATA_FIELDS
+                    .map((group) => ({
+                      ...group,
+                      fields: group.fields.filter((f) =>
+                        !exprFieldSearch ||
+                        f.label.toLowerCase().includes(exprFieldSearch.toLowerCase()) ||
+                        f.key.toLowerCase().includes(exprFieldSearch.toLowerCase())
+                      ),
+                    }))
+                    .filter((group) => group.fields.length > 0)
+                    .map((group) => (
+                    <div key={group.group}>
+                      <div style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 600, color: '#64748b', backgroundColor: '#f8fafc', textTransform: 'uppercase' }}>
+                        {group.group}
+                      </div>
+                      {group.fields.map((field) => (
+                        <div
+                          key={field.key}
+                          data-testid={`expr-field-${field.key}`}
+                          style={{
+                            padding: '4px 12px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                          }}
+                          onClick={() => {
+                            // Insert field reference at cursor or append
+                            const currentExpr = selectedElement.binding || '';
+                            const newExpr = currentExpr ? currentExpr + ' ' + field.key : field.key;
+                            updateElement(selectedElement.id, { binding: newExpr });
+                            setShowExprFieldPicker(false);
+                            setExprFieldSearch('');
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f1f5f9')}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                        >
+                          <span style={{ color: '#334155' }}>{field.label}</span>
+                          <span style={{ color: '#94a3b8', fontSize: '10px', fontFamily: 'monospace' }}>{field.key}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Test button */}
+              <div>
+                <button
+                  data-testid="btn-expr-test"
+                  aria-label="Test expression"
+                  style={{
+                    ...toolbarBtnStyle,
+                    width: '100%',
+                    fontSize: '12px',
+                    padding: '8px 12px',
+                    backgroundColor: '#2563eb',
+                    color: '#fff',
+                    border: 'none',
+                    fontWeight: 600,
+                    opacity: exprTestLoading ? 0.7 : 1,
+                  }}
+                  disabled={exprTestLoading || !selectedElement.binding}
+                  onClick={async () => {
+                    if (!selectedElement.binding) return;
+                    setExprTestLoading(true);
+                    setExprTestResult(null);
+                    try {
+                      // Build context from example data
+                      const context: Record<string, unknown> = {};
+                      DATA_FIELDS.forEach((group) => {
+                        group.fields.forEach((field) => {
+                          // Try to parse numbers from example values
+                          const numVal = parseFloat(field.example.replace(/[^0-9.-]/g, ''));
+                          context[field.key] = isNaN(numVal) ? field.example : numVal;
+                        });
+                      });
+
+                      const resp = await fetch(`${apiBase}/expressions/evaluate`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {}),
+                        },
+                        body: JSON.stringify({
+                          expression: selectedElement.binding,
+                          context,
+                        }),
+                      });
+
+                      if (resp.ok) {
+                        const data = await resp.json();
+                        setExprTestResult({ result: String(data.result), type: data.type });
+                      } else {
+                        const errData = await resp.json().catch(() => ({ message: 'Unknown error' }));
+                        setExprTestResult({ error: errData.message || 'Evaluation failed' });
+                      }
+                    } catch (err) {
+                      setExprTestResult({ error: err instanceof Error ? err.message : 'Network error' });
+                    } finally {
+                      setExprTestLoading(false);
+                    }
+                  }}
+                >
+                  {exprTestLoading ? 'Testing...' : 'Test Expression'}
+                </button>
+              </div>
+
+              {/* Test result display */}
+              {exprTestResult && (
+                <div
+                  data-testid="expr-test-result"
+                  style={{
+                    padding: '8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    backgroundColor: exprTestResult.error ? '#fef2f2' : '#f0fdf4',
+                    border: `1px solid ${exprTestResult.error ? '#fecaca' : '#bbf7d0'}`,
+                  }}
+                >
+                  {exprTestResult.error ? (
+                    <div style={{ color: '#dc2626' }}>
+                      <span style={{ fontWeight: 600 }}>Error: </span>
+                      <span data-testid="expr-test-error">{exprTestResult.error}</span>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#15803d' }}>
+                      <span style={{ fontWeight: 600 }}>Result: </span>
+                      <span data-testid="expr-test-value">{exprTestResult.result}</span>
+                      <span style={{ color: '#94a3b8', marginLeft: '8px', fontSize: '10px' }}>({exprTestResult.type})</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

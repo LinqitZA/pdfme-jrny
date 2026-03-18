@@ -29,6 +29,7 @@ function generateToken(orgId, userId) {
 }
 
 const TOKEN = generateToken(ORG_ID, USER_ID);
+const templateIds = [];
 
 function request(method, path, body, token) {
   return new Promise((resolve, reject) => {
@@ -75,169 +76,192 @@ let failed = 0;
 function assert(condition, msg) {
   if (condition) {
     passed++;
-    console.log(`  ✅ ${msg}`);
+    console.log('  PASS: ' + msg);
   } else {
     failed++;
-    console.log(`  ❌ ${msg}`);
+    console.log('  FAIL: ' + msg);
   }
 }
 
-async function createTemplate(name, schema, type = 'invoice') {
+async function createTemplate(name, schema, type) {
   const res = await request('POST', '/api/pdfme/templates', {
     name,
-    type,
+    type: type || 'invoice',
     schema,
   }, TOKEN);
+  if (res.body && res.body.id) templateIds.push(res.body.id);
   return res;
-}
-
-// Good template schema with pages format - uses valid invoice field bindings
-function validSchema() {
-  return {
-    pages: [
-      {
-        elements: [
-          { type: 'text', name: 'title', position: { x: 10, y: 10 }, width: 100, height: 20, content: 'Invoice' },
-          { type: 'text', name: 'custName', position: { x: 10, y: 40 }, width: 100, height: 20, content: '{{customer.name}}' },
-        ],
-      },
-    ],
-  };
-}
-
-// Schema using a custom type (no registered field schema, so bindings aren't checked against fields)
-function customTypeSchema() {
-  return {
-    pages: [
-      {
-        elements: [
-          { type: 'text', name: 'title', position: { x: 10, y: 10 }, width: 100, height: 20, content: 'Custom Doc' },
-          { type: 'text', name: 'val', position: { x: 10, y: 40 }, width: 100, height: 20, content: '{{myField}}' },
-        ],
-      },
-    ],
-  };
 }
 
 async function run() {
   console.log('\n=== Feature #379: Template validation endpoint works without publishing ===\n');
 
-  // --- Test 1: Create a valid draft template and validate it ---
-  console.log('Test 1: Validate a valid draft template');
-  const validRes = await createTemplate('Valid Template 379', validSchema());
-  assert(validRes.status === 201 || validRes.status === 200, `Created valid template (status ${validRes.status})`);
+  // --- Test 1: Validate a valid draft template ---
+  console.log('Test 1: Validate a valid draft template with correct invoice bindings');
+  const validRes = await createTemplate('Valid Invoice 379', {
+    pages: [{
+      elements: [
+        { type: 'text', name: 'heading', position: { x: 10, y: 10 }, width: 100, height: 20, content: 'Invoice' },
+        { type: 'text', name: 'custName', position: { x: 10, y: 40 }, width: 100, height: 20, content: '{{customer.name}}' },
+        { type: 'text', name: 'total', position: { x: 10, y: 70 }, width: 100, height: 20, content: '{{totals.total}}' },
+      ],
+    }],
+  });
+  assert(validRes.status === 201 || validRes.status === 200, 'Created valid template (status ' + validRes.status + ')');
   const validId = validRes.body.id;
 
   // Check it's a draft
-  const getRes = await request('GET', `/api/pdfme/templates/${validId}`, null, TOKEN);
-  assert(getRes.status === 200, 'Can fetch the template');
-  assert(getRes.body.status === 'draft', `Template is in draft status (got: ${getRes.body.status})`);
+  const getRes = await request('GET', '/api/pdfme/templates/' + validId, null, TOKEN);
+  assert(getRes.status === 200, 'Can fetch template');
+  assert(getRes.body.status === 'draft', 'Template is in draft status (got: ' + getRes.body.status + ')');
 
   // Validate
-  const valRes = await request('POST', `/api/pdfme/templates/${validId}/validate`, null, TOKEN);
-  assert(valRes.status === 200, `Validate returns 200 (got: ${valRes.status})`);
-  assert(valRes.body.valid === true, `Valid template passes validation (valid=${valRes.body.valid})`);
+  const valRes = await request('POST', '/api/pdfme/templates/' + validId + '/validate', null, TOKEN);
+  assert(valRes.status === 200, 'Validate returns 200 (got: ' + valRes.status + ')');
+  assert(valRes.body.valid === true, 'Valid template passes validation (valid=' + valRes.body.valid + ')');
   assert(Array.isArray(valRes.body.errors), 'Errors is an array');
-  assert(valRes.body.errors.length === 0, `No validation errors (got ${valRes.body.errors?.length || 'N/A'})`);
-  assert(valRes.body.templateId === validId, `Response includes templateId (${valRes.body.templateId})`);
-  assert(valRes.body.templateName === 'Valid Template 379', `Response includes templateName (${valRes.body.templateName})`);
+  assert(valRes.body.errors.length === 0, 'No validation errors (got ' + (valRes.body.errors ? valRes.body.errors.length : 'N/A') + ')');
+  assert(valRes.body.templateId === validId, 'Response includes correct templateId');
+  assert(valRes.body.templateName === 'Valid Invoice 379', 'Response includes correct templateName');
 
-  // Check status unchanged after validation
-  const getAfter = await request('GET', `/api/pdfme/templates/${validId}`, null, TOKEN);
-  assert(getAfter.body.status === 'draft', `Template still draft after validation (got: ${getAfter.body.status})`);
+  // Status unchanged
+  const getAfter = await request('GET', '/api/pdfme/templates/' + validId, null, TOKEN);
+  assert(getAfter.body.status === 'draft', 'Template still draft after validation (got: ' + getAfter.body.status + ')');
 
-  // --- Test 2: Validate a template with missing schema elements ---
-  console.log('\nTest 2: Validate template with empty page (no elements)');
+  // --- Test 2: Validate template with empty page (no elements) ---
+  console.log('\nTest 2: Validate template with empty page');
   const emptyPageRes = await createTemplate('Empty Page 379', {
     pages: [{ elements: [] }],
   });
   const emptyPageId = emptyPageRes.body.id;
 
-  const valEmpty = await request('POST', `/api/pdfme/templates/${emptyPageId}/validate`, null, TOKEN);
-  assert(valEmpty.status === 200, `Validate returns 200 for invalid template (got: ${valEmpty.status})`);
-  assert(valEmpty.body.valid === false, `Invalid template fails validation (valid=${valEmpty.body.valid})`);
-  assert(valEmpty.body.errors.length > 0, `Has validation errors (count: ${valEmpty.body.errors.length})`);
-  const hasPageError = valEmpty.body.errors.some(e => e.message && e.message.includes('no elements'));
+  const valEmpty = await request('POST', '/api/pdfme/templates/' + emptyPageId + '/validate', null, TOKEN);
+  assert(valEmpty.status === 200, 'Validate returns 200 for invalid template');
+  assert(valEmpty.body.valid === false, 'Empty-page template fails validation');
+  assert(valEmpty.body.errors.length > 0, 'Has validation errors (count: ' + valEmpty.body.errors.length + ')');
+  const hasPageError = valEmpty.body.errors.some(function(e) { return e.message && e.message.includes('no elements'); });
   assert(hasPageError, 'Reports empty page error');
 
   // Status still draft
-  const getEmpty = await request('GET', `/api/pdfme/templates/${emptyPageId}`, null, TOKEN);
-  assert(getEmpty.body.status === 'draft', `Empty-page template still draft after validation (got: ${getEmpty.body.status})`);
+  const getEmpty = await request('GET', '/api/pdfme/templates/' + emptyPageId, null, TOKEN);
+  assert(getEmpty.body.status === 'draft', 'Empty-page template still draft after validation');
 
-  // --- Test 3: Validate template with invalid binding ---
-  console.log('\nTest 3: Validate template with invalid binding expression');
-  const badBindRes = await createTemplate('Bad Binding 379', {
-    pages: [
-      {
-        elements: [
-          { type: 'text', name: 'field1', position: { x: 10, y: 10 }, width: 100, height: 20, content: '{{}}' },
-        ],
-      },
-    ],
+  // --- Test 3: Validate template with empty binding expression {{}} ---
+  console.log('\nTest 3: Validate template with empty binding expression');
+  const emptyBindRes = await createTemplate('Empty Binding 379', {
+    pages: [{
+      elements: [
+        { type: 'text', name: 'f1', position: { x: 10, y: 10 }, width: 100, height: 20, content: '{{}}' },
+      ],
+    }],
   });
-  const badBindId = badBindRes.body.id;
+  const emptyBindId = emptyBindRes.body.id;
 
-  const valBadBind = await request('POST', `/api/pdfme/templates/${badBindId}/validate`, null, TOKEN);
-  assert(valBadBind.status === 200, `Validate returns 200 for bad binding (got: ${valBadBind.status})`);
-  assert(valBadBind.body.valid === false, `Bad binding fails validation (valid=${valBadBind.body.valid})`);
-  const hasBindingError = valBadBind.body.errors.some(e => e.message && e.message.toLowerCase().includes('binding'));
-  assert(hasBindingError, 'Reports binding error');
+  const valEmptyBind = await request('POST', '/api/pdfme/templates/' + emptyBindId + '/validate', null, TOKEN);
+  assert(valEmptyBind.status === 200, 'Validate returns 200 for empty binding');
+  assert(valEmptyBind.body.valid === false, 'Empty binding fails validation');
+  const hasEmptyBindError = valEmptyBind.body.errors.some(function(e) { return e.message && e.message.toLowerCase().includes('empty binding'); });
+  assert(hasEmptyBindError, 'Reports empty binding error');
+  const getEmptyBind = await request('GET', '/api/pdfme/templates/' + emptyBindId, null, TOKEN);
+  assert(getEmptyBind.body.status === 'draft', 'Template still draft after empty binding validation');
 
-  // Status still draft
-  const getBadBind = await request('GET', `/api/pdfme/templates/${badBindId}`, null, TOKEN);
-  assert(getBadBind.body.status === 'draft', `Bad-binding template still draft after validation (got: ${getBadBind.body.status})`);
+  // --- Test 4: Validate template with unresolvable binding ---
+  console.log('\nTest 4: Validate template with unresolvable binding (unknown invoice field)');
+  const unresolvedRes = await createTemplate('Unresolved Binding 379', {
+    pages: [{
+      elements: [
+        { type: 'text', name: 'f1', position: { x: 10, y: 10 }, width: 100, height: 20, content: '{{nonExistentField}}' },
+      ],
+    }],
+  });
+  const unresolvedId = unresolvedRes.body.id;
 
-  // --- Test 4: Validate non-existent template returns 404 ---
-  console.log('\nTest 4: Validate non-existent template');
+  const valUnresolved = await request('POST', '/api/pdfme/templates/' + unresolvedId + '/validate', null, TOKEN);
+  assert(valUnresolved.status === 200, 'Validate returns 200 for unresolvable binding');
+  assert(valUnresolved.body.valid === false, 'Unresolvable binding fails validation');
+  const hasUnresolvedError = valUnresolved.body.errors.some(function(e) { return e.message && e.message.toLowerCase().includes('unresolvable'); });
+  assert(hasUnresolvedError, 'Reports unresolvable binding error');
+  const getUnresolved = await request('GET', '/api/pdfme/templates/' + unresolvedId, null, TOKEN);
+  assert(getUnresolved.body.status === 'draft', 'Template still draft after unresolvable binding validation');
+
+  // --- Test 5: Validate non-existent template returns 404 ---
+  console.log('\nTest 5: Validate non-existent template');
   const val404 = await request('POST', '/api/pdfme/templates/nonexistent-id-379/validate', null, TOKEN);
-  assert(val404.status === 404, `Non-existent template returns 404 (got: ${val404.status})`);
+  assert(val404.status === 404, 'Non-existent template returns 404 (got: ' + val404.status + ')');
 
-  // --- Test 5: Validate does NOT change status to published ---
-  console.log('\nTest 5: Multiple validations do not change status');
-  // Validate same template multiple times
-  await request('POST', `/api/pdfme/templates/${validId}/validate`, null, TOKEN);
-  await request('POST', `/api/pdfme/templates/${validId}/validate`, null, TOKEN);
-  const getMulti = await request('GET', `/api/pdfme/templates/${validId}`, null, TOKEN);
-  assert(getMulti.body.status === 'draft', `Template still draft after multiple validations (got: ${getMulti.body.status})`);
+  // --- Test 6: Multiple validations do not change status ---
+  console.log('\nTest 6: Multiple validations do not change status');
+  await request('POST', '/api/pdfme/templates/' + validId + '/validate', null, TOKEN);
+  await request('POST', '/api/pdfme/templates/' + validId + '/validate', null, TOKEN);
+  await request('POST', '/api/pdfme/templates/' + validId + '/validate', null, TOKEN);
+  const getMulti = await request('GET', '/api/pdfme/templates/' + validId, null, TOKEN);
+  assert(getMulti.body.status === 'draft', 'Template still draft after 3 validations (got: ' + getMulti.body.status + ')');
 
-  // --- Test 6: Validate returns all rule types ---
-  console.log('\nTest 6: All validation rules applied');
-  // Template with no pages
+  // --- Test 7: Validate template with no pages ---
+  console.log('\nTest 7: All validation rules - no pages');
   const noPagesRes = await createTemplate('No Pages 379', { randomField: true });
   const noPagesId = noPagesRes.body.id;
-  const valNoPages = await request('POST', `/api/pdfme/templates/${noPagesId}/validate`, null, TOKEN);
+  const valNoPages = await request('POST', '/api/pdfme/templates/' + noPagesId + '/validate', null, TOKEN);
   assert(valNoPages.body.valid === false, 'No-pages template fails validation');
-  const hasSchemaError = valNoPages.body.errors.some(e => e.field && e.field.includes('schema'));
+  const hasSchemaError = valNoPages.body.errors.some(function(e) { return e.field && e.field.includes('schema'); });
   assert(hasSchemaError, 'Reports schema/pages error for missing pages');
 
-  // --- Test 7: Validate published template also works ---
-  console.log('\nTest 7: Validate a published template');
-  // First publish the valid template
-  const pubRes = await request('POST', `/api/pdfme/templates/${validId}/publish`, null, TOKEN);
-  const getPub = await request('GET', `/api/pdfme/templates/${validId}`, null, TOKEN);
+  // --- Test 8: Validate custom type template (no field schema) ---
+  console.log('\nTest 8: Validate custom type template (no field schema registered)');
+  const customRes = await createTemplate('Custom Type 379', {
+    pages: [{
+      elements: [
+        { type: 'text', name: 'val', position: { x: 10, y: 10 }, width: 100, height: 20, content: '{{anyField}}' },
+      ],
+    }],
+  }, 'custom');
+  const customId = customRes.body.id;
+
+  const valCustom = await request('POST', '/api/pdfme/templates/' + customId + '/validate', null, TOKEN);
+  assert(valCustom.status === 200, 'Validate returns 200 for custom type');
+  assert(valCustom.body.valid === true, 'Custom type with any binding passes (no field schema to check against)');
+  const getCustom = await request('GET', '/api/pdfme/templates/' + customId, null, TOKEN);
+  assert(getCustom.body.status === 'draft', 'Custom type template still draft after validation');
+
+  // --- Test 9: Validate published template ---
+  console.log('\nTest 9: Validate a published template (status stays published)');
+  const pubRes = await request('POST', '/api/pdfme/templates/' + validId + '/publish', null, TOKEN);
+  const getPub = await request('GET', '/api/pdfme/templates/' + validId, null, TOKEN);
   if (getPub.body.status === 'published') {
-    const valPub = await request('POST', `/api/pdfme/templates/${validId}/validate`, null, TOKEN);
-    assert(valPub.status === 200, `Can validate published template (status ${valPub.status})`);
-    assert(valPub.body.valid === true, `Published template passes validation (valid=${valPub.body.valid})`);
-    // Status stays published (not reverted to draft)
-    const getAfterPub = await request('GET', `/api/pdfme/templates/${validId}`, null, TOKEN);
-    assert(getAfterPub.body.status === 'published', `Published template stays published after validation (got: ${getAfterPub.body.status})`);
+    const valPub = await request('POST', '/api/pdfme/templates/' + validId + '/validate', null, TOKEN);
+    assert(valPub.status === 200, 'Can validate published template');
+    assert(valPub.body.valid === true, 'Published template passes validation');
+    const getAfterPub = await request('GET', '/api/pdfme/templates/' + validId, null, TOKEN);
+    assert(getAfterPub.body.status === 'published', 'Published template stays published after validation (got: ' + getAfterPub.body.status + ')');
   } else {
-    console.log('  (skipped - could not publish template)');
+    console.log('  (skipped - publish returned: ' + JSON.stringify(pubRes.body).substring(0, 200) + ')');
+  }
+
+  // --- Test 10: Validation response structure ---
+  console.log('\nTest 10: Validation response structure is correct');
+  const structRes = await request('POST', '/api/pdfme/templates/' + emptyPageId + '/validate', null, TOKEN);
+  assert(typeof structRes.body.valid === 'boolean', 'valid field is boolean');
+  assert(Array.isArray(structRes.body.errors), 'errors field is array');
+  assert(typeof structRes.body.templateId === 'string', 'templateId field is string');
+  assert(typeof structRes.body.templateName === 'string', 'templateName field is string');
+  // Each error has field and message
+  if (structRes.body.errors.length > 0) {
+    assert(typeof structRes.body.errors[0].field === 'string', 'Error has field property');
+    assert(typeof structRes.body.errors[0].message === 'string', 'Error has message property');
   }
 
   // --- Cleanup ---
   console.log('\nCleaning up...');
-  for (const tid of [validId, emptyPageId, badBindId, noPagesId]) {
-    if (tid) await request('DELETE', `/api/pdfme/templates/${tid}`, null, TOKEN);
+  for (const tid of templateIds) {
+    if (tid) await request('DELETE', '/api/pdfme/templates/' + tid, null, TOKEN);
   }
 
   // --- Summary ---
-  console.log(`\n=== Results: ${passed} passed, ${failed} failed, ${passed + failed} total ===`);
+  console.log('\n=== Results: ' + passed + ' passed, ' + failed + ' failed, ' + (passed + failed) + ' total ===');
   process.exit(failed > 0 ? 1 : 0);
 }
 
-run().catch((err) => {
+run().catch(function(err) {
   console.error('Test runner error:', err);
   process.exit(1);
 });
