@@ -315,20 +315,21 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    * Synchronous render: generates a PDF immediately and returns the document record.
    */
   async renderNow(dto: RenderNowDto, orgId: string, userId: string) {
-    // 1. Fetch the published template
-    const [template] = await this.db
+    // 1. Check if template exists first, then verify it's published
+    const [anyTemplate] = await this.db
       .select()
       .from(templates)
-      .where(
-        and(
-          eq(templates.id, dto.templateId),
-          eq(templates.status, 'published'),
-        ),
-      );
+      .where(eq(templates.id, dto.templateId));
 
-    if (!template) {
-      return { error: 'Template not found or not published' };
+    if (!anyTemplate) {
+      return { error: 'Template not found', statusCode: 404 };
     }
+
+    if (anyTemplate.status !== 'published') {
+      return { error: `Template is in '${anyTemplate.status}' status and must be published before rendering`, statusCode: 422, templateStatus: anyTemplate.status };
+    }
+
+    const template = anyTemplate;
 
     // 2. Build pdfme template structure from the stored schema
     const templateSchema = template.schema as Record<string, unknown>;

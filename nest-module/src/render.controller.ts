@@ -88,13 +88,16 @@ export class RenderController {
     );
 
     if ('error' in result && !('document' in result)) {
+      const code = (result as any).statusCode || 404;
+      const errorLabel = code === 422 ? 'Unprocessable Entity' : code === 400 ? 'Bad Request' : 'Not Found';
       throw new HttpException(
         {
-          statusCode: 404,
-          error: 'Not Found',
+          statusCode: code,
+          error: errorLabel,
           message: result.error,
+          ...((result as any).templateStatus ? { templateStatus: (result as any).templateStatus } : {}),
         },
-        HttpStatus.NOT_FOUND,
+        code,
       );
     }
 

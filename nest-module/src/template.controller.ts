@@ -54,6 +54,99 @@ export class TemplateController {
     private readonly renderService: RenderService,
   ) {}
 
+  /**
+   * Validate that a schema field is valid JSON and has proper structure.
+   * Returns null if valid, or throws appropriate HTTP exception.
+   */
+  private validateSchemaField(schema: unknown): void {
+    // Check 1: schema must be a JSON object (not string, array, number, etc.)
+    if (schema === undefined) {
+      return; // schema is optional on updates
+    }
+
+    if (schema === null) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'schema cannot be null',
+          details: [{ field: 'schema', reason: 'schema must be a valid JSON object, not null' }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (typeof schema === 'string') {
+      // Someone sent schema as a string instead of a JSON object
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'schema must be a valid JSON object, not a string',
+          details: [{ field: 'schema', reason: 'Expected a JSON object but received a string. Ensure schema is sent as a JSON object, not a JSON-encoded string.' }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (typeof schema !== 'object' || Array.isArray(schema)) {
+      throw new HttpException(
+        {
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'schema must be a valid JSON object',
+          details: [{ field: 'schema', reason: `Expected a JSON object but received ${Array.isArray(schema) ? 'an array' : typeof schema}` }],
+        },
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    // Check 2: structural validation - schema should have proper structure
+    const schemaObj = schema as Record<string, unknown>;
+    const structuralErrors: Array<{ field: string; reason: string }> = [];
+
+    // Check for pages or schemas array (required structure)
+    const pages = schemaObj.pages || schemaObj.schemas;
+    if (pages !== undefined) {
+      if (!Array.isArray(pages)) {
+        structuralErrors.push({
+          field: 'schema.pages',
+          reason: 'pages must be an array',
+        });
+      } else {
+        // Validate each page is an object
+        pages.forEach((page: unknown, idx: number) => {
+          if (page !== null && page !== undefined && typeof page !== 'object') {
+            structuralErrors.push({
+              field: `schema.pages[${idx}]`,
+              reason: 'Each page must be an object',
+            });
+          }
+        });
+      }
+    }
+
+    // Check for invalid top-level types that indicate wrong structure
+    if (typeof schemaObj.basePdf !== 'undefined' && typeof schemaObj.basePdf !== 'string' && typeof schemaObj.basePdf !== 'object') {
+      structuralErrors.push({
+        field: 'schema.basePdf',
+        reason: 'basePdf must be a string (URL/path) or object',
+      });
+    }
+
+    if (structuralErrors.length > 0) {
+      throw new HttpException(
+        {
+          statusCode: 422,
+          error: 'Unprocessable Entity',
+          message: 'Template schema has structural errors',
+          details: structuralErrors,
+        },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+  }
+
   @Get()
   async list(
     @Query('orgId') queryOrgId?: string,
@@ -363,6 +456,11 @@ export class TemplateController {
       );
     }
 
+    // Validate schema if provided
+    if (body.schema !== undefined) {
+      this.validateSchemaField(body.schema);
+    }
+
     // Check for edit lock conflict
     const lockConflict = await this.templateService.checkLockConflict(id, userId, orgId);
     if (lockConflict) {
@@ -484,6 +582,11 @@ export class TemplateController {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId;
     const userId = jwt?.sub || 'unknown';
+
+    // Validate schema if provided
+    if (body.schema !== undefined) {
+      this.validateSchemaField(body.schema);
+    }
 
     // Check for edit lock conflict
     const lockConflict = await this.templateService.checkLockConflict(id, userId, orgId);
