@@ -19,6 +19,7 @@ import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp
 import { resolveRichText, applyRichText, RichTextRenderInfo } from '../../packages/erp-schemas/src/rich-text';
 import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
 import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
+import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 
 export interface RenderNowDto {
@@ -113,11 +114,20 @@ export class RenderService {
     inputs = richTextResult.inputs;
     const richTextInfo: RichTextRenderInfo[] = richTextResult.richTextInfo;
 
+    // 3e2. Resolve signatureBlock elements - extract for post-processing via pdf-lib
+    const sigBlockResult = resolveSignatureBlocks(pdfmeTemplate, inputs);
+    pdfmeTemplate = sigBlockResult.template as typeof pdfmeTemplate;
+    inputs = sigBlockResult.inputs;
+    const signatureBlockInfo: SignatureBlockRenderInfo[] = sigBlockResult.signatureBlockInfo;
+
     // 3f. Resolve page scopes - filter elements by first/last/all/notFirst
     this.resolvePageScopes(pdfmeTemplate);
 
     // 3g. Resolve conditions - hide elements based on fieldNonEmpty/expression conditions
     this.resolveConditions(pdfmeTemplate, inputs);
+
+    // 3g2. Resolve output channel filtering - remove elements not matching the requested channel
+    this.resolveOutputChannels(pdfmeTemplate, dto.channel);
 
     // 3h. Resolve calculatedField elements - evaluate expressions and convert to text
     const resolvedCalc = resolveCalculatedFields(pdfmeTemplate, inputs);
@@ -174,10 +184,6 @@ export class RenderService {
       });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      if (err instanceof Error && err.stack) {
-        console.error('PDF generation error stack:', err.stack);
-      }
-      console.error('Template schemas at error:', JSON.stringify(pdfmeTemplate.schemas).substring(0, 500));
       // Create a failed document record
       const docId = createId();
       const [failedDoc] = await this.db
@@ -208,6 +214,15 @@ export class RenderService {
       } catch (err: unknown) {
         console.error('Rich text rendering failed:', err);
         // Continue without rich text rather than failing the entire render
+      }
+    }
+
+    // 4b2. Apply signature block rendering via pdf-lib (post-processing)
+    if (signatureBlockInfo.length > 0) {
+      try {
+        pdfBuffer = await applySignatureBlocks(pdfBuffer, signatureBlockInfo);
+      } catch (err: unknown) {
+        console.error('Signature block rendering failed:', err);
       }
     }
 
