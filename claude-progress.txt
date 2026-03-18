@@ -2669,3 +2669,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 81/81 tests passing across 3 test suites
 ### Current Status: ~191/388 features passing (49.2%)
+
+---
+
+## Session - 2026-03-18 - Features #273, #274, #275 (Import Validation, Signature Validation, Lock Status Check)
+
+### Completed Features:
+- **Feature #273**: Template import JSON structure validation ✅
+  - Enhanced POST /api/pdfme/templates/import with tiered validation
+  - Invalid JSON / missing required fields (version, template) return 400 with details array
+  - Valid JSON with wrong structure (bad version, missing name/type/schema, wrong types) returns 422
+  - Multiple structural errors reported at once in details array
+  - Valid packages with/without assets field import successfully as draft (201)
+  - Assets default to empty arrays when not provided
+  - 48/48 tests passing
+
+- **Feature #274**: Signature data validation ✅
+  - Enhanced POST /api/pdfme/signatures with image format validation
+  - Empty/null/whitespace data returns 400
+  - Non-image data (text, JSON, PDF, random bytes) detected by magic bytes → 400
+  - Unsupported image formats via data URL prefix (JPEG, GIF, WebP, BMP) → 400 with specific mime type
+  - Valid PNG (with/without data URL prefix) accepted via magic bytes detection
+  - Valid SVG (with/without data URL prefix) accepted via XML/svg tag detection
+  - SVG with XML declaration also accepted
+  - Error messages list accepted formats (PNG, SVG)
+  - 30/30 tests passing
+
+- **Feature #275**: Lock acquisition on non-draft fails ✅
+  - Added status check in acquireLock service method
+  - Archived templates return 422 "read-only" message
+  - Published templates return 422 "create new draft" message
+  - Nonexistent templates return 404
+  - Draft templates lock successfully (200)
+  - Controller uses dynamic status codes from service result
+  - Failed lock does not modify template (no lockedBy set)
+  - 18/18 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.controller.ts - Import validation, lock status code handling
+- nest-module/src/template.service.ts - acquireLock status checks with statusCode field
+- nest-module/src/signature.controller.ts - Image format validation (magic bytes + data URL)
+- tests/test-import-validation-273.js - 48 tests
+- tests/test-signature-validation-274.js - 30 tests
+- tests/test-lock-nondraft-275.js - 18 tests
+
+### Test Results: 96/96 tests passing across 3 test suites
+### Current Status: ~192/388 features passing (49.5%)
