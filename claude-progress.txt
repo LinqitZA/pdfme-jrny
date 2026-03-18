@@ -1227,3 +1227,38 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 66/66 tests passing across 3 test suites
 ### Current Status: ~86/388 features passing (22.2%)
+
+---
+
+## Session - 2026-03-18 - Features #166, #167, #168 (Error Handling and Retry)
+
+### Completed Features:
+- **Feature #166**: Database retry 2x on transient failure
+  - withDbRetry() utility in nest-module/src/db/db-retry.ts
+  - Detects transient errors by pg error codes (08xxx, 40xxx, 57xxx) and Node.js codes (ECONNRESET, ETIMEDOUT)
+  - Configurable: maxRetries (default 2), baseDelayMs (default 100), exponential backoff
+  - POST /api/pdfme/health/test-db-retry and check-transient-error endpoints
+  - 46/46 tests passing
+
+- **Feature #167**: Bull queue attempts 3 times
+  - RenderQueueService with BullMQ, 3 max attempts, exponential backoff
+  - Dead-letter queue (pdfme-render-dlq) for jobs exhausting all retries
+  - POST /api/pdfme/queue/test-retry, GET jobs/:id/wait, GET dlq, GET stats
+  - 42/42 tests passing
+
+- **Feature #168**: User-friendly error messages not stack traces
+  - GlobalExceptionFilter in global-exception.filter.ts registered in main.ts
+  - Sanitizes stack traces, internal file paths, node_modules references
+  - Converts DB errors to user-friendly messages
+  - Preserves HttpException details (400/404/etc)
+  - Consistent error envelope: {statusCode, error, message, timestamp, path}
+  - 193/193 tests passing across 11 error scenarios
+
+### Key Files Created/Modified:
+- nest-module/src/db/db-retry.ts - Database retry utility
+- nest-module/src/global-exception.filter.ts - Global exception filter
+- nest-module/src/health.controller.ts - Test endpoints for retry and error testing
+- nest-module/src/main.ts - Registered GlobalExceptionFilter
+- tests/test-db-retry-166.js, test-bull-queue-167.js, test-error-messages-168.js
+
+### Current Status: ~86/388 features passing (22.2%)
