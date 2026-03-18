@@ -5408,3 +5408,28 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Hashing test (feature #389): 47/47 passing
 
 ### Current Status: 388/390 features passing (99.5%)
+
+---
+
+## Session - 2026-03-18 - Features #85, #98 (Render History and Document Metadata)
+
+### Completed Features:
+- **Feature #85**: Render history paginated documents - 43/43 tests passing
+  - Added GET /api/pdfme/render/history endpoint with cursor-based pagination
+  - listHistory service method with composite cursor (createdAt + id) for tie-breaking
+  - Default limit 10, max 500, ordered by createdAt descending
+  - Supports filtering by entityType and status, org-scoped
+  - Response: { data: [...], pagination: { limit, hasMore, nextCursor } }
+
+- **Feature #98**: GeneratedDocument has correct metadata - 47/47 tests passing
+  - Verified all required fields on rendered document records
+  - templateId, templateVer, pdfHash, status, outputChannel all correct
+  - Documents queryable via history and documents/:templateId endpoints
+
+### Key Files Modified:
+- nest-module/src/render.controller.ts - Added GET /history endpoint
+- nest-module/src/render.service.ts - Added listHistory method with cursor pagination
+- tests/test-feature-85-render-history.js - 43 tests
+- tests/test-feature-98-document-metadata.js - 47 tests
+
+### Test Results: 90/90 tests passing across 2 features
