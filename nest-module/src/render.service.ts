@@ -59,6 +59,15 @@ export interface RenderBulkDto {
   inputs?: Record<string, string>[];
 }
 
+/** Metadata for a generated preview */
+export interface PreviewRecord {
+  previewId: string;
+  orgId: string;
+  filePath: string;
+  expiresAt: string; // ISO 8601
+  createdAt: string; // ISO 8601
+}
+
 @Injectable()
 export class RenderService {
   /** EventEmitter for SSE progress streams, keyed by batchId */
@@ -66,6 +75,19 @@ export class RenderService {
 
   /** Track document IDs per batch for merge operations */
   private batchDocuments = new Map<string, string[]>();
+
+  /** In-memory registry of preview PDFs with expiry metadata */
+  public readonly previewRegistry = new Map<string, PreviewRecord>();
+
+  /** Retry configuration for file storage operations */
+  private retryConfig = {
+    maxRetries: 3,
+    baseDelayMs: 200, // 200ms, 400ms, 800ms with exponential backoff
+    maxDelayMs: 5000,
+  };
+
+  /** Track retry attempts for observability/testing */
+  public lastRetryAttempts = 0;
 
   constructor(
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
@@ -76,6 +98,83 @@ export class RenderService {
   ) {
     // Allow many listeners (one per SSE client)
     this.batchEvents.setMaxListeners(100);
+  }
+
+  /**
+   * Execute a file storage operation with retry logic and exponential backoff.
+   * Retries up to maxRetries times on transient failures.
+   *
+   * @param operation - Async function to retry
+   * @param operationName - Description for logging
+   * @returns Result of the operation
+   * @throws Last error if all retries exhausted
+   */
+  async withRetry<T>(operation: () => Promise<T>, operationName: string = 'file operation'): Promise<T> {
+    let lastError: Error | undefined;
+    this.lastRetryAttempts = 0;
+
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      try {
+        const result = await operation();
+        this.lastRetryAttempts = attempt;
+        return result;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.lastRetryAttempts = attempt + 1;
+
+        if (attempt < this.retryConfig.maxRetries) {
+          const delay = Math.min(
+            this.retryConfig.baseDelayMs * Math.pow(2, attempt),
+            this.retryConfig.maxDelayMs,
+          );
+          console.warn(
+            `[RenderService] ${operationName} failed (attempt ${attempt + 1}/${this.retryConfig.maxRetries + 1}), retrying in ${delay}ms: ${lastError.message}`,
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    console.error(
+      `[RenderService] ${operationName} failed after ${this.retryConfig.maxRetries + 1} attempts: ${lastError!.message}`,
+    );
+    throw lastError!;
+  }
+
+  /**
+   * Write to file storage with retry logic.
+   */
+  async writeWithRetry(filePath: string, data: Buffer): Promise<void> {
+    return this.withRetry(
+      () => this.fileStorage.write(filePath, data),
+      `write(${filePath})`,
+    );
+  }
+
+  /**
+   * Read from file storage with retry logic.
+   */
+  async readWithRetry(filePath: string): Promise<Buffer> {
+    return this.withRetry(
+      () => this.fileStorage.read(filePath),
+      `read(${filePath})`,
+    );
+  }
+
+  /**
+   * Set custom retry configuration (for testing).
+   */
+  setRetryConfig(config: { maxRetries?: number; baseDelayMs?: number; maxDelayMs?: number }) {
+    if (config.maxRetries !== undefined) this.retryConfig.maxRetries = config.maxRetries;
+    if (config.baseDelayMs !== undefined) this.retryConfig.baseDelayMs = config.baseDelayMs;
+    if (config.maxDelayMs !== undefined) this.retryConfig.maxDelayMs = config.maxDelayMs;
+  }
+
+  /**
+   * Get current retry configuration (for testing).
+   */
+  getRetryConfig() {
+    return { ...this.retryConfig };
   }
 
   /**
@@ -191,7 +290,31 @@ export class RenderService {
     this.resolveFieldBindings(pdfmeTemplate, inputs);
 
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
-    await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+    try {
+      await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+    } catch (sigErr: unknown) {
+      const errorMessage = sigErr instanceof Error ? sigErr.message : String(sigErr);
+      const docId = createId();
+      const [failedDoc] = await this.db
+        .insert(generatedDocuments)
+        .values({
+          id: docId,
+          orgId,
+          templateId: dto.templateId,
+          templateVer: template.version,
+          entityType: dto.entityType || template.type,
+          entityId: dto.entityId,
+          filePath: '',
+          pdfHash: '',
+          status: 'failed',
+          outputChannel: dto.channel,
+          triggeredBy: userId,
+          inputSnapshot: dto.inputs || null,
+          errorMessage,
+        })
+        .returning();
+      return { error: errorMessage, document: failedDoc };
+    }
 
     // 3b2. Resolve erpImage elements - fetch from FileStorageService and convert to base64
     const erpImageResult = await resolveErpImages(pdfmeTemplate, inputs, {
@@ -202,6 +325,7 @@ export class RenderService {
     });
     pdfmeTemplate = erpImageResult.template as typeof pdfmeTemplate;
     inputs = erpImageResult.inputs;
+    const erpImagePlaceholders = erpImageResult.placeholders || [];
 
     // 3c. Resolve lineItemsTable elements - convert to standard table with footer rows
     const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
@@ -344,9 +468,10 @@ export class RenderService {
     }
 
     // 4b3. Apply placeholder image "Image not found" text overlay via pdf-lib
-    if (placeholderImages.length > 0) {
+    const allPlaceholders = [...erpImagePlaceholders, ...placeholderImages];
+    if (allPlaceholders.length > 0) {
       try {
-        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, placeholderImages);
+        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, allPlaceholders);
       } catch (err: unknown) {
         console.error('Placeholder image overlay failed:', err);
       }
@@ -387,7 +512,7 @@ export class RenderService {
     if (pdfaConversionFailed) {
       // Store the raw PDF with _non-pdfa suffix for debugging
       const nonPdfaFilePath = `${orgId}/documents/${docId}_non-pdfa.pdf`;
-      await this.fileStorage.write(nonPdfaFilePath, Buffer.from(pdfBuffer));
+      await this.writeWithRetry(nonPdfaFilePath, Buffer.from(pdfBuffer));
 
       // Create a failed GeneratedDocument record with the debug file path
       const [failedDoc] = await this.db
@@ -413,7 +538,7 @@ export class RenderService {
     }
 
     const filePath = `${orgId}/documents/${docId}.pdf`;
-    await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
+    await this.writeWithRetry(filePath, Buffer.from(pdfBuffer));
 
     // 7. Create GeneratedDocument record
     const [document] = await this.db
@@ -696,7 +821,7 @@ export class RenderService {
     const pdfBuffers: Buffer[] = [];
     for (const doc of relevantDocs) {
       try {
-        const buffer = await this.fileStorage.read(doc.filePath);
+        const buffer = await this.readWithRetry(doc.filePath);
         if (buffer) {
           pdfBuffers.push(buffer);
         }
@@ -736,7 +861,7 @@ export class RenderService {
 
     const mergedDocId = createId();
     const mergedFilePath = `${orgId}/documents/merged_${batchId}_${mergedDocId}.pdf`;
-    await this.fileStorage.write(mergedFilePath, Buffer.from(mergedBytes));
+    await this.writeWithRetry(mergedFilePath, Buffer.from(mergedBytes));
 
     return {
       mergedDocumentId: mergedDocId,
@@ -968,6 +1093,11 @@ export class RenderService {
    * Scans template schemas for drawnSignature type fields, fetches the user's
    * signature PNG from storage, and replaces input values with base64 data URIs.
    * Also converts the schema type to 'image' for pdfme compatibility.
+   *
+   * Supports configurable fallbackBehaviour when signature is missing:
+   * - 'blank' (default): renders empty/transparent space
+   * - 'placeholder': shows a signature placeholder image
+   * - 'error': throws an error to fail the render
    */
   private async resolveDrawnSignatures(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
@@ -975,8 +1105,14 @@ export class RenderService {
     orgId: string,
     userId: string,
   ): Promise<void> {
-    // Find all drawnSignature fields in the template
-    const signatureFieldNames: string[] = [];
+    // Find all drawnSignature fields in the template, along with their fallback config
+    interface SignatureFieldInfo {
+      name: string;
+      fallbackBehaviour: 'blank' | 'placeholder' | 'error';
+      width: number;
+      height: number;
+    }
+    const signatureFields: SignatureFieldInfo[] = [];
 
     if (Array.isArray(pdfmeTemplate.schemas)) {
       for (const page of pdfmeTemplate.schemas) {
@@ -989,7 +1125,14 @@ export class RenderService {
               (field as { type: string }).type === 'drawnSignature' &&
               'name' in field
             ) {
-              signatureFieldNames.push((field as { name: string }).name);
+              const f = field as Record<string, unknown>;
+              const fallback = (f.fallbackBehaviour as string) || 'blank';
+              signatureFields.push({
+                name: f.name as string,
+                fallbackBehaviour: fallback as 'blank' | 'placeholder' | 'error',
+                width: (f.width as number) || 50,
+                height: (f.height as number) || 20,
+              });
               // Convert type to 'image' for pdfme compatibility
               (field as { type: string }).type = 'image';
             }
@@ -998,7 +1141,7 @@ export class RenderService {
       }
     }
 
-    if (signatureFieldNames.length === 0) return;
+    if (signatureFields.length === 0) return;
 
     // Fetch the user's current signature
     let signatureDataUri = '';
@@ -1014,13 +1157,36 @@ export class RenderService {
         }
       }
     } catch {
-      // Signature not found - use fallback (empty)
+      // Signature not found - use fallback behaviour
     }
 
     // Set the signature data in all input records
     for (const inputRecord of inputs) {
-      for (const fieldName of signatureFieldNames) {
-        inputRecord[fieldName] = signatureDataUri;
+      for (const sigField of signatureFields) {
+        if (signatureDataUri) {
+          // Signature exists - use it
+          inputRecord[sigField.name] = signatureDataUri;
+        } else {
+          // Signature missing - apply fallback behaviour
+          switch (sigField.fallbackBehaviour) {
+            case 'error':
+              throw new Error(`Signature required but not found for field "${sigField.name}". User "${userId}" has no signature on file.`);
+            case 'placeholder': {
+              // Generate a signature placeholder (light grey box with "Sign here" text)
+              // Uses a 1x1 transparent PNG; the resolveMissingImages step will overlay text
+              inputRecord[sigField.name] = generatePlaceholderImage(sigField.width, sigField.height);
+              break;
+            }
+            case 'blank':
+            default: {
+              // Generate a 1x1 transparent PNG to render blank/empty space
+              // This minimal PNG prevents pdfme from failing on empty image input
+              const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+              inputRecord[sigField.name] = `data:image/png;base64,${transparentPng}`;
+              break;
+            }
+          }
+        }
       }
     }
   }
@@ -1388,6 +1554,7 @@ export class RenderService {
     });
     pdfmeTemplate = erpImageResult.template as typeof pdfmeTemplate;
     inputs = erpImageResult.inputs;
+    const previewErpPlaceholders = erpImageResult.placeholders || [];
 
     // 3c. Resolve lineItemsTable elements
     const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
@@ -1488,9 +1655,10 @@ export class RenderService {
     }
 
     // 4b3. Apply placeholder image overlays
-    if (previewPlaceholders.length > 0) {
+    const allPreviewPlaceholders = [...previewErpPlaceholders, ...previewPlaceholders];
+    if (allPreviewPlaceholders.length > 0) {
       try {
-        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, previewPlaceholders);
+        pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, allPreviewPlaceholders);
       } catch {
         // Continue without placeholder overlays
       }
@@ -1511,9 +1679,19 @@ export class RenderService {
     const filePath = `${orgId}/previews/${previewId}.pdf`;
     await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
 
-    // 7. Return preview metadata
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+    // 7. Register preview with expiry metadata
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString(); // 1 hour
+    const previewRecord: PreviewRecord = {
+      previewId,
+      orgId,
+      filePath,
+      expiresAt,
+      createdAt: now.toISOString(),
+    };
+    this.previewRegistry.set(previewId, previewRecord);
 
+    // 8. Return preview metadata
     return {
       previewId,
       downloadUrl: `/api/pdfme/render/download/${previewId}`,
@@ -1523,6 +1701,61 @@ export class RenderService {
       channel,
       sampleRowCount,
     };
+  }
+
+  /**
+   * Get a preview PDF for download. Returns the PDF buffer if valid,
+   * or an error object if expired, not found, or purged.
+   */
+  async getPreviewForDownload(previewId: string, orgId: string): Promise<
+    | { buffer: Buffer; previewId: string }
+    | { error: string; statusCode: number }
+  > {
+    const record = this.previewRegistry.get(previewId);
+
+    // Not found in registry
+    if (!record) {
+      // Could be expired and purged, or never existed
+      return { error: 'Preview not found or has expired', statusCode: 410 };
+    }
+
+    // Check org isolation
+    if (record.orgId !== orgId) {
+      return { error: 'Preview not found or has expired', statusCode: 410 };
+    }
+
+    // Check expiry
+    if (new Date(record.expiresAt) < new Date()) {
+      // Expired - clean up registry and try to delete file
+      this.previewRegistry.delete(previewId);
+      try {
+        await this.fileStorage.delete(record.filePath);
+      } catch {
+        // File may already be gone
+      }
+      return { error: 'Preview has expired', statusCode: 410 };
+    }
+
+    // Try to read the file
+    try {
+      const buffer = await this.fileStorage.read(record.filePath);
+      return { buffer, previewId };
+    } catch {
+      // File was purged from disk
+      this.previewRegistry.delete(previewId);
+      return { error: 'Preview file has been purged', statusCode: 410 };
+    }
+  }
+
+  /**
+   * Force-expire a preview for testing purposes.
+   * Sets the expiresAt to a past date.
+   */
+  forceExpirePreview(previewId: string): boolean {
+    const record = this.previewRegistry.get(previewId);
+    if (!record) return false;
+    record.expiresAt = new Date(Date.now() - 1000).toISOString(); // 1 second ago
+    return true;
   }
 
   /**

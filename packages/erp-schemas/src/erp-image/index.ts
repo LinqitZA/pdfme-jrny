@@ -181,6 +181,16 @@ export function extractErpImages(
  *
  * This is an async operation because it reads from file storage.
  */
+/** Info about a placeholder image generated for a missing erpImage */
+export interface ErpImagePlaceholderInfo {
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  fieldName: string;
+}
+
 export async function resolveErpImages(
   template: { basePdf: unknown; schemas: unknown[] },
   inputs: Record<string, string>[],
@@ -188,9 +198,10 @@ export async function resolveErpImages(
 ): Promise<{
   template: { basePdf: unknown; schemas: unknown[] };
   inputs: Record<string, string>[];
+  placeholders: ErpImagePlaceholderInfo[];
 }> {
   const erpImages = extractErpImages(template.schemas);
-  if (erpImages.length === 0) return { template, inputs };
+  if (erpImages.length === 0) return { template, inputs, placeholders: [] };
 
   const inputRecord = inputs.length > 0 ? inputs[0] : {};
   const newSchemas = template.schemas.map((page: unknown) => {
@@ -198,6 +209,7 @@ export async function resolveErpImages(
     return [...page];
   });
   const newInputs = inputs.map((inp) => ({ ...inp }));
+  const placeholders: ErpImagePlaceholderInfo[] = [];
 
   for (const { pageIndex, elementIndex, element, fieldName } of erpImages) {
     const page = newSchemas[pageIndex] as Record<string, unknown>[];
@@ -237,6 +249,14 @@ export async function resolveErpImages(
     // If no image could be resolved, generate a placeholder rectangle with "Image not found"
     if (!dataUri) {
       dataUri = generatePlaceholderImage(element.width, element.height);
+      placeholders.push({
+        pageIndex,
+        x: element.position.x,
+        y: element.position.y,
+        width: element.width,
+        height: element.height,
+        fieldName,
+      });
     }
 
     page[elementIndex] = {
@@ -258,6 +278,7 @@ export async function resolveErpImages(
   return {
     template: { basePdf: template.basePdf, schemas: newSchemas },
     inputs: newInputs,
+    placeholders,
   };
 }
 
