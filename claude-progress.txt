@@ -1303,3 +1303,49 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - All prior code for handleSave and auto-save was already implemented
 
 ### Current Status: 96/388 features passing (24.7%)
+
+---
+
+## Session - 2026-03-18 - Features #169, #170, #171 (Loading States, Save Errors, Bulk Continue)
+
+### Completed Features:
+- **Feature #169**: Loading states during PDF generation ✅
+  - Added render state management: idle/loading/progress/complete/error
+  - Preview button calls POST /api/pdfme/templates/:id/preview with loading overlay
+  - New "Generate PDF" button calls POST /api/pdfme/render/now
+  - Bulk render progress via SSE (EventSource) with progress bar
+  - Render overlay shows spinner, progress %, completion with download link
+  - Dismiss button and error states with user-friendly messages
+  - Buttons disabled during active render operations
+  - 50 automated tests passing
+
+- **Feature #170**: Network failure during save shows error ✅
+  - Enhanced handleSave to be async with actual API calls
+  - On network failure: sets saveError state, shows error banner
+  - Error banner with message, retry button, and dismiss
+  - Save button changes: "Saving…" during save, "Retry Save" on error
+  - Unsaved changes preserved (isDirty NOT cleared on error)
+  - No templateId = local-only mode (just clears dirty flag)
+  - Handles non-JSON error responses gracefully
+  - 38 automated tests passing
+
+- **Feature #171**: Bulk render onFailure continue mode ✅
+  - Already implemented in RenderService.processBatchAsync()
+  - Default onFailure='continue' - failed items don't abort batch
+  - 'abort' mode stops on first failure with status='aborted'
+  - failedIds array tracks all failed entity IDs
+  - Final status: 'completed', 'completedWithErrors', or 'aborted'
+  - SSE emits job_failed, job_completed, batch_complete events
+  - getBatchStatus returns failedIds and onFailure in response
+  - Verified with published templates (all succeed) and unpublished (all fail)
+  - 47 automated tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Render overlay, save error handling, loading states
+- tests/test-feature-169-loading-states.js - 50 tests
+- tests/test-feature-170-save-error.js - 38 tests  
+- tests/test-feature-171-bulk-continue.js - 47 tests
+
+### Note: Another agent added template loading from API (isLoading/loadError state) to ErpDesigner
+
+### Current Status: ~91/388 features passing (23.5%)
