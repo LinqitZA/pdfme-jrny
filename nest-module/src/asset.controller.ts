@@ -134,16 +134,21 @@ export class AssetController {
   @Get()
   async list(
     @Query('orgId') queryOrgId?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limitStr?: string,
     @Headers('authorization') authHeader?: string,
   ) {
     const jwt = decodeJwt(authHeader);
     const orgId = jwt?.orgId || queryOrgId || 'default';
 
-    const files = await this.assetService.listAssets(orgId);
-    return {
-      data: files,
-      pagination: { total: files.length, limit: 100, hasMore: false },
-    };
+    const limit = limitStr ? Math.min(Math.max(parseInt(limitStr, 10) || 20, 1), 100) : 20;
+
+    const result = await this.assetService.listAssetsWithMetadata(orgId, {
+      cursor: cursor || undefined,
+      limit,
+    });
+
+    return result;
   }
 
   @Get(':assetId')

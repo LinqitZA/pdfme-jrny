@@ -136,12 +136,79 @@ export class AssetService {
   }
 
   /**
-   * List all assets for an org
+   * List all assets for an org (raw storage paths)
    */
   async listAssets(orgId: string): Promise<string[]> {
     const assetFiles = await this.storage.list(`${orgId}/assets`);
     const fontFiles = await this.storage.list(`${orgId}/fonts`);
     return [...assetFiles, ...fontFiles];
+  }
+
+  /**
+   * List assets with metadata for an org, supporting cursor pagination.
+   * Cursor is the asset ID (UUID) to start after.
+   */
+  async listAssetsWithMetadata(orgId: string, options?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<{
+    data: AssetUploadResult[];
+    pagination: { total: number; limit: number; hasMore: boolean; nextCursor: string | null };
+  }> {
+    const limit = options?.limit || 20;
+    const cursor = options?.cursor;
+
+    const allPaths = await this.listAssets(orgId);
+
+    // Convert paths to metadata objects
+    const allAssets: AssetUploadResult[] = allPaths.map(storagePath => {
+      const filename = path.basename(storagePath);
+      // Extract UUID from filename (format: uuid_originalname.ext)
+      const underscoreIdx = filename.indexOf('_');
+      const id = underscoreIdx > 0 ? filename.substring(0, underscoreIdx) : filename;
+      const originalName = underscoreIdx > 0 ? filename.substring(underscoreIdx + 1) : filename;
+      const ext = path.extname(filename).toLowerCase();
+      const category = this.getCategory(filename) || 'image';
+      const mimeType = MIME_MAP[ext] || 'application/octet-stream';
+
+      return {
+        id,
+        filename,
+        originalName,
+        mimeType,
+        size: 0, // Size not available from path listing
+        category,
+        storagePath,
+        orgId,
+        createdAt: '', // Not available from path listing
+      };
+    });
+
+    // Sort by id for stable cursor pagination
+    allAssets.sort((a, b) => a.id.localeCompare(b.id));
+
+    // Apply cursor (skip items until we find the cursor ID, then start after it)
+    let startIdx = 0;
+    if (cursor) {
+      const cursorIdx = allAssets.findIndex(a => a.id === cursor);
+      if (cursorIdx >= 0) {
+        startIdx = cursorIdx + 1;
+      }
+    }
+
+    const page = allAssets.slice(startIdx, startIdx + limit);
+    const hasMore = startIdx + limit < allAssets.length;
+    const nextCursor = hasMore && page.length > 0 ? page[page.length - 1].id : null;
+
+    return {
+      data: page,
+      pagination: {
+        total: allAssets.length,
+        limit,
+        hasMore,
+        nextCursor,
+      },
+    };
   }
 
   /**

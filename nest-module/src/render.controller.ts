@@ -876,6 +876,20 @@ export class RenderController {
   /**
    * Submit an async render job to the queue.
    * Returns a jobId that can be polled via GET /render/status/:jobId
+   * Available at both POST /render/queue and POST /render/async
+   */
+  @Post('queue')
+  @HttpCode(202)
+  async renderQueue(
+    @Body() body: RenderNowDto,
+    @Req() req: any,
+  ) {
+    return this.renderAsync(body, req);
+  }
+
+  /**
+   * Submit an async render job to the queue (alias).
+   * Returns a jobId that can be polled via GET /render/status/:jobId
    */
   @Post('async')
   @HttpCode(202)
