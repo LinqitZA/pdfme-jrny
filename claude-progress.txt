@@ -161,3 +161,41 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Use @Public() decorator for any public endpoints
 - request.user available in controllers after auth (contains sub, orgId, roles)
 - Template/Asset controllers still use internal decodeJwt() - could be refactored to use request.user
+
+---
+
+## Session 4 - 2026-03-18 - Features #74, #75, #81
+
+### Completed Features:
+- **Feature #74**: Template save draft updates schema ✅
+  - PUT /api/pdfme/templates/:id/draft returns 200 with updated template
+  - Schema and name properly update, updatedAt timestamp changes
+  - Already implemented from previous sessions, verified working
+
+- **Feature #75**: Template publish promotes draft ✅
+  - POST /api/pdfme/templates/:id/publish changes status to "published"
+  - publishedVer set to current version number
+  - Added publish() method to TemplateService
+  - Added POST :id/publish endpoint to TemplateController
+
+- **Feature #81**: Render now generates PDF synchronously ✅
+  - POST /api/pdfme/render/now creates PDF and returns GeneratedDocument record
+  - Full pipeline: fetch published template -> pdfme generate() -> SHA-256 hash -> file storage -> DB record
+  - RenderService implemented with @pdfme/generator and @pdfme/schemas plugins
+  - RenderController wired with JWT auth (orgId from req.user)
+  - PDF stored at {orgId}/documents/{docId}.pdf via LocalDiskStorageAdapter
+  - GeneratedDocument record created with status="done", pdfHash, filePath, inputSnapshot
+
+### Key Changes:
+- nest-module/src/template.service.ts: Added publish() method
+- nest-module/src/template.controller.ts: Added POST :id/publish endpoint
+- nest-module/src/render.service.ts: Full implementation with pdfme generator integration
+- nest-module/src/render.controller.ts: POST /render/now with validation and error handling
+- nest-module/src/app.module.ts: Registered RenderService provider
+
+### Important Notes:
+- Global JwtAuthGuard now active (added by another agent) - all requests need Bearer token
+- Test JWT: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJvcmdJZCI6InRlc3Qtb3JnIiwicm9sZXMiOlsiYWRtaW4iXX0.fakesig
+- Health endpoint needs @Public() decorator or JWT token
+
+### Current Status: 12/388 features passing (sessions 1-4 combined)
