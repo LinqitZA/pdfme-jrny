@@ -309,6 +309,18 @@ export class RenderController {
     }
   }
 
+  @Post('force-pdfa-failure')
+  async forcePdfaFailure(
+    @Body() body: { errorMessage?: string | null },
+  ) {
+    const msg = body.errorMessage !== undefined ? body.errorMessage : null;
+    this.pdfaProcessor.setForceFailure(msg);
+    return {
+      forceFailure: msg !== null,
+      errorMessage: msg,
+    };
+  }
+
   @Post('font-check')
   async checkFonts(
     @Body() body: { templateId: string },

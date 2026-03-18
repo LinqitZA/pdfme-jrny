@@ -5,7 +5,7 @@
  *   SHA-256 hash -> FileStorageService store -> GeneratedDocument record
  */
 
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, Optional } from '@nestjs/common';
 import { eq, and, inArray } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
@@ -22,6 +22,7 @@ import { resolveErpImages } from '../../packages/erp-schemas/src/erp-image';
 import { resolveSignatureBlocks, applySignatureBlocks, SignatureBlockRenderInfo } from '../../packages/erp-schemas/src/signature-block';
 import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 import { PdfaProcessor } from './pdfa-processor';
+import { DataSourceRegistry } from './datasource.registry';
 import * as path from 'path';
 
 /** Warnings emitted during font resolution */
@@ -61,6 +62,7 @@ export class RenderService {
     @Inject('FILE_STORAGE') private readonly fileStorage: FileStorageService,
     private readonly signatureService: SignatureService,
     private readonly pdfaProcessor: PdfaProcessor,
+    @Optional() private readonly dataSourceRegistry?: DataSourceRegistry,
   ) {
     // Allow many listeners (one per SSE client)
     this.batchEvents.setMaxListeners(100);
@@ -133,6 +135,50 @@ export class RenderService {
     let inputs = dto.inputs && dto.inputs.length > 0
       ? dto.inputs
       : [this.buildEmptyInputs(pdfmeTemplate)];
+
+    // 3-ds. If a DataSource is registered for this template type and no explicit inputs,
+    //       resolve data from the DataSource
+    if (this.dataSourceRegistry && this.dataSourceRegistry.has(template.type) && (!dto.inputs || dto.inputs.length === 0)) {
+      try {
+        const dataSource = this.dataSourceRegistry.resolve(template.type);
+        const resolvedData = await dataSource.resolve(dto.entityId, orgId);
+        if (Array.isArray(resolvedData) && resolvedData.length > 0) {
+          inputs = resolvedData.map((item: unknown) =>
+            typeof item === 'object' && item !== null
+              ? Object.fromEntries(
+                  Object.entries(item as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])
+                )
+              : {}
+          );
+        }
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        // Create a failed document record for DataSource errors
+        const docId = createId();
+        const [failedDoc] = await this.db
+          .insert(generatedDocuments)
+          .values({
+            id: docId,
+            orgId,
+            templateId: dto.templateId,
+            templateVer: template.version,
+            entityType: dto.entityType || template.type,
+            entityId: dto.entityId,
+            filePath: '',
+            pdfHash: '',
+            status: 'failed',
+            outputChannel: dto.channel,
+            triggeredBy: userId,
+            inputSnapshot: dto.inputs || null,
+            errorMessage: `DataSource error: ${errorMessage}`,
+          })
+          .returning();
+        return { error: `DataSource error: ${errorMessage}`, document: failedDoc };
+      }
+    }
+
+    // 3a. Resolve field bindings with fallbackValue for missing/empty inputs
+    this.resolveFieldBindings(pdfmeTemplate, inputs);
 
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
@@ -295,12 +341,16 @@ export class RenderService {
     }
 
     // 4d. Convert to PDF/A-3b (Ghostscript or pdf-lib fallback)
+    let pdfaConversionFailed = false;
+    let pdfaErrorMessage = '';
     try {
       const pdfaResult = await this.pdfaProcessor.convertToPdfA3b(pdfBuffer);
       pdfBuffer = new Uint8Array(pdfaResult.pdfBuffer);
     } catch (err: unknown) {
-      console.error('PDF/A-3b conversion failed:', err);
-      // Continue without PDF/A conversion rather than failing the entire render
+      pdfaConversionFailed = true;
+      pdfaErrorMessage = err instanceof Error ? err.message : String(err);
+      console.error(`[RenderService] PDF/A-3b conversion failed: ${pdfaErrorMessage}`);
+      console.error('[RenderService] Storing raw (non-PDF/A) PDF for debugging');
     }
 
     // 5. Compute SHA-256 hash
@@ -311,6 +361,35 @@ export class RenderService {
 
     // 6. Store PDF via FileStorageService
     const docId = createId();
+
+    if (pdfaConversionFailed) {
+      // Store the raw PDF with _non-pdfa suffix for debugging
+      const nonPdfaFilePath = `${orgId}/documents/${docId}_non-pdfa.pdf`;
+      await this.fileStorage.write(nonPdfaFilePath, Buffer.from(pdfBuffer));
+
+      // Create a failed GeneratedDocument record with the debug file path
+      const [failedDoc] = await this.db
+        .insert(generatedDocuments)
+        .values({
+          id: docId,
+          orgId,
+          templateId: dto.templateId,
+          templateVer: template.version,
+          entityType: dto.entityType || template.type,
+          entityId: dto.entityId,
+          filePath: nonPdfaFilePath,
+          pdfHash,
+          status: 'failed',
+          outputChannel: dto.channel,
+          triggeredBy: userId,
+          inputSnapshot: inputs || dto.inputs || null,
+          errorMessage: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`,
+        })
+        .returning();
+
+      return { error: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`, document: failedDoc };
+    }
+
     const filePath = `${orgId}/documents/${docId}.pdf`;
     await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
 
@@ -704,6 +783,52 @@ export class RenderService {
       }
     }
     return inputs;
+  }
+
+  /**
+   * Resolve field bindings with fallbackValue support.
+   * For each schema element, if the corresponding input value is missing or empty
+   * and the element has a fallbackValue property, use the fallback value.
+   * Without a fallbackValue, missing/empty bindings remain as empty string.
+   */
+  private resolveFieldBindings(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    inputs: Record<string, string>[],
+  ): void {
+    // Build a map of field name -> fallbackValue from schema elements
+    const fallbackMap = new Map<string, string>();
+    for (const page of pdfmeTemplate.schemas) {
+      if (!Array.isArray(page)) continue;
+      for (const element of page) {
+        if (!element || typeof element !== 'object') continue;
+        const el = element as Record<string, unknown>;
+        const name = el.name as string | undefined;
+        const fallbackValue = el.fallbackValue as string | undefined;
+        if (name && fallbackValue !== undefined && fallbackValue !== null) {
+          fallbackMap.set(name, String(fallbackValue));
+        }
+      }
+    }
+
+    // Apply fallback values to each input record
+    for (const inputRecord of inputs) {
+      // Ensure all schema fields exist in inputs; apply fallback for missing/empty values
+      for (const page of pdfmeTemplate.schemas) {
+        if (!Array.isArray(page)) continue;
+        for (const element of page) {
+          if (!element || typeof element !== 'object') continue;
+          const el = element as Record<string, unknown>;
+          const name = el.name as string | undefined;
+          if (!name) continue;
+
+          // If input is missing or empty, apply fallback or empty string
+          if (!(name in inputRecord) || inputRecord[name] === '' || inputRecord[name] === undefined || inputRecord[name] === null) {
+            const fallback = fallbackMap.get(name);
+            inputRecord[name] = fallback !== undefined ? fallback : '';
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -1116,6 +1241,9 @@ export class RenderService {
     let inputs = [this.buildSampleInputs(pdfmeTemplate, sampleRowCount)];
 
     // 3. Run the full render pipeline (same as renderNow but without DB record)
+    // 3a. Resolve field bindings with fallbackValue
+    this.resolveFieldBindings(pdfmeTemplate, inputs);
+
     // 3b. Resolve drawnSignature fields
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
 

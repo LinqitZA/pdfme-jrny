@@ -39,6 +39,22 @@ export interface PdfaValidationResult {
 export class PdfaProcessor {
   private ghostscriptAvailable: boolean | null = null;
   private verapdfAvailable: boolean | null = null;
+  private _forceFailure: string | null = null;
+
+  /**
+   * Force the next PDF/A conversion to fail with the given error message.
+   * Used for testing error handling. Set to null to clear.
+   */
+  setForceFailure(errorMessage: string | null): void {
+    this._forceFailure = errorMessage;
+  }
+
+  /**
+   * Get current force-failure state.
+   */
+  getForceFailure(): string | null {
+    return this._forceFailure;
+  }
 
   /**
    * Check if Ghostscript is available on the system.
@@ -76,6 +92,13 @@ export class PdfaProcessor {
    * 2. Otherwise, use pdf-lib to inject XMP metadata block for PDF/A-3b compliance
    */
   async convertToPdfA3b(pdfBuffer: Buffer | Uint8Array): Promise<PdfaConversionResult> {
+    // Check for forced failure (testing support)
+    if (this._forceFailure) {
+      const errorMsg = this._forceFailure;
+      this._forceFailure = null; // Auto-clear after one use
+      throw new Error(errorMsg);
+    }
+
     const inputBuffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
 
     if (await this.isGhostscriptAvailable()) {

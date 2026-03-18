@@ -59,6 +59,45 @@ export class DataSourceController {
   }
 
   /**
+   * Register a test DataSource for development/testing.
+   * The DataSource will resolve with provided sample data, or throw an error
+   * if errorMessage is provided.
+   */
+  @Post(':type/register-test')
+  registerTestDataSource(
+    @Param('type') type: string,
+    @Body() body: { sampleData?: unknown[]; errorMessage?: string },
+  ) {
+    const sampleData = body.sampleData || [{ field1: 'value1' }];
+    const errorMessage = body.errorMessage;
+
+    this.registry.register({
+      templateType: type,
+      resolve: async (_entityId: string, _orgId: string) => {
+        if (errorMessage) {
+          throw new Error(errorMessage);
+        }
+        return sampleData;
+      },
+    });
+
+    return {
+      registered: true,
+      templateType: type,
+      willThrow: !!errorMessage,
+    };
+  }
+
+  /**
+   * Unregister a DataSource for a template type (cleanup).
+   */
+  @Post(':type/unregister')
+  unregisterDataSource(@Param('type') type: string) {
+    const removed = this.registry.unregister(type);
+    return { unregistered: removed, templateType: type };
+  }
+
+  /**
    * Resolve data for an entity using the registered DataSource.
    */
   @Post(':type/resolve')
