@@ -1968,6 +1968,9 @@ export class TemplateService {
       return { released: false, error: 'Lock is held by another user' };
     }
 
+    const wasForceRelease = force && template.lockedBy !== userId;
+    const previousLockHolder = template.lockedBy;
+
     await this.db
       .update(templates)
       .set({
@@ -1977,7 +1980,23 @@ export class TemplateService {
       })
       .where(eq(templates.id, id));
 
-    return { released: true };
+    // Audit log for force-release
+    if (wasForceRelease && this.auditService) {
+      await this.auditService.log({
+        orgId: orgId || template.orgId || '',
+        entityType: 'template',
+        entityId: id,
+        action: 'lock_force_released',
+        userId,
+        metadata: {
+          lockHolder: previousLockHolder,
+          releasedBy: userId,
+          templateName: template.name,
+        },
+      });
+    }
+
+    return { released: true, forceReleased: wasForceRelease || false };
   }
 
   /**

@@ -4529,3 +4529,50 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 85/85 tests passing across 3 features
 ### Current Status: ~325/388 features passing (83.8%)
+
+---
+
+## Session - 2026-03-18 - Features #13, #14, #15 (RBAC Permissions)
+
+### Completed Features:
+- **Feature #13**: RBAC enforces template:delete permission ✅
+  - Added @RequirePermissions('template:delete') to DELETE /api/pdfme/templates/:id
+  - PermissionsGuard (already globally registered) enforces role check
+  - Admin with template:delete can delete (200), editor without it gets 403
+  - Cross-org isolation verified (404 for wrong org)
+  - Unauthenticated gets 401, various role combos tested
+  - 24/24 tests passing
+
+- **Feature #14**: RBAC enforces template:import permission ✅
+  - Added @RequirePermissions('template:import') to POST /api/pdfme/templates/import
+  - Users with template:import can import (201), users without get 403
+  - Imported templates accessible via GET, cross-org isolation verified
+  - Error response structure validated (403 with proper fields)
+  - 17/17 tests passing
+
+- **Feature #15**: RBAC enforces render:trigger permission ✅
+  - Added @RequirePermissions('render:trigger') to POST /api/pdfme/render/now
+  - Created and published template, rendered successfully with render:trigger role
+  - Users without render:trigger get 403 (editor, viewer, basic, render:bulk)
+  - Permission check happens before body validation (empty body still gets 403)
+  - Cross-org passes auth but fails on template not found
+  - 20/20 tests passing
+
+### Key Files Modified:
+- nest-module/src/template.controller.ts - @RequirePermissions on delete and import
+- nest-module/src/render.controller.ts - @RequirePermissions on render/now
+- tests/test-feature-13-rbac-template-delete.js - 24 tests
+- tests/test-feature-14-rbac-template-import.js - 17 tests
+- tests/test-feature-15-rbac-render-trigger.js - 20 tests
+
+### Notes:
+- PermissionsGuard was already registered as APP_GUARD in app.module.ts
+- @RequirePermissions decorator already existed in auth.guard.ts
+- Many controller endpoints already had @RequirePermissions decorators (template:view, template:edit, template:publish, render:bulk)
+- Test tokens must include all required permissions (e.g., template:view for GET endpoints)
+- Render endpoint returns 201 (not 200) for successful renders
+- Template schema must use pages format with elements array (not keyed objects)
+- basePdf should not be specified for simple templates (engine provides default)
+
+### Test Results: 61/61 tests passing across 3 features
+### Current Status: ~320/388 features passing (82.5%)

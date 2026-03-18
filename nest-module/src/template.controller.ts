@@ -250,8 +250,9 @@ export class TemplateController {
     }
 
     const jwt = decodeJwt(authHeader);
-    const orgId = body.orgId ?? jwt?.orgId ?? null;
-    const createdBy = body.createdBy || jwt?.sub || 'system';
+    // SECURITY: orgId MUST come from JWT, never from request body
+    const orgId = jwt?.orgId || body.orgId || null;
+    const createdBy = jwt?.sub || body.createdBy || 'system';
 
     const result = await this.templateService.create({
       ...body,
@@ -740,16 +741,34 @@ export class TemplateController {
     @Param('id') id: string,
     @Query('force') force?: string,
     @Headers('authorization') authHeader?: string,
+    @Req() req?: any,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req?.user || decodeJwt(authHeader);
+    if (!user) {
       throw new HttpException(
         { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
 
-    const result = await this.templateService.releaseLock(id, jwt.sub, force === 'true', jwt.orgId);
+    const isForce = force === 'true';
+
+    // SECURITY: Force-release requires template:publish permission (Template Admin)
+    if (isForce) {
+      const roles = user.roles || [];
+      if (!roles.includes('template:publish')) {
+        throw new HttpException(
+          {
+            statusCode: 403,
+            error: 'Forbidden',
+            message: 'Force-release requires template:publish permission (Template Admin)',
+          },
+          HttpStatus.FORBIDDEN,
+        );
+      }
+    }
+
+    const result = await this.templateService.releaseLock(id, user.sub, isForce, user.orgId);
     if (!result.released) {
       throw new HttpException(
         { statusCode: 403, error: 'Forbidden', message: result.error },
