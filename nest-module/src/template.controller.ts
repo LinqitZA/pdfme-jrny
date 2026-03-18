@@ -430,6 +430,64 @@ export class TemplateController {
     return backup;
   }
 
+  @Post('backup/import')
+  @HttpCode(HttpStatus.CREATED)
+  async importBackup(
+    @Body() body: any,
+    @Headers('authorization') authHeader?: string,
+  ) {
+    const jwt = decodeJwt(authHeader);
+    if (!jwt) {
+      throw new HttpException(
+        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    // Validate backup package structure
+    if (!body || typeof body !== 'object') {
+      throw new HttpException(
+        { statusCode: 422, error: 'Unprocessable Entity', message: 'Backup package must be a JSON object' },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+    if (!Array.isArray(body.templates)) {
+      throw new HttpException(
+        { statusCode: 422, error: 'Unprocessable Entity', message: 'Backup package must contain a templates array' },
+        HttpStatus.UNPROCESSABLE_ENTITY,
+      );
+    }
+
+    // Set locale config if included in backup
+    if (body.localeConfig && body.localeConfig.locale) {
+      try {
+        const http = await import('http');
+        const postData = JSON.stringify(body.localeConfig);
+        await new Promise<void>((resolve) => {
+          const req = http.request({
+            hostname: 'localhost',
+            port: 3000,
+            path: '/api/pdfme/expressions/locale',
+            method: 'POST',
+            headers: {
+              'Authorization': authHeader || '',
+              'Content-Type': 'application/json',
+              'Content-Length': Buffer.byteLength(postData),
+            },
+          }, () => resolve());
+          req.on('error', () => resolve());
+          req.write(postData);
+          req.end();
+        });
+      } catch {
+        // Non-fatal: locale config restore is best-effort
+      }
+    }
+
+    const result = await this.templateService.importBackup(body, jwt.orgId, jwt.sub);
+    return result;
+  }
+
   @Get('system')
   async listSystem() {
     const data = await this.templateService.findSystemTemplates();

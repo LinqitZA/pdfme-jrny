@@ -1290,6 +1290,142 @@ export class TemplateService {
     };
   }
 
+  // ─── Org Backup Import ──────────────────────────────────────────────
+
+  /**
+   * Import a comprehensive backup package into an org.
+   * Creates all templates as drafts, restores assets (images + fonts),
+   * and restores signatures with their file data.
+   */
+  async importBackup(
+    backup: {
+      version: number;
+      exportedAt: string;
+      orgId: string;
+      templates: Array<{ id: string; name: string; type: string; status: string; version: number; schema: unknown; createdAt: Date; updatedAt: Date }>;
+      assets: { images: Array<{ path: string; data: string; mimeType: string }>; fonts: Array<{ path: string; data: string; mimeType: string }> };
+      signatures: Array<{ id: string; userId: string; filePath: string; capturedAt: Date; data: string }>;
+      localeConfig: { locale: string; currency: string; timezone: string } | null;
+    },
+    targetOrgId: string,
+    importedBy: string,
+  ): Promise<{
+    templatesCreated: number;
+    assetsRestored: { images: number; fonts: number };
+    signaturesRestored: number;
+    templates: Array<{ id: string; name: string; type: string; status: string }>;
+  }> {
+    const createdTemplates: Array<{ id: string; name: string; type: string; status: string }> = [];
+
+    // 1. Import all templates as drafts
+    for (const tpl of backup.templates) {
+      // Deduplicate name
+      let importName = tpl.name;
+      const existingWithName = await this.db
+        .select({ name: templates.name })
+        .from(templates)
+        .where(
+          and(
+            or(eq(templates.orgId, targetOrgId), isNull(templates.orgId)),
+            ilike(templates.name, `${importName}%`),
+          ),
+        );
+      if (existingWithName.length > 0) {
+        const existingNames = new Set(existingWithName.map((t) => t.name));
+        if (existingNames.has(importName)) {
+          let counter = 1;
+          let suffix = '';
+          do {
+            suffix = counter === 1 ? ' (Import)' : ` (Import ${counter})`;
+            counter++;
+          } while (existingNames.has(`${importName}${suffix}`));
+          importName = `${importName}${suffix}`;
+        }
+      }
+
+      const result = await this.create({
+        orgId: targetOrgId,
+        type: tpl.type,
+        name: importName,
+        schema: tpl.schema as Record<string, unknown>,
+        createdBy: importedBy,
+        status: 'draft',
+      });
+      createdTemplates.push({ id: result.id, name: result.name, type: result.type, status: result.status });
+    }
+
+    // 2. Restore assets (images + fonts)
+    let restoredImages = 0;
+    let restoredFonts = 0;
+
+    if (this.storage) {
+      for (const img of (backup.assets?.images || [])) {
+        try {
+          const buffer = Buffer.from(img.data, 'base64');
+          const pathParts = img.path.split('/');
+          const newPath = pathParts.length > 1
+            ? `${targetOrgId}/${pathParts.slice(1).join('/')}`
+            : `${targetOrgId}/assets/${pathParts[pathParts.length - 1]}`;
+          await this.storage.write(newPath, buffer);
+          restoredImages++;
+        } catch {
+          // Skip failed assets
+        }
+      }
+
+      for (const font of (backup.assets?.fonts || [])) {
+        try {
+          const buffer = Buffer.from(font.data, 'base64');
+          const pathParts = font.path.split('/');
+          const newPath = pathParts.length > 1
+            ? `${targetOrgId}/${pathParts.slice(1).join('/')}`
+            : `${targetOrgId}/fonts/${pathParts[pathParts.length - 1]}`;
+          await this.storage.write(newPath, buffer);
+          restoredFonts++;
+        } catch {
+          // Skip failed fonts
+        }
+      }
+    }
+
+    // 3. Restore signatures
+    let signaturesRestored = 0;
+    for (const sig of (backup.signatures || [])) {
+      try {
+        // Write signature file to storage
+        if (this.storage && sig.data) {
+          const buffer = Buffer.from(sig.data, 'base64');
+          const pathParts = sig.filePath.split('/');
+          const newPath = pathParts.length > 1
+            ? `${targetOrgId}/${pathParts.slice(1).join('/')}`
+            : `${targetOrgId}/signatures/${pathParts[pathParts.length - 1]}`;
+
+          await this.storage.write(newPath, buffer);
+
+          // Insert signature record
+          const newId = createId();
+          await this.db.insert(userSignatures).values({
+            id: newId,
+            orgId: targetOrgId,
+            userId: sig.userId,
+            filePath: newPath,
+            capturedAt: new Date(sig.capturedAt),
+          });
+          signaturesRestored++;
+        }
+      } catch {
+        // Skip failed signatures
+      }
+    }
+
+    return {
+      templatesCreated: createdTemplates.length,
+      assetsRestored: { images: restoredImages, fonts: restoredFonts },
+      signaturesRestored,
+      templates: createdTemplates,
+    };
+  }
+
   // ─── Template Locking ────────────────────────────────────────────────
 
   /**
