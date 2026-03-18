@@ -2163,3 +2163,40 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 69/69 tests passing across 3 test suites
 ### Current Status: ~159/388 features passing (41.0%)
+
+---
+
+## Session - 2026-03-18 - Features #234, #241, #242 (Audit Cascade, Type Defaults, Zoom Reset)
+
+### Completed Features:
+- **Feature #234**: Audit log entries cascade-safe ✅
+  - Verified archiving a template does NOT delete its audit log entries
+  - template.created, template.published, template.archived all preserved
+  - Entry IDs, data integrity, metadata, chronological order all verified
+  - No FK cascade between templates and audit_logs tables
+  - 23/23 tests passing
+
+- **Feature #241**: Template type defaults correctly ✅
+  - Removed type from required fields in template creation endpoint
+  - Type defaults to "custom" when not specified or empty string
+  - Explicit type still works (e.g., "invoice", "statement")
+  - Type can be changed via PUT /templates/:id endpoint
+  - Updated template.controller.ts validation and create logic
+  - 16/16 tests passing
+
+- **Feature #242**: Zoom resets on new template load ✅
+  - Added setZoom(100) in loadTemplate state reset section
+  - Zoom reset happens before fetch, alongside isDirty/saveStatus/publishStatus resets
+  - Zoom is view-only state, not persisted to template schema
+  - Code structure, API, and state flow all verified
+  - 24/24 tests passing
+
+### Key Files Created/Modified:
+- nest-module/src/template.controller.ts - Type no longer required, defaults to "custom"
+- apps/designer-sandbox/components/ErpDesigner.tsx - setZoom(100) on template load
+- tests/test-audit-cascade-safe-234.js - 23 tests
+- tests/test-template-type-default-241.js - 16 tests
+- tests/test-zoom-reset-242.js - 24 tests
+
+### Test Results: 63/63 tests passing across 3 test suites
+### Current Status: ~161/388 features passing (41.5%)
