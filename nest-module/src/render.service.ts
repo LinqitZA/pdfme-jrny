@@ -16,6 +16,9 @@ import { SignatureService } from './signature.service';
 import { EventEmitter } from 'events';
 import { resolveLineItemsTables } from '../../packages/erp-schemas/src/line-items-table';
 import { extractWatermarkFromTemplate, applyWatermark } from '../../packages/erp-schemas/src/watermark';
+import { resolveRichText, applyRichText, RichTextRenderInfo } from '../../packages/erp-schemas/src/rich-text';
+import { resolveQrBarcodes } from '../../packages/erp-schemas/src/qr-barcode';
+import { resolveCalculatedFields } from '../../packages/erp-schemas/src/calculated-field';
 
 export interface RenderNowDto {
   templateId: string;
@@ -88,21 +91,42 @@ export class RenderService {
     pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
     inputs = resolvedLit.inputs;
 
-    // 3d. Extract watermark config (if any watermark element exists in template)
+    // 3d. Resolve qrBarcode elements - convert to standard pdfme qrcode with URL bindings
+    const resolvedQr = resolveQrBarcodes(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedQr.template as typeof pdfmeTemplate;
+    inputs = resolvedQr.inputs;
+
+    // 3e. Resolve richText elements - extract for post-processing via pdf-lib
+    const richTextResult = resolveRichText(pdfmeTemplate, inputs);
+    pdfmeTemplate = richTextResult.template as typeof pdfmeTemplate;
+    inputs = richTextResult.inputs;
+    const richTextInfo: RichTextRenderInfo[] = richTextResult.richTextInfo;
+
+    // 3f. Resolve page scopes - filter elements by first/last/all/notFirst
+    this.resolvePageScopes(pdfmeTemplate);
+
+    // 3g. Resolve conditions - hide elements based on fieldNonEmpty/expression conditions
+    this.resolveConditions(pdfmeTemplate, inputs);
+
+    // 3h. Resolve calculatedField elements - evaluate expressions and convert to text
+    const resolvedCalc = resolveCalculatedFields(pdfmeTemplate, inputs);
+    pdfmeTemplate = resolvedCalc.template as typeof pdfmeTemplate;
+    inputs = resolvedCalc.inputs;
+
+    // 3i. Extract watermark config (if any watermark element exists in template)
     const watermarkConfig = extractWatermarkFromTemplate(pdfmeTemplate.schemas, inputs);
 
-    // 3e. Remove watermark elements from schemas (pdfme doesn't know about them)
-    if (watermarkConfig) {
-      pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
-        if (!Array.isArray(page)) return page;
-        return page.filter((field: unknown) => {
-          if (field && typeof field === 'object' && 'type' in field) {
-            return (field as { type: string }).type !== 'watermark';
-          }
-          return true;
-        });
+    // 3i. Always remove watermark elements from schemas (pdfme doesn't know about them)
+    // This must happen regardless of whether watermarkConfig is set (e.g. variable='' hides watermark)
+    pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
+      if (!Array.isArray(page)) return page;
+      return page.filter((field: unknown) => {
+        if (field && typeof field === 'object' && 'type' in field) {
+          return (field as { type: string }).type !== 'watermark';
+        }
+        return true;
       });
-    }
+    });
 
     // 4. Generate PDF using @pdfme/generator
     let pdfBuffer: Uint8Array;
@@ -162,7 +186,17 @@ export class RenderService {
       return { error: errorMessage, document: failedDoc };
     }
 
-    // 4b. Apply watermark overlay if configured
+    // 4b. Apply rich text rendering via pdf-lib (post-processing)
+    if (richTextInfo.length > 0) {
+      try {
+        pdfBuffer = await applyRichText(pdfBuffer, richTextInfo);
+      } catch (err: unknown) {
+        console.error('Rich text rendering failed:', err);
+        // Continue without rich text rather than failing the entire render
+      }
+    }
+
+    // 4c. Apply watermark overlay if configured
     if (watermarkConfig) {
       try {
         pdfBuffer = await applyWatermark(pdfBuffer, watermarkConfig);
@@ -635,5 +669,175 @@ export class RenderService {
         inputRecord[fieldName] = signatureDataUri;
       }
     }
+  }
+
+  /**
+   * Resolve page scopes: filter elements based on their pageScope property.
+   * - 'all' (default): element appears on every page
+   * - 'first': element only appears on the first page
+   * - 'last': element only appears on the last page
+   * - 'notFirst': element appears on all pages except the first
+   *
+   * Mutates the template schemas in place.
+   */
+  private resolvePageScopes(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+  ): void {
+    if (!Array.isArray(pdfmeTemplate.schemas) || pdfmeTemplate.schemas.length === 0) return;
+
+    const totalPages = pdfmeTemplate.schemas.length;
+
+    pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown, pageIndex: number) => {
+      if (!Array.isArray(page)) return page;
+
+      const isFirst = pageIndex === 0;
+      const isLast = pageIndex === totalPages - 1;
+
+      return page.filter((field: unknown) => {
+        if (!field || typeof field !== 'object') return true;
+        const f = field as Record<string, unknown>;
+        const scope = (f.pageScope as string) || 'all';
+
+        switch (scope) {
+          case 'first':
+            return isFirst;
+          case 'last':
+            return isLast;
+          case 'notFirst':
+            return !isFirst;
+          case 'all':
+          default:
+            return true;
+        }
+      }).map((field: unknown) => {
+        // Remove pageScope from the element since pdfme doesn't understand it
+        if (!field || typeof field !== 'object') return field;
+        const f = field as Record<string, unknown>;
+        if ('pageScope' in f) {
+          const { pageScope: _removed, ...rest } = f;
+          return rest;
+        }
+        return field;
+      });
+    });
+  }
+
+  /**
+   * Resolve conditions: hide elements based on their condition property.
+   * Condition types:
+   * - 'fieldNonEmpty': element visible only if the specified field has a non-empty value
+   * - 'expression': element visible only if the expression evaluates to truthy
+   *
+   * Mutates the template schemas and removes hidden elements' inputs.
+   */
+  private resolveConditions(
+    pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+    inputs: Record<string, string>[],
+  ): void {
+    if (!Array.isArray(pdfmeTemplate.schemas)) return;
+
+    // Build a context from the first input record for condition evaluation
+    const context = inputs.length > 0 ? inputs[0] : {};
+
+    pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page: unknown) => {
+      if (!Array.isArray(page)) return page;
+
+      return page.filter((field: unknown) => {
+        if (!field || typeof field !== 'object') return true;
+        const f = field as Record<string, unknown>;
+        const condition = f.condition as Record<string, unknown> | undefined;
+
+        if (!condition) return true; // No condition = always visible
+
+        const condType = condition.type as string;
+
+        if (condType === 'fieldNonEmpty') {
+          const fieldKey = condition.field as string;
+          if (!fieldKey) return true;
+          const value = context[fieldKey];
+          // Field is non-empty if it exists, is not empty string, not null, not undefined
+          return value !== undefined && value !== null && value !== '';
+        }
+
+        if (condType === 'expression') {
+          const expr = condition.expression as string;
+          if (!expr) return true;
+          try {
+            return this.evaluateConditionExpression(expr, context);
+          } catch {
+            // If expression evaluation fails, keep the element visible
+            return true;
+          }
+        }
+
+        return true; // Unknown condition type = always visible
+      }).map((field: unknown) => {
+        // Remove condition from the element since pdfme doesn't understand it
+        if (!field || typeof field !== 'object') return field;
+        const f = field as Record<string, unknown>;
+        if ('condition' in f) {
+          const { condition: _removed, ...rest } = f;
+          return rest;
+        }
+        return field;
+      });
+    });
+  }
+
+  /**
+   * Evaluate a simple condition expression.
+   * Supports: field == value, field != value, field > value, field < value,
+   * field >= value, field <= value
+   * Also supports simple truthy checks: just a field name returns true if non-empty
+   */
+  private evaluateConditionExpression(
+    expr: string,
+    context: Record<string, string>,
+  ): boolean {
+    const trimmed = expr.trim();
+
+    // Try comparison operators
+    const comparisonMatch = trimmed.match(
+      /^([a-zA-Z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/,
+    );
+    if (comparisonMatch) {
+      const [, fieldKey, operator, rawValue] = comparisonMatch;
+      const fieldValue = context[fieldKey] ?? '';
+
+      // Remove quotes from value if present
+      let compareValue = rawValue.trim();
+      if (
+        (compareValue.startsWith("'") && compareValue.endsWith("'")) ||
+        (compareValue.startsWith('"') && compareValue.endsWith('"'))
+      ) {
+        compareValue = compareValue.slice(1, -1);
+      }
+
+      // Try numeric comparison
+      const numField = Number(fieldValue);
+      const numCompare = Number(compareValue);
+      const isNumeric = !isNaN(numField) && !isNaN(numCompare) && fieldValue !== '';
+
+      switch (operator) {
+        case '==':
+          return isNumeric ? numField === numCompare : fieldValue === compareValue;
+        case '!=':
+          return isNumeric ? numField !== numCompare : fieldValue !== compareValue;
+        case '>':
+          return isNumeric ? numField > numCompare : fieldValue > compareValue;
+        case '<':
+          return isNumeric ? numField < numCompare : fieldValue < compareValue;
+        case '>=':
+          return isNumeric ? numField >= numCompare : fieldValue >= compareValue;
+        case '<=':
+          return isNumeric ? numField <= numCompare : fieldValue <= compareValue;
+        default:
+          return true;
+      }
+    }
+
+    // Simple truthy check: field name only
+    const value = context[trimmed] ?? '';
+    return value !== '' && value !== '0' && value !== 'false';
   }
 }
