@@ -1262,3 +1262,44 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - tests/test-db-retry-166.js, test-bull-queue-167.js, test-error-messages-168.js
 
 ### Current Status: ~86/388 features passing (22.2%)
+
+---
+
+## Session - 2026-03-18 - Features #172, #173, #174 (Bulk Render, Webhook, Save Draft)
+
+### Completed Features:
+- **Feature #172**: Bulk render onFailure abort mode ✅
+  - Verified abort mode stops batch processing on first failure
+  - Status set to 'aborted', failedIds recorded, remaining items skipped
+  - Continue mode processes all items regardless of failures
+  - Abort mode with no failures completes normally
+  - 24/24 tests passing
+
+- **Feature #173**: Webhook callback on batch completion ✅
+  - Local HTTP server receives POST webhook on batch completion
+  - Payload includes batchId, status, completedJobs, failedJobs, totalJobs
+  - Content-Type: application/json
+  - Works with completedWithErrors status (partial failures)
+  - No webhook sent when notifyUrl not provided
+  - 22/22 tests passing
+
+- **Feature #174**: Designer saves template to API on save draft ✅
+  - PUT /api/pdfme/templates/:id/draft saves schema changes
+  - handleSave in ErpDesigner calls API with auth token and full schema
+  - Multiple saves update correctly, name and schema persisted
+  - Lock conflict returns 409 with lockedBy info
+  - Nonexistent template returns 404
+  - Save Draft button has data-testid="btn-save" and triggers handleSave
+  - isDirty reset on successful save
+  - 28/28 tests passing
+
+### Key Files:
+- tests/test-bulk-abort-172.js - 24 tests for abort mode
+- tests/test-webhook-173.js - 22 tests for webhook callback
+- tests/test-save-draft-174.js - 28 tests for save draft
+
+### Note: Browser automation unavailable (missing libatk-1.0.so.0 system library)
+- Feature #174 verified via API tests + code review of ErpDesigner component
+- All prior code for handleSave and auto-save was already implemented
+
+### Current Status: 96/388 features passing (24.7%)
