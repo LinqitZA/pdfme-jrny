@@ -593,3 +593,38 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 - Sub-rows evaluated per line item and interleaved between primary rows
 
 ### Current Status: Features #118, #119, #120 marked passing
+
+---
+
+## Session 8 - 2026-03-18 - Features #115, #116, #117 (Expression Engine + Line Items Table)
+
+### Completed Features:
+- **Feature #115**: Expression engine null and type coercion ✅
+  - Implemented NullSentinel class: valueOf()=0 for arithmetic, detected as '' in string functions
+  - null + 5 = 5 (null coerced to 0 via valueOf)
+  - '' + 'text' = 'text' (empty string concatenation)
+  - Undefined field = 0 for arithmetic (missing vars filled with NullSentinel)
+  - Undefined field = '' for string ops (CONCAT, LEFT, etc. detect NullSentinel)
+  - Real 0 values preserved in string context: CONCAT('Count: ', 0) = 'Count: 0'
+
+- **Feature #116**: Line items table renders with columns ✅
+  - Fixed buildPdfmeTemplate to convert legacy keyed schema format to flat pdfme format
+  - Legacy: [{fieldName: {type, position, ...}}] → Flat: [{name, type, position, ...}]
+  - Template with lineItemsTable + 4 columns (description, qty, unitPrice, total)
+  - 5 line items rendered to PDF successfully (status: done, 8.5KB)
+  - resolveLineItemsTables pipeline converts lineItemsTable → pdfme table
+
+- **Feature #117**: Line items table page break with header repeat ✅
+  - Implemented maxRowsPerPage in resolveLineItemsTables
+  - Splits body rows into chunks, creates extra page schemas for each chunk
+  - Supports simple number or {first, middle, last} config
+  - 25 items with maxRowsPerPage=10 → 3 pages (10+10+5), confirmed via pdf-lib
+  - Footer rows appended only to last page chunk
+  - Each page gets repeated header via pdfme repeatHead: true
+
+### Key Changes:
+- packages/erp-schemas/src/expression-engine/index.ts: NullSentinel, variable extraction, string function toStr()
+- packages/erp-schemas/src/line-items-table/index.ts: buildTableSchema helper, maxRowsPerPage page splitting
+- nest-module/src/render.service.ts: buildPdfmeTemplate legacy→flat schema conversion
+
+### Current Status: ~43/388 features passing
