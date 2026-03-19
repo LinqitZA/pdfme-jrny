@@ -3,6 +3,23 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { fetchFontWithCache, getFontCacheStats, clearFontCache, pruneExpiredFonts, isCacheApiAvailable } from './fontCache';
 import PrintDialog from './PrintDialog';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 /**
  * ErpDesigner - Three-panel WYSIWYG template designer for ERP documents.
@@ -111,7 +128,7 @@ interface DesignElement {
   objectFit?: 'contain' | 'cover' | 'fill';
   opacity?: number;
   // Table properties
-  columns?: Array<{ key: string; header: string; width: number }>;
+  columns?: Array<{ key: string; header: string; width: number; align?: 'left' | 'center' | 'right'; format?: string }>;
   showHeader?: boolean;
   borderStyle?: 'solid' | 'dashed' | 'none';
   // Data binding
@@ -437,6 +454,149 @@ const ZOOM_LEVELS = [25, 50, 75, 100, 125, 150, 200];
 
 const FONT_FAMILIES = ['Helvetica', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
 
+/** Column type for table elements */
+interface TableColumn {
+  key: string;
+  header: string;
+  width: number;
+  align?: 'left' | 'center' | 'right';
+  format?: string;
+}
+
+/** Sortable column item for drag-and-drop reordering in the properties panel */
+function SortableColumnItem({
+  column,
+  colIdx,
+  totalColumns,
+  isExpanded,
+  onToggleExpand,
+  onChange,
+  onRemove,
+  propInputStyle,
+}: {
+  column: TableColumn;
+  colIdx: number;
+  totalColumns: number;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  onChange: (updates: Partial<TableColumn>) => void;
+  onRemove: () => void;
+  propInputStyle: React.CSSProperties;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: `col-${colIdx}` });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    borderBottom: colIdx < totalColumns - 1 ? '1px solid #f1f5f9' : 'none',
+    backgroundColor: isDragging ? '#f0f9ff' : 'transparent',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} data-testid={`prop-column-${colIdx}`}>
+      {/* Column header row with drag handle */}
+      <div style={{ display: 'flex', gap: '4px', padding: '4px 6px', alignItems: 'center' }}>
+        {/* Drag handle */}
+        <span
+          {...attributes}
+          {...listeners}
+          data-testid={`prop-col-drag-${colIdx}`}
+          aria-label={`Drag to reorder column ${colIdx + 1}`}
+          style={{ cursor: 'grab', fontSize: '12px', color: '#94a3b8', userSelect: 'none', flexShrink: 0 }}
+        >
+          ⠿
+        </span>
+        {/* Key */}
+        <input
+          data-testid={`prop-col-key-${colIdx}`}
+          type="text"
+          aria-label={`Column ${colIdx + 1} key`}
+          style={{ ...propInputStyle, flex: 1 }}
+          value={column.key}
+          placeholder="Key"
+          onChange={(e) => onChange({ key: e.target.value })}
+        />
+        {/* Header */}
+        <input
+          data-testid={`prop-col-header-${colIdx}`}
+          type="text"
+          aria-label={`Column ${colIdx + 1} header`}
+          style={{ ...propInputStyle, flex: 1 }}
+          value={column.header}
+          placeholder="Header"
+          onChange={(e) => onChange({ header: e.target.value })}
+        />
+        {/* Width */}
+        <input
+          data-testid={`prop-col-width-${colIdx}`}
+          type="number"
+          aria-label={`Column ${colIdx + 1} width`}
+          style={{ ...propInputStyle, width: '50px' }}
+          value={column.width}
+          onChange={(e) => onChange({ width: Number(e.target.value) || 60 })}
+        />
+        {/* Expand/collapse details */}
+        <button
+          data-testid={`prop-col-expand-${colIdx}`}
+          aria-label={isExpanded ? `Collapse column ${colIdx + 1} details` : `Expand column ${colIdx + 1} details`}
+          onClick={onToggleExpand}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: '#64748b', padding: '2px', flexShrink: 0 }}
+        >
+          {isExpanded ? '▲' : '▼'}
+        </button>
+        {/* Remove button */}
+        <button
+          data-testid={`prop-col-remove-${colIdx}`}
+          aria-label={`Remove column ${colIdx + 1}`}
+          onClick={onRemove}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '12px', color: '#ef4444', padding: '2px', flexShrink: 0 }}
+        >
+          ×
+        </button>
+      </div>
+      {/* Expanded details: alignment and format */}
+      {isExpanded && (
+        <div style={{ display: 'flex', gap: '4px', padding: '2px 6px 6px 24px', alignItems: 'center' }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: '10px', color: '#94a3b8', display: 'block' }}>Align</label>
+            <select
+              data-testid={`prop-col-align-${colIdx}`}
+              aria-label={`Column ${colIdx + 1} alignment`}
+              style={{ ...propInputStyle, width: '100%' }}
+              value={column.align || 'left'}
+              onChange={(e) => onChange({ align: e.target.value as 'left' | 'center' | 'right' })}
+            >
+              <option value="left">Left</option>
+              <option value="center">Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: '10px', color: '#94a3b8', display: 'block' }}>Format</label>
+            <input
+              data-testid={`prop-col-format-${colIdx}`}
+              type="text"
+              aria-label={`Column ${colIdx + 1} format`}
+              style={{ ...propInputStyle, width: '100%' }}
+              value={column.format || ''}
+              placeholder="#,##0.00"
+              onChange={(e) => onChange({ format: e.target.value })}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ErpDesigner({
   templateId,
   templateName = 'Untitled Template',
@@ -462,6 +622,7 @@ export default function ErpDesigner({
   const [name, setName] = useState(templateName);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [expandedColumnIdx, setExpandedColumnIdx] = useState<number | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [showBindingPicker, setShowBindingPicker] = useState(false);
   const [bindingSearch, setBindingSearch] = useState('');
@@ -2761,7 +2922,7 @@ export default function ErpDesigner({
           {el.showHeader && el.columns && (
             <div style={{ display: 'flex', borderBottom: `1px solid ${el.borderStyle === 'none' ? 'transparent' : '#cbd5e1'}`, fontSize: `${10 * scale}px`, fontWeight: 600, color: '#475569' }}>
               {el.columns.map((col) => (
-                <div key={col.key} style={{ flex: col.width, padding: `${2 * scale}px ${4 * scale}px`, borderRight: `1px solid ${el.borderStyle === 'none' ? 'transparent' : '#e2e8f0'}` }}>
+                <div key={col.key} style={{ flex: col.width, padding: `${2 * scale}px ${4 * scale}px`, borderRight: `1px solid ${el.borderStyle === 'none' ? 'transparent' : '#e2e8f0'}`, textAlign: (col.align || 'left') as 'left' | 'center' | 'right' }}>
                   {col.header}
                 </div>
               ))}
@@ -3307,8 +3468,11 @@ export default function ErpDesigner({
           </div>
         )}
 
-        {/* Table column config - for table elements */}
-        {category === 'table' && (
+        {/* Table column config - for table elements with drag-and-drop reorder */}
+        {category === 'table' && (() => {
+          const columns: TableColumn[] = selectedElement.columns || [];
+          const columnIds = columns.map((_: TableColumn, i: number) => `col-${i}`);
+          return (
           <div data-testid="properties-table" style={{ marginBottom: '16px' }}>
             <label style={labelStyle}>Table Configuration</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -3337,67 +3501,55 @@ export default function ErpDesigner({
                 </select>
               </div>
               <div>
-                <label style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Columns</label>
-                <div style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  {(selectedElement.columns || []).map((col, colIdx) => (
-                    <div
-                      key={colIdx}
-                      data-testid={`prop-column-${colIdx}`}
-                      style={{
-                        display: 'flex',
-                        gap: '4px',
-                        padding: '4px 6px',
-                        borderBottom: colIdx < (selectedElement.columns?.length || 0) - 1 ? '1px solid #f1f5f9' : 'none',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <input
-                        data-testid={`prop-col-key-${colIdx}`}
-                        type="text"
-                        aria-label={`Column ${colIdx + 1} key`}
-                        style={{ ...propInputStyle, flex: 1 }}
-                        value={col.key}
-                        placeholder="Key"
-                        onChange={(e) => {
-                          const newCols = [...(selectedElement.columns || [])];
-                          newCols[colIdx] = { ...newCols[colIdx], key: e.target.value };
-                          updateElement(selectedElement.id, { columns: newCols });
-                        }}
-                      />
-                      <input
-                        data-testid={`prop-col-header-${colIdx}`}
-                        type="text"
-                        aria-label={`Column ${colIdx + 1} header`}
-                        style={{ ...propInputStyle, flex: 1 }}
-                        value={col.header}
-                        placeholder="Header"
-                        onChange={(e) => {
-                          const newCols = [...(selectedElement.columns || [])];
-                          newCols[colIdx] = { ...newCols[colIdx], header: e.target.value };
-                          updateElement(selectedElement.id, { columns: newCols });
-                        }}
-                      />
-                      <input
-                        data-testid={`prop-col-width-${colIdx}`}
-                        type="number"
-                        aria-label={`Column ${colIdx + 1} width`}
-                        style={{ ...propInputStyle, width: '50px' }}
-                        value={col.width}
-                        onChange={(e) => {
-                          const newCols = [...(selectedElement.columns || [])];
-                          newCols[colIdx] = { ...newCols[colIdx], width: Number(e.target.value) || 60 };
-                          updateElement(selectedElement.id, { columns: newCols });
-                        }}
-                      />
-                    </div>
-                  ))}
+                <label style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Columns <span style={{ fontSize: '10px', color: '#94a3b8' }}>(drag ⠿ to reorder)</span></label>
+                <div data-testid="column-list-container" style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+                  <DndContext
+                    sensors={useSensors(
+                      useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+                      useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+                    )}
+                    collisionDetection={closestCenter}
+                    onDragEnd={(event: DragEndEvent) => {
+                      const { active, over } = event;
+                      if (over && active.id !== over.id) {
+                        const oldIndex = columnIds.indexOf(String(active.id));
+                        const newIndex = columnIds.indexOf(String(over.id));
+                        const reordered = arrayMove([...columns], oldIndex, newIndex);
+                        updateElement(selectedElement.id, { columns: reordered });
+                      }
+                    }}
+                  >
+                    <SortableContext items={columnIds} strategy={verticalListSortingStrategy}>
+                      {columns.map((col: TableColumn, colIdx: number) => (
+                        <SortableColumnItem
+                          key={`col-${colIdx}`}
+                          column={col}
+                          colIdx={colIdx}
+                          totalColumns={columns.length}
+                          isExpanded={expandedColumnIdx === colIdx}
+                          onToggleExpand={() => setExpandedColumnIdx(expandedColumnIdx === colIdx ? null : colIdx)}
+                          onChange={(updates) => {
+                            const newCols = [...columns];
+                            newCols[colIdx] = { ...newCols[colIdx], ...updates };
+                            updateElement(selectedElement.id, { columns: newCols });
+                          }}
+                          onRemove={() => {
+                            const newCols = columns.filter((_: TableColumn, i: number) => i !== colIdx);
+                            updateElement(selectedElement.id, { columns: newCols });
+                            if (expandedColumnIdx === colIdx) setExpandedColumnIdx(null);
+                          }}
+                          propInputStyle={propInputStyle}
+                        />
+                      ))}
+                    </SortableContext>
+                  </DndContext>
                 </div>
                 <button
                   data-testid="prop-add-column"
                   aria-label="Add table column"
                   style={{ ...toolbarBtnStyle, width: '100%', marginTop: '4px', fontSize: '11px' }}
                   onClick={() => {
-                    const newCols = [...(selectedElement.columns || []), { key: `col${(selectedElement.columns?.length || 0) + 1}`, header: `Column ${(selectedElement.columns?.length || 0) + 1}`, width: 80 }];
+                    const newCols: TableColumn[] = [...columns, { key: `col${columns.length + 1}`, header: `Column ${columns.length + 1}`, width: 80, align: 'left' }];
                     updateElement(selectedElement.id, { columns: newCols });
                   }}
                 >
@@ -3406,7 +3558,8 @@ export default function ErpDesigner({
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Data Binding section - for text, calculated, barcode, and QR elements */}
         {(category === 'text' || selectedElement.type === 'qr-barcode' || selectedElement.type === 'calculated') && (
