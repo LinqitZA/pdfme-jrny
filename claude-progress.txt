@@ -1,3 +1,43 @@
+## Session - 2026-03-19 - Features #429, #430, #431 (Data Binding Field Schema)
+
+### Completed Features:
+- **Feature #429**: Fetch field schemas from API in designer sandbox ✅
+  - Added useEffect to fetch GET /api/pdfme/field-schema/:templateType when template loads
+  - Converts API FieldGroup[] response to DATA_FIELDS format (group/fields/key/label/example)
+  - Falls back to hardcoded DATA_FIELDS when no templateType or API fails
+  - Caches fetched schemas per templateType to avoid re-fetching
+  - Replaced all DATA_FIELDS references with dynamic dataFields variable
+  - External fieldSchema prop remains additive (merged on top of API fields)
+  - 136/136 tests passing
+
+- **Feature #430**: Distinguish scalar vs array fields in the field schema ✅
+  - Added scalarFields useMemo that filters out []. fields for text binding picker
+  - Added arrayFieldGroups useMemo grouping array fields by parent key (e.g., lineItems)
+  - Text binding picker and Fields tab now show only scalar fields
+  - Added dataSource property to DesignElement for table elements
+  - Default line-items table includes dataSource: 'lineItems'
+  - 100/100 tests passing
+
+- **Feature #431**: Add field picker dropdown to table column key input ✅
+  - Replaced free-text column key input with HTML5 datalist combobox
+  - Shows available array field keys as suggestions (e.g., description, quantity)
+  - Auto-populates column header from field label when selecting from picker
+  - Auto-sets column alignment based on field type (currency/number=right, string/date=left)
+  - Falls back to free-text input when no field schema loaded
+  - Custom keys not in schema still accepted
+  - 47/47 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - All 3 features (field schema fetch, scalar/array split, column key picker)
+- tests/test-feature-429-field-schema-fetch.js - 136 tests
+- tests/test-feature-430-scalar-array-fields.js - 100 tests
+- tests/test-feature-431-column-key-picker.js - 47 tests
+
+### Test Results: 283/283 tests passing across 3 features
+### Current Status: ~428/431 features passing
+
+---
+
 ## Session - 2026-03-19 - Feature #427 (Fix Table Element React Hooks Crash)
 
 ### Completed Feature:
