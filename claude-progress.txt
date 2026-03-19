@@ -6153,3 +6153,31 @@ handler, and no corner-aware resize math anywhere in the file.
 - tests/test-feature-428-resize-handles.js - 68 tests
 
 ### Test Results: 68/68 tests passing
+
+---
+
+## Session - 2026-03-19 - Features #432, #433 (Table Data Source Binding and Sample Rows)
+
+### Completed Features:
+- **Feature #432**: Add table data source binding to link table to an array field group
+  - Added Data Source dropdown in table properties panel (above column config)
+  - Dropdown shows available array field groups from field schema (e.g., lineItems, transactions)
+  - Auto-populates columns from field schema when data source selected for first time
+  - Updated resolveLineItemsTables to use dataSource key for input data lookup
+  - Added dataSource to template load/save pipeline
+  - 32/32 tests passing
+
+- **Feature #433**: Add sample row data for table canvas preview and preview mode
+  - Created generateSampleRows() function with type-based defaults
+  - Tables with bound dataSource show 2 sample rows plus more rows indicator
+  - Falls back to element type label placeholder when no data source bound
+  - Updated renderCanvasElement useCallback deps for arrayFieldGroups and fieldExamples
+  - 39/39 tests passing
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Data source dropdown, sample rows, generateSampleRows()
+- packages/erp-schemas/src/line-items-table/index.ts - dataSource key support in resolveLineItemsTables
+- tests/test-feature-432-table-datasource.js - 32 tests
+- tests/test-feature-433-sample-rows.js - 39 tests
+
+### Test Results: 71/71 tests passing across 2 features
