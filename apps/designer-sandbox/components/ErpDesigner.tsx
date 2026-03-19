@@ -303,6 +303,54 @@ function resolveBindingToExample(text: string, binding?: string, examples?: Reco
   return text;
 }
 
+/**
+ * Generate sample rows for table canvas preview (Feature #433).
+ * Uses exampleValue from field schema array fields when available,
+ * otherwise generates sensible defaults by field type.
+ */
+const SAMPLE_ROW_TEMPLATES = [
+  { string: 'Widget A', number: '10', currency: 'R 1,000.00', date: '2026-03-18', percentage: '15%' },
+  { string: 'Service B', number: '5', currency: 'R 2,500.00', date: '2026-03-15', percentage: '10%' },
+  { string: 'Component C', number: '25', currency: 'R 500.00', date: '2026-03-10', percentage: '8%' },
+];
+
+function generateSampleRows(
+  columns: Array<{ key: string; header: string; width: number; align?: string; format?: string }>,
+  arrayFields?: Array<{ columnKey: string; label: string; example: string; fieldType?: string }>,
+  rowCount: number = 2,
+): string[][] {
+  const rows: string[][] = [];
+  for (let r = 0; r < Math.min(rowCount, 3); r++) {
+    const row: string[] = [];
+    const defaults = SAMPLE_ROW_TEMPLATES[r] || SAMPLE_ROW_TEMPLATES[0];
+    for (const col of columns) {
+      // Try to find matching field with example value
+      const field = arrayFields?.find(f => f.columnKey === col.key);
+      if (field && field.example) {
+        row.push(field.example);
+      } else if (field?.fieldType) {
+        // Generate by field type
+        const ft = field.fieldType.toLowerCase();
+        if (ft === 'currency' || ft === 'money') row.push(defaults.currency);
+        else if (ft === 'number' || ft === 'integer' || ft === 'qty' || ft === 'quantity') row.push(defaults.number);
+        else if (ft === 'date' || ft === 'datetime') row.push(defaults.date);
+        else if (ft === 'percentage' || ft === 'percent') row.push(defaults.percentage);
+        else row.push(defaults.string);
+      } else {
+        // Guess from column key name
+        const k = col.key.toLowerCase();
+        if (k.includes('amount') || k.includes('price') || k.includes('total') || k.includes('cost') || k.includes('balance') || k.includes('debit') || k.includes('credit')) row.push(defaults.currency);
+        else if (k.includes('qty') || k.includes('quantity') || k.includes('count')) row.push(defaults.number);
+        else if (k.includes('date') || k.includes('created') || k.includes('updated')) row.push(defaults.date);
+        else if (k.includes('percent') || k.includes('rate') || k.includes('discount')) row.push(defaults.percentage);
+        else row.push(defaults.string);
+      }
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
 let pageIdCounter = 0;
 function createPage(label: string): TemplatePage {
   pageIdCounter += 1;
@@ -3370,9 +3418,38 @@ export default function ErpDesigner({
               ))}
             </div>
           )}
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: `${10 * scale}px` }}>
-            {getElementTypeLabel(el.type)}
-          </div>
+          {(() => {
+            // Feature #433: Show sample data rows when data source is bound
+            const dsFields = el.dataSource && arrayFieldGroups[el.dataSource]
+              ? arrayFieldGroups[el.dataSource].fields
+              : undefined;
+            const hasSampleData = el.columns && el.columns.length > 0 && (dsFields || el.dataSource);
+            if (hasSampleData) {
+              const sampleRows = generateSampleRows(el.columns!, dsFields);
+              const borderColor = el.borderStyle === 'none' ? 'transparent' : '#e2e8f0';
+              return (
+                <div data-testid={`table-sample-rows-${el.id}`} style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  {sampleRows.map((row, rowIdx) => (
+                    <div key={rowIdx} data-testid={`table-sample-row-${rowIdx}`} style={{ display: 'flex', borderBottom: `1px solid ${borderColor}`, fontSize: `${9 * scale}px`, color: '#64748b' }}>
+                      {row.map((cell, cellIdx) => (
+                        <div key={cellIdx} style={{ flex: el.columns![cellIdx]?.width || 80, padding: `${2 * scale}px ${4 * scale}px`, borderRight: `1px solid ${borderColor}`, textAlign: (el.columns![cellIdx]?.align || 'left') as 'left' | 'center' | 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {cell}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                  <div style={{ textAlign: 'center', fontSize: `${8 * scale}px`, color: '#94a3b8', padding: `${2 * scale}px 0`, fontStyle: 'italic' }}>
+                    … and more rows
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: `${10 * scale}px` }}>
+                {getElementTypeLabel(el.type)}
+              </div>
+            );
+          })()}
         </div>
       );
     } else if (category === 'shape') {
@@ -3451,7 +3528,7 @@ export default function ErpDesigner({
         )}
       </div>
     );
-  }, [zoom, selectedElementId, selectedElementIds, previewMode, isDraggingElement, handleElementClick, handleElementMouseDown, handleResizeMouseDown]);
+  }, [zoom, selectedElementId, selectedElementIds, previewMode, isDraggingElement, handleElementClick, handleElementMouseDown, handleResizeMouseDown, arrayFieldGroups, fieldExamples]);
 
   // ─── Properties Panel Rendering ───
 
