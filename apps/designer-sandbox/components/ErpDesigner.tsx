@@ -283,17 +283,18 @@ const EXPRESSION_EXAMPLES = [
  * Handles both raw binding keys (e.g., "customer.name") and
  * mustache-style templates (e.g., "{{customer.name}}").
  */
-function resolveBindingToExample(text: string, binding?: string): string {
+function resolveBindingToExample(text: string, binding?: string, examples?: Record<string, string>): string {
+  const exMap = examples || FIELD_EXAMPLES;
   // If there's a specific binding field, look it up
-  if (binding && FIELD_EXAMPLES[binding]) {
-    return FIELD_EXAMPLES[binding];
+  if (binding && exMap[binding]) {
+    return exMap[binding];
   }
 
   // Replace all {{key}} patterns in text with example values
   if (text && text.includes('{{')) {
     return text.replace(/\{\{([^}]+)\}\}/g, (_match, key) => {
       const trimmedKey = key.trim();
-      return FIELD_EXAMPLES[trimmedKey] || `{{${trimmedKey}}}`;
+      return exMap[trimmedKey] || `{{${trimmedKey}}}`;
     });
   }
 
@@ -904,6 +905,11 @@ export default function ErpDesigner({
   // Template type (invoice/statement/etc.) - used for loading seed sample data
   const [templateType, setTemplateType] = useState<string | null>(null);
 
+  // ─── API Field Schema state (Feature #429) ───
+  // Fetched from GET /api/pdfme/field-schema/:templateType when a template is loaded
+  const [apiFieldSchema, setApiFieldSchema] = useState<typeof DATA_FIELDS | null>(null);
+  const apiFieldSchemaCache = useRef<Record<string, typeof DATA_FIELDS>>({});
+
   // Lock state - multi-tab editing protection
   const [isReadOnly, setIsReadOnly] = useState(false);
   const [lockHolder, setLockHolder] = useState<string | null>(null);
@@ -998,9 +1004,26 @@ export default function ErpDesigner({
     return styles;
   }, [activeBrandConfig]);
 
-  // Merge external fieldSchema with built-in DATA_FIELDS for the binding picker
+  // ─── Resolved data fields: API-fetched fields take priority, fall back to hardcoded DATA_FIELDS (Feature #429) ───
+  const dataFields = useMemo(() => {
+    return apiFieldSchema && apiFieldSchema.length > 0 ? apiFieldSchema : DATA_FIELDS;
+  }, [apiFieldSchema]);
+
+  // Dynamic field examples map (rebuilt when dataFields change)
+  const fieldExamples = useMemo(() => {
+    const examples: Record<string, string> = {};
+    dataFields.forEach((group) => {
+      group.fields.forEach((field) => {
+        examples[field.key] = field.example;
+      });
+    });
+    return examples;
+  }, [dataFields]);
+
+  // Merge external fieldSchema prop with resolved data fields for the binding picker
+  // API fields are the base, prop fields are additive
   const mergedDataFields = useMemo(() => {
-    if (!activeFieldSchema || activeFieldSchema.length === 0) return DATA_FIELDS;
+    if (!activeFieldSchema || activeFieldSchema.length === 0) return dataFields;
     // Group external fields by their group property
     const externalGroups: Record<string, Array<{ key: string; label: string; example: string }>> = {};
     for (const field of activeFieldSchema) {
@@ -1016,8 +1039,8 @@ export default function ErpDesigner({
       group,
       fields,
     }));
-    return [...DATA_FIELDS, ...externalGroupEntries];
-  }, [activeFieldSchema]);
+    return [...dataFields, ...externalGroupEntries];
+  }, [activeFieldSchema, dataFields]);
 
   // ─── Focus trap effect for shortcuts dialog ───
   useEffect(() => {
@@ -1281,6 +1304,61 @@ export default function ErpDesigner({
       }
     };
   }, [activeTemplateId, authToken, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Fetch field schemas from API when templateType changes (Feature #429) ───
+  useEffect(() => {
+    if (!templateType) {
+      setApiFieldSchema(null);
+      return;
+    }
+
+    // Check cache first
+    if (apiFieldSchemaCache.current[templateType]) {
+      setApiFieldSchema(apiFieldSchemaCache.current[templateType]);
+      return;
+    }
+
+    let cancelled = false;
+    async function fetchFieldSchema() {
+      try {
+        const headers: Record<string, string> = {};
+        if (authToken) {
+          headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+        }
+        const response = await fetch(`${apiBase}/field-schema/${templateType}`, { headers });
+        if (!response.ok) {
+          // If endpoint returns 404 or error, fall back to hardcoded defaults
+          console.warn(`[ErpDesigner] Field schema fetch failed for type "${templateType}" (${response.status}), using defaults`);
+          return;
+        }
+        const data = await response.json();
+        if (cancelled) return;
+
+        // Convert FieldGroup[] response to DATA_FIELDS format:
+        // { group: string, fields: { key, label, example }[] }[]
+        const fieldGroups: typeof DATA_FIELDS = (data.fieldGroups || []).map((fg: { key: string; label: string; fields?: Array<{ key: string; label: string; exampleValue?: unknown }> }) => ({
+          group: fg.label || fg.key,
+          fields: (fg.fields || []).map((f: { key: string; label: string; exampleValue?: unknown }) => ({
+            key: f.key,
+            label: f.label,
+            example: f.exampleValue != null ? String(f.exampleValue) : '',
+          })),
+        }));
+
+        if (fieldGroups.length > 0) {
+          apiFieldSchemaCache.current[templateType!] = fieldGroups;
+          setApiFieldSchema(fieldGroups);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[ErpDesigner] Failed to fetch field schema:', err);
+        }
+      }
+    }
+
+    fetchFieldSchema();
+    return () => { cancelled = true; };
+  }, [templateType, authToken, apiBase]);
 
   // Multi-page state
   const [pages, setPages] = useState<TemplatePage[]>(() => [
@@ -3046,27 +3124,27 @@ export default function ErpDesigner({
 
   // Filtered data fields for binding search
   const filteredFields = useMemo(() => {
-    if (!bindingSearch) return DATA_FIELDS;
+    if (!bindingSearch) return dataFields;
     const q = bindingSearch.toLowerCase();
-    return DATA_FIELDS.map((group) => ({
+    return dataFields.map((group) => ({
       ...group,
       fields: group.fields.filter(
         (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
       ),
     })).filter((g) => g.fields.length > 0);
-  }, [bindingSearch]);
+  }, [bindingSearch, dataFields]);
 
   // Filtered data fields for Fields tab search
   const filteredFieldTabFields = useMemo(() => {
-    if (!fieldTabSearch) return DATA_FIELDS;
+    if (!fieldTabSearch) return dataFields;
     const q = fieldTabSearch.toLowerCase();
-    return DATA_FIELDS.map((group) => ({
+    return dataFields.map((group) => ({
       ...group,
       fields: group.fields.filter(
         (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
       ),
     })).filter((g) => g.fields.length > 0);
-  }, [fieldTabSearch]);
+  }, [fieldTabSearch, dataFields]);
 
   // ─── Element visual representation on canvas ───
   const renderCanvasElement = useCallback((el: DesignElement) => {
@@ -3103,7 +3181,7 @@ export default function ErpDesigner({
       if (previewMode) {
         // In preview mode, resolve bindings to example values
         const rawText = el.content || el.binding || el.type;
-        displayText = resolveBindingToExample(rawText, el.binding);
+        displayText = resolveBindingToExample(rawText, el.binding, fieldExamples);
       } else {
         displayText = el.binding ? `{{${el.binding}}}` : (el.content || el.type);
       }
@@ -3201,7 +3279,7 @@ export default function ErpDesigner({
     } else {
       content = (
         <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: `${10 * scale}px`, userSelect: 'none' }}>
-          {previewMode && el.binding ? resolveBindingToExample(el.binding, el.binding) : (el.binding ? `{{${el.binding}}}` : getElementTypeLabel(el.type))}
+          {previewMode && el.binding ? resolveBindingToExample(el.binding, el.binding, fieldExamples) : (el.binding ? `{{${el.binding}}}` : getElementTypeLabel(el.type))}
         </div>
       );
     }
@@ -4006,7 +4084,7 @@ export default function ErpDesigner({
                       const match = selectedElement.binding.match(/^\{\{(.+)\}\}$/);
                       if (!match) return selectedElement.binding;
                       const key = match[1];
-                      for (const group of DATA_FIELDS) {
+                      for (const group of dataFields) {
                         const field = group.fields.find((f) => f.key === key);
                         if (field) return field.example;
                       }
@@ -4080,7 +4158,7 @@ export default function ErpDesigner({
                       boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
                     }}
                   >
-                    {DATA_FIELDS
+                    {dataFields
                       .map((group) => ({
                         ...group,
                         fields: group.fields.filter((f) =>
@@ -4260,7 +4338,7 @@ export default function ErpDesigner({
                     try {
                       // Build context from example data
                       const context: Record<string, unknown> = {};
-                      DATA_FIELDS.forEach((group) => {
+                      dataFields.forEach((group) => {
                         group.fields.forEach((field) => {
                           const numVal = parseFloat(field.example.replace(/[^0-9.-]/g, ''));
                           context[field.key] = isNaN(numVal) ? field.example : numVal;
@@ -4492,7 +4570,7 @@ export default function ErpDesigner({
                       autoFocus
                     />
                   </div>
-                  {DATA_FIELDS
+                  {dataFields
                     .map((group) => ({
                       ...group,
                       fields: group.fields.filter((f) =>
@@ -4563,7 +4641,7 @@ export default function ErpDesigner({
                     try {
                       // Build context from example data
                       const context: Record<string, unknown> = {};
-                      DATA_FIELDS.forEach((group) => {
+                      dataFields.forEach((group) => {
                         group.fields.forEach((field) => {
                           // Try to parse numbers from example values
                           const numVal = parseFloat(field.example.replace(/[^0-9.-]/g, ''));
@@ -5029,6 +5107,8 @@ export default function ErpDesigner({
       data-brand-font={activeBrandConfig.fontFamily || ''}
       data-brand-company={activeBrandConfig.companyName || ''}
       data-merged-field-groups={String(mergedDataFields.length)}
+      data-field-schema-source={apiFieldSchema ? 'api' : 'hardcoded'}
+      data-field-schema-template-type={templateType || ''}
       style={{
         ...brandStyles,
         display: 'flex',
