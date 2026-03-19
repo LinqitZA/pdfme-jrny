@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import SignatureManager from '@/components/SignatureManager';
+import { getApiBase } from '@/lib/api-base';
 
 function SignatureContent() {
   const searchParams = useSearchParams();
@@ -13,7 +14,7 @@ function SignatureContent() {
     <div style={{ padding: 20 }}>
       <h1 style={{ marginBottom: 20 }}>Signature Manager</h1>
       <SignatureManager
-        apiBase={process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api/pdfme"}
+        apiBase={getApiBase()}
         authToken={authToken}
         orgId={orgId}
         onSave={(result) => console.log('Signature saved:', result)}

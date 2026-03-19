@@ -5,6 +5,7 @@ import { Suspense, useState, useEffect, useCallback } from 'react';
 import ErpDesigner from '@/components/ErpDesigner';
 import type { FieldSchemaEntry, BrandConfig } from '@/components/ErpDesigner';
 import { generateDevToken } from '@/lib/dev-token';
+import { getApiBase } from '@/lib/api-base';
 
 function DesignerContent() {
   const searchParams = useSearchParams();
@@ -51,7 +52,7 @@ function DesignerContent() {
       templateName={templateName}
       orgId={orgId}
       authToken={authToken}
-      apiBase={process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api/pdfme"}
+      apiBase={getApiBase()}
       autoSaveInterval={autoSaveInterval}
       canPublish={canPublish}
       canExportJson={canExportJson}

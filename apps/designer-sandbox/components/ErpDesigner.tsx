@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { fetchFontWithCache, getFontCacheStats, clearFontCache, pruneExpiredFonts, isCacheApiAvailable } from './fontCache';
 import PrintDialog from './PrintDialog';
+import { getApiBase } from '@/lib/api-base';
 import {
   DndContext,
   closestCenter,
@@ -827,7 +828,7 @@ export default function ErpDesigner({
   templateName = 'Untitled Template',
   orgId,
   authToken,
-  apiBase = '/api/pdfme',
+  apiBase = getApiBase(),
   autoSaveInterval = 30000,
   onSave,
   onSaveDraft,

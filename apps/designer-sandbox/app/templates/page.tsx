@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, useEffect } from 'react';
 import TemplateList from '@/components/TemplateList';
 import { generateDevToken } from '@/lib/dev-token';
+import { getApiBase } from '@/lib/api-base';
 
 function TemplateListContent() {
   const searchParams = useSearchParams();
@@ -28,7 +29,7 @@ function TemplateListContent() {
 
   return (
     <TemplateList
-      apiBase={process.env.NEXT_PUBLIC_API_BASE || "http://localhost:3001/api/pdfme"}
+      apiBase={getApiBase()}
       authToken={authToken}
       orgId={orgId}
       onSelectTemplate={handleSelectTemplate}

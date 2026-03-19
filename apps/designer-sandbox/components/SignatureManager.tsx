@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { getApiBase } from '@/lib/api-base';
 
 interface SignatureManagerProps {
   apiBase?: string;
@@ -26,7 +27,7 @@ interface SignatureManagerProps {
  * - Responsive canvas sizing
  */
 export default function SignatureManager({
-  apiBase = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3001/api/pdfme',
+  apiBase = getApiBase(),
   authToken,
   orgId,
   onSave,
