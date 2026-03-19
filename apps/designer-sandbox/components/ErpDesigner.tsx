@@ -484,6 +484,13 @@ interface TableColumn {
 
 /** Table column configurator - extracted as a proper component to avoid React hooks violation.
  * Hooks (useSensors, useSensor) must be called at the top level of a component, never conditionally. */
+/** Suggestion for table column key from array field schema */
+interface ColumnKeySuggestion {
+  columnKey: string;
+  label: string;
+  fieldType?: string;
+}
+
 function TableColumnConfigurator({
   columns,
   expandedColumnIdx,
@@ -496,6 +503,7 @@ function TableColumnConfigurator({
   propInputStyle,
   labelStyle,
   toolbarBtnStyle,
+  columnKeySuggestions,
 }: {
   columns: TableColumn[];
   expandedColumnIdx: number | null;
@@ -508,6 +516,8 @@ function TableColumnConfigurator({
   propInputStyle: React.CSSProperties;
   labelStyle: React.CSSProperties;
   toolbarBtnStyle: React.CSSProperties;
+  /** Available column key suggestions from field schema (Feature #431) */
+  columnKeySuggestions?: ColumnKeySuggestion[];
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -579,6 +589,7 @@ function TableColumnConfigurator({
                       if (expandedColumnIdx === colIdx) onExpandColumn(null);
                     }}
                     propInputStyle={propInputStyle}
+                    columnKeySuggestions={columnKeySuggestions}
                   />
                 ))}
               </SortableContext>
@@ -611,6 +622,7 @@ function SortableColumnItem({
   onChange,
   onRemove,
   propInputStyle,
+  columnKeySuggestions,
 }: {
   column: TableColumn;
   colIdx: number;
@@ -620,6 +632,8 @@ function SortableColumnItem({
   onChange: (updates: Partial<TableColumn>) => void;
   onRemove: () => void;
   propInputStyle: React.CSSProperties;
+  /** Available column key suggestions from field schema (Feature #431) */
+  columnKeySuggestions?: ColumnKeySuggestion[];
 }) {
   const {
     attributes,
@@ -652,16 +666,41 @@ function SortableColumnItem({
         >
           ⠿
         </span>
-        {/* Key */}
+        {/* Key with field picker (Feature #431) */}
         <input
           data-testid={`prop-col-key-${colIdx}`}
           type="text"
+          list={columnKeySuggestions && columnKeySuggestions.length > 0 ? `col-key-suggestions-${colIdx}` : undefined}
           aria-label={`Column ${colIdx + 1} key`}
           style={{ ...propInputStyle, flex: 1 }}
           value={column.key}
           placeholder="Key"
-          onChange={(e) => onChange({ key: e.target.value })}
+          onChange={(e) => {
+            const newKey = e.target.value;
+            const updates: Partial<TableColumn> = { key: newKey };
+            // Auto-populate header and align when selecting from suggestions
+            if (columnKeySuggestions) {
+              const match = columnKeySuggestions.find(s => s.columnKey === newKey);
+              if (match) {
+                updates.header = match.label;
+                // Auto-set align based on field type
+                if (match.fieldType === 'currency' || match.fieldType === 'number') {
+                  updates.align = 'right';
+                } else {
+                  updates.align = 'left';
+                }
+              }
+            }
+            onChange(updates);
+          }}
         />
+        {columnKeySuggestions && columnKeySuggestions.length > 0 && (
+          <datalist id={`col-key-suggestions-${colIdx}`} data-testid={`col-key-datalist-${colIdx}`}>
+            {columnKeySuggestions.map((s) => (
+              <option key={s.columnKey} value={s.columnKey} label={`${s.columnKey} — ${s.label}`} />
+            ))}
+          </datalist>
+        )}
         {/* Header */}
         <input
           data-testid={`prop-col-header-${colIdx}`}
@@ -1378,13 +1417,14 @@ export default function ErpDesigner({
         if (cancelled) return;
 
         // Convert FieldGroup[] response to DATA_FIELDS format:
-        // { group: string, fields: { key, label, example }[] }[]
-        const fieldGroups: typeof DATA_FIELDS = (data.fieldGroups || []).map((fg: { key: string; label: string; fields?: Array<{ key: string; label: string; exampleValue?: unknown }> }) => ({
+        // { group: string, fields: { key, label, example, fieldType? }[] }[]
+        const fieldGroups: typeof DATA_FIELDS = (data.fieldGroups || []).map((fg: { key: string; label: string; fields?: Array<{ key: string; label: string; type?: string; exampleValue?: unknown }> }) => ({
           group: fg.label || fg.key,
-          fields: (fg.fields || []).map((f: { key: string; label: string; exampleValue?: unknown }) => ({
+          fields: (fg.fields || []).map((f: { key: string; label: string; type?: string; exampleValue?: unknown }) => ({
             key: f.key,
             label: f.label,
             example: f.exampleValue != null ? String(f.exampleValue) : '',
+            fieldType: f.type || 'string',
           })),
         }));
 
@@ -3177,7 +3217,7 @@ export default function ErpDesigner({
 
   const arrayFieldGroups = useMemo(() => {
     // Group array fields by their parent array name (e.g., lineItems[].* → "lineItems")
-    const grouped: Record<string, { label: string; parentKey: string; fields: Array<{ key: string; label: string; example: string; columnKey: string }> }> = {};
+    const grouped: Record<string, { label: string; parentKey: string; fields: Array<{ key: string; label: string; example: string; columnKey: string; fieldType?: string }> }> = {};
     for (const group of dataFields) {
       for (const field of group.fields) {
         const arrMatch = field.key.match(/^([^[]+)\[\]\.(.+)$/);
@@ -3192,6 +3232,7 @@ export default function ErpDesigner({
             label: field.label,
             example: field.example,
             columnKey,
+            fieldType: (field as { fieldType?: string }).fieldType,
           });
         }
       }
@@ -4038,6 +4079,15 @@ export default function ErpDesigner({
             propInputStyle={propInputStyle}
             labelStyle={labelStyle}
             toolbarBtnStyle={toolbarBtnStyle}
+            columnKeySuggestions={
+              selectedElement.dataSource && arrayFieldGroups[selectedElement.dataSource]
+                ? arrayFieldGroups[selectedElement.dataSource].fields.map(f => ({
+                    columnKey: f.columnKey,
+                    label: f.label,
+                    fieldType: f.fieldType,
+                  }))
+                : undefined
+            }
           />
         )}
 
