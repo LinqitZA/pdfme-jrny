@@ -5964,3 +5964,32 @@ of undefined" (React error #321 - context mismatch between React versions).
 ### Test Results: 47/47 tests passing
 ### Current Status: 419/422 features passing (99.3%)
 
+
+
+---
+
+## Session - 2026-03-19 - Feature #426 (Fix Dev Token Generation in Docker)
+
+### Completed Feature:
+- **Feature #426**: Fix dev token generation failing in Docker/production builds
+
+### Problem:
+Two compounding bugs prevented the designer-sandbox from auto-generating dev JWT tokens in Docker:
+
+Bug 1: shouldUseDevToken() checked NODE_ENV === production and returned false. Since next build bakes NODE_ENV=production into the client bundle, this guard always blocked token generation in Docker.
+
+Bug 2: getAuthToken() called generateDevTokenSync() which uses require(crypto) (Node.js only). The pages are use client components in the browser, so require(crypto) fails silently.
+
+### Changes Made:
+- Removed NODE_ENV === production guard from shouldUseDevToken() in dev-token.ts
+- Replaced sync getAuthToken() with async generateDevToken() via useState/useEffect in both pages
+- Uses Web Crypto API (browser-native) instead of Node.js require(crypto)
+- Kept getAuthToken() and generateDevTokenSync() exported for server-side usage
+
+### Key Files Modified:
+- apps/designer-sandbox/lib/dev-token.ts - Removed NODE_ENV guard
+- apps/designer-sandbox/app/templates/page.tsx - Async token generation
+- apps/designer-sandbox/app/page.tsx - Async token generation
+- tests/test-feature-426-dev-token-docker.js - 43 tests
+
+### Test Results: 43/43 tests passing
