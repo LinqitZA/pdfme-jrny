@@ -459,6 +459,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   verticalGuidelines={getGuideLines(verticalGuides.current, index)}
                   keepRatio={isPressShiftKey}
                   rotatable={rotatable}
+                  scale={scale}
                   onDrag={onDrag}
                   onDragEnd={onDragEnd}
                   onDragGroupEnd={onDragEnds}

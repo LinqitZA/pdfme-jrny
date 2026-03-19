@@ -16,6 +16,7 @@ type Props = {
   verticalGuidelines: number[];
   keepRatio: boolean;
   rotatable: boolean;
+  scale: number;
   onDrag: ({ target, left, top }: OnDrag) => void;
   onDragEnd: ({ target }: { target: HTMLElement | SVGElement }) => void;
   onDragGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
@@ -51,11 +52,12 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
   return (
     <MoveableComponent
       className={uniqueClassName}
-      rootContainer={document ? document.body : undefined}
       snappable
       draggable
       rotatable={props.rotatable}
       resizable
+      edge={true}
+      zoom={1 / props.scale}
       throttleDrag={1}
       throttleRotate={1}
       throttleResize={1}
