@@ -5823,3 +5823,44 @@ of undefined" (React error #321 - context mismatch between React versions).
 - Data persistence test (feature #93): 18/18 passing
 
 ### Current Status: 406/411 features passing
+
+---
+
+## Session - 2026-03-19 - Features #412, #413, #414 (UI Fixes: Resize, Save Flow, Column Reorder)
+
+### Completed Features:
+- **Feature #412**: Fix element resize handles not functioning on canvas ✅
+  - Removed rootContainer={document.body} from MoveableComponent (was causing coordinate mismatch with CSS scale transform)
+  - Added edge={true} for 8 resize handles (4 corners + 4 edges)
+  - Added zoom={1/scale} for visual handle size compensation at different zoom levels
+  - Passed scale prop from Canvas to Moveable component
+  - Selecto isMoveableElement() check preserved for event interception
+  - 52/52 tests passing
+
+- **Feature #413**: Template save flow for sandbox/new templates ✅
+  - Added activeTemplateId state that tracks template ID across create/save lifecycle
+  - handleSave creates template via POST /templates when no ID exists, then saves draft
+  - handlePublish creates + saves draft + publishes in one flow when no ID
+  - URL updated with new templateId via history.replaceState after creation
+  - All 30+ templateId references in save/publish/autosave/render updated to activeTemplateId
+  - 47/47 tests passing
+
+- **Feature #414**: Line Items Table column drag reorder in properties sidebar ✅
+  - Added SortableColumnItem component with dnd-kit useSortable hook
+  - Drag handle (⠿) enables column reorder via PointerSensor and KeyboardSensor
+  - Expandable column details show alignment (left/center/right) and format (#,##0.00) fields
+  - Add/remove column buttons with proper schema persistence via updateElement
+  - Canvas preview respects column text alignment
+  - TableColumn interface with key, header, width, align, format properties
+  - 67/67 tests passing
+
+### Key Files Modified:
+- packages/ui/src/components/Designer/Canvas/Moveable.tsx - Removed rootContainer, added edge/zoom/scale
+- packages/ui/src/components/Designer/Canvas/index.tsx - Passes scale to Moveable
+- apps/designer-sandbox/components/ErpDesigner.tsx - activeTemplateId state, Save As New flow, SortableColumnItem component
+- tests/test-feature-412-resize-handles.js - 52 tests
+- tests/test-feature-413-template-save-flow.js - 47 tests
+- tests/test-feature-414-column-drag-reorder.js - 67 tests
+
+### Test Results: 166/166 tests passing across 3 features
+### Current Status: 414/414 features passing (100.0%) 🎉
