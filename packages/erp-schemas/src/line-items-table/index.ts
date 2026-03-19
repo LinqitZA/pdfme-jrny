@@ -517,13 +517,17 @@ export function resolveLineItemsTables(
 
       const litSchema = field as unknown as LineItemsTableSchema;
       const fieldName = litSchema.name;
+      // Feature #432: Use dataSource property as primary data key, fall back to field name
+      const dataSourceKey = (field as Record<string, unknown>).dataSource as string | undefined;
 
       // Parse line items from the first input that has this field
       let lineItems: LineItemRecord[] = [];
       for (const input of inputs) {
-        if (input[fieldName]) {
+        // Try dataSource key first (e.g., 'lineItems'), then fall back to field name
+        const rawData = (dataSourceKey && input[dataSourceKey]) || input[fieldName];
+        if (rawData) {
           try {
-            lineItems = JSON.parse(input[fieldName]);
+            lineItems = JSON.parse(rawData);
           } catch {
             lineItems = [];
           }

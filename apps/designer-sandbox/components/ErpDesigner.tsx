@@ -1300,6 +1300,7 @@ export default function ErpDesigner({
                 columns: el.columns,
                 showHeader: el.showHeader,
                 borderStyle: el.borderStyle,
+                dataSource: el.dataSource,
                 binding: el.binding,
               }));
 
@@ -4062,6 +4063,53 @@ export default function ErpDesigner({
                 />
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Table Data Source binding - for table elements (Feature #432) */}
+        {category === 'table' && (
+          <div data-testid="properties-table-datasource" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Data Source</label>
+            <select
+              data-testid="prop-table-datasource"
+              style={propInputStyle}
+              value={selectedElement.dataSource || ''}
+              onChange={(e) => {
+                const newDs = e.target.value;
+                const prevDs = selectedElement.dataSource;
+                const updates: Partial<DesignElement> = { dataSource: newDs };
+                // Auto-populate columns when selecting a data source for the first time
+                // (only if columns are still at default/empty or if no previous dataSource was set)
+                if (newDs && newDs !== prevDs && arrayFieldGroups[newDs]) {
+                  const fields = arrayFieldGroups[newDs].fields;
+                  if (fields.length > 0) {
+                    const hasDefaultColumns = !prevDs || (selectedElement.columns || []).length === 0 ||
+                      (selectedElement.columns || []).every((c: { key: string }) => c.key.startsWith('col') || ['description', 'qty', 'price', 'total', 'group', 'value'].includes(c.key));
+                    if (hasDefaultColumns) {
+                      updates.columns = fields.map((f: { columnKey: string; label: string; fieldType?: string }) => ({
+                        key: f.columnKey,
+                        header: f.label,
+                        width: Math.max(60, Math.round(495 / fields.length)),
+                        align: (f.fieldType === 'currency' || f.fieldType === 'number') ? 'right' as const : 'left' as const,
+                      }));
+                    }
+                  }
+                }
+                updateElement(selectedElement.id, updates);
+              }}
+            >
+              <option value="">— Select data source —</option>
+              {Object.keys(arrayFieldGroups).map((groupKey) => (
+                <option key={groupKey} value={groupKey}>
+                  {arrayFieldGroups[groupKey].label} ({groupKey})
+                </option>
+              ))}
+            </select>
+            {selectedElement.dataSource && (
+              <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                Binds to <code style={{ background: '#f1f5f9', padding: '1px 4px', borderRadius: '3px' }}>{selectedElement.dataSource}[]</code> array in input data
+              </div>
+            )}
           </div>
         )}
 
