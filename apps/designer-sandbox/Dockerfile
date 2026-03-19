@@ -33,7 +33,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Ensure public directory exists for Next.js
 RUN mkdir -p apps/designer-sandbox/public
 # Build the Next.js app
-RUN cd apps/designer-sandbox && npx next build
+RUN cd apps/designer-sandbox && npm run build
 
 # Stage 3: Production image
 FROM node:20-alpine AS runner
@@ -53,4 +53,4 @@ ENV NEXT_PUBLIC_API_BASE=http://localhost:3001/api/pdfme
 EXPOSE 3000
 
 WORKDIR /app/apps/designer-sandbox
-CMD ["npx", "next", "start", "-p", "3000"]
+CMD ["../../node_modules/.bin/next", "start", "-p", "3000"]

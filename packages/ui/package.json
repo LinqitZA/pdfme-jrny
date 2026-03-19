@@ -46,8 +46,6 @@
     "globrex": "^0.1.2",
     "hotkeys-js": "^4.0.2",
     "lucide-react": "^0.577.0",
-    "react": "^16.14.0",
-    "react-dom": "^16.14.0",
     "react-moveable": "^0.56.0",
     "react-refresh": "^0.18.0",
     "react-selecto": "^1.12.0"
@@ -79,7 +77,9 @@
   },
   "peerDependencies": {
     "@pdfme/common": "latest",
-    "@pdfme/schemas": "latest"
+    "@pdfme/schemas": "latest",
+    "react": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0",
+    "react-dom": "^16.14.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
   },
   "jest": {
     "testEnvironment": "jest-environment-jsdom",
