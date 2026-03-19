@@ -1,3 +1,36 @@
+## Session - 2026-03-19 - Feature #427 (Fix Table Element React Hooks Crash)
+
+### Completed Feature:
+- **Feature #427**: Fix Line Items Table and Grouped Table crash (React hooks violation) ✅
+
+### Root Cause:
+- `useSensors()` and `useSensor()` React hooks were called inside a conditional IIFE at lines 3674-3676
+- Pattern: `{category === 'table' && (() => { ... useSensors(...) ... })()}`
+- This violated React's Rules of Hooks: hooks must be called in the same order every render
+- When switching between table and non-table elements, React's internal hook state was corrupted
+- The sensor array object was misinterpreted as a render output, triggering error #310
+
+### Fix Applied:
+- Extracted `TableColumnConfigurator` as a standalone function component (line 484)
+- Moved `useSensors()` and `useSensor()` hooks to component top level (unconditional)
+- Replaced IIFE with conditional component rendering: `{category === 'table' && <TableColumnConfigurator ... />}`
+- React properly handles conditional mount/unmount of components (each has its own hook state)
+- `SortableColumnItem` component left unchanged (already correct)
+
+### Component Props:
+- columns, expandedColumnIdx, onExpandColumn, onUpdateColumns
+- onUpdateElement, selectedElementId, showHeader, borderStyle
+- propInputStyle, labelStyle, toolbarBtnStyle
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - TableColumnConfigurator extraction
+- tests/test-feature-427-table-hooks-fix.js - 39 comprehensive tests
+
+### Test Results: 39/39 tests passing
+### Current Status: 422+/424 features passing
+
+---
+
 ## Session - 2026-03-18 - Features #397, #398, #399 (Docker Build TypeScript Fixes)
 
 ### Completed Features:
@@ -5993,3 +6026,57 @@ Bug 2: getAuthToken() called generateDevTokenSync() which uses require(crypto) (
 - tests/test-feature-426-dev-token-docker.js - 43 tests
 
 ### Test Results: 43/43 tests passing
+
+---
+
+## Session - 2026-03-19 - Feature #428 (Element Resize Handles - Full Implementation)
+
+### Completed Feature:
+- **Feature #428**: Implement element resize handles (resize logic never existed) ✅
+
+### Problem:
+The corner dots on selected elements (lines 3132-3139 of ErpDesigner.tsx) were purely decorative 
+8x8 divs with zero event handlers. Clicking them bubbled to the parent's onMouseDown which fired 
+handleElementMouseDown (a drag-only handler), so grabbing a corner handle moved the element instead 
+of resizing it. There was no isResizing state, no resizeCorner tracking, no resize mouse-move 
+handler, and no corner-aware resize math anywhere in the file.
+
+### What Was Implemented:
+
+**New state & ref:**
+- `isResizing` state variable (boolean)
+- `resizeRef` with full type: elementId, corner ('tl'|'tr'|'bl'|'br'|'top'|'right'|'bottom'|'left'), 
+  startX, startY, elStartX, elStartY, elStartW, elStartH
+
+**handleResizeMouseDown callback:**
+- Receives corner identifier and element ID
+- Calls e.stopPropagation() and e.preventDefault() to prevent parent drag handler
+- Stores starting mouse position and element geometry in resizeRef
+- Sets isResizing=true
+- Attaches document-level mousemove and mouseup listeners
+
+**Corner-aware resize math (switch statement):**
+- BR: newW = elStartW + dx, newH = elStartH + dy (position unchanged)
+- BL: newX = elStartX + dx, newW = elStartW - dx, newH = elStartH + dy
+- TR: newY = elStartY + dy, newW = elStartW + dx, newH = elStartH - dy
+- TL: newX = elStartX + dx, newY = elStartY + dy, newW = elStartW - dx, newH = elStartH - dy
+- Edge handles (top/bottom/left/right): single-axis resize
+
+**Minimum size enforcement:** 20x20pt minimum, with position adjustment for TL/BL/TR corners
+**Grid snapping:** Applied via snapToGrid during resize
+**Resize cleanup:** Clears resizeRef, sets isResizing=false, removes document listeners
+
+**Interactive handles replacing decorative dots:**
+- 4 corner handles: 12x12px, circle, nwse/nesw-resize cursors, data-testid attributes
+- 4 edge handles: 10x10px, rounded square, ns/ew-resize cursors, data-testid attributes
+- All handles have onMouseDown calling handleResizeMouseDown with appropriate corner
+- zIndex: 10 for clickability over content
+
+**Drag handler guard:** Returns early when isResizing is true
+**Element body cursor:** Changed from 'pointer' to 'move'
+
+### Key Files Modified:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Full resize system implementation
+- tests/test-feature-428-resize-handles.js - 68 tests
+
+### Test Results: 68/68 tests passing
