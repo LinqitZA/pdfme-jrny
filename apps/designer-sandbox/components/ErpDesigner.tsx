@@ -529,6 +529,11 @@ export default function ErpDesigner({
   const [isLoading, setIsLoading] = useState(!!templateId);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Active template ID: starts from prop, updated on first save for new templates
+  const [activeTemplateId, setActiveTemplateId] = useState<string | undefined>(templateId);
+  // Sync activeTemplateId when prop changes externally
+  useEffect(() => { setActiveTemplateId(templateId); }, [templateId]);
+
   // Publish state
   const [publishStatus, setPublishStatus] = useState<'idle' | 'publishing' | 'published' | 'error'>('idle');
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -812,9 +817,9 @@ export default function ErpDesigner({
     }
   }, [isDirty]);
 
-  // ─── Load template schema from API when templateId is provided ───
+  // ─── Load template schema from API when activeTemplateId is provided ───
   useEffect(() => {
-    if (!templateId) {
+    if (!activeTemplateId) {
       setIsLoading(false);
       return;
     }
@@ -840,7 +845,7 @@ export default function ErpDesigner({
           headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
         }
 
-        const response = await fetch(`${apiBase}/templates/${templateId}`, { headers, signal: abortController.signal });
+        const response = await fetch(`${apiBase}/templates/${activeTemplateId}`, { headers, signal: abortController.signal });
 
         if (!response.ok) {
           const errBody = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
@@ -911,7 +916,7 @@ export default function ErpDesigner({
 
         // ─── Attempt to acquire edit lock ───
         try {
-          const lockRes = await fetch(`${apiBase}/templates/${templateId}/lock`, {
+          const lockRes = await fetch(`${apiBase}/templates/${activeTemplateId}/lock`, {
             method: 'POST',
             headers,
           });
@@ -935,7 +940,7 @@ export default function ErpDesigner({
         } catch {
           // Lock acquisition failed - check lock status as fallback
           try {
-            const statusRes = await fetch(`${apiBase}/templates/${templateId}/lock`, { headers });
+            const statusRes = await fetch(`${apiBase}/templates/${activeTemplateId}/lock`, { headers });
             if (statusRes.ok) {
               const statusData = await statusRes.json().catch(() => ({}));
               if (!cancelled && statusData.locked && statusData.lockedBy) {
@@ -966,18 +971,18 @@ export default function ErpDesigner({
       cancelled = true;
       abortController.abort(); // Cancel in-flight fetch to prevent stale data
       // Release lock on unmount if we hold it
-      if (templateId && !isReadOnly) {
+      if (activeTemplateId && !isReadOnly) {
         const headers: Record<string, string> = {};
         if (authToken) {
           headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
         }
-        fetch(`${apiBase}/templates/${templateId}/lock`, {
+        fetch(`${apiBase}/templates/${activeTemplateId}/lock`, {
           method: 'DELETE',
           headers,
         }).catch(() => {});
       }
     };
-  }, [templateId, authToken, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTemplateId, authToken, apiBase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Multi-page state
   const [pages, setPages] = useState<TemplatePage[]>(() => [
@@ -1422,79 +1427,105 @@ export default function ErpDesigner({
       onSaveDraft(templateData);
     }
 
-    // If we have a templateId and apiBase, persist to backend
-    if (templateId) {
-      setSaveStatus('saving');
-      setSaveError(null);
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
+    setSaveStatus('saving');
+    setSaveError(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
 
-        const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
-          method: 'PUT',
+      let currentTemplateId = activeTemplateId;
+
+      // If no template ID, create a new template first ("Save As New" flow)
+      if (!currentTemplateId) {
+        const createResponse = await fetch(`${apiBase}/templates`, {
+          method: 'POST',
           headers,
           body: JSON.stringify({
             name,
+            type: 'custom',
             schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
           }),
         });
 
-        if (response.ok) {
-          setSaveStatus('saved');
-          // Only clear dirty flag if no changes occurred during the save
-          if (saveGenerationRef.current === saveGen) {
-            setIsDirty(false);
-            isDirtyRef.current = false;
-          }
-          addToast('success', 'Draft saved successfully', 3000);
-          announceStatus('Draft saved successfully');
-          // Replace current history entry to prevent re-submit on back button
-          if (typeof window !== 'undefined') {
-            window.history.replaceState({ saved: true, templateId }, '', window.location.href);
-          }
-          setTimeout(() => setSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
-        } else {
-          const errBody = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
-          const errorMsg = errBody.message || `Save failed with status ${response.status}`;
-          setSaveStatus('error');
-          setSaveError(errorMsg);
-          addToast('error', errorMsg, 8000);
-          announceError(`Save error: ${errorMsg}`);
-          // DO NOT clear isDirty - unsaved changes preserved for retry
+        if (!createResponse.ok) {
+          const errBody = await createResponse.json().catch(() => ({ message: `Create failed (${createResponse.status})` }));
+          throw new Error(errBody.message || `Failed to create template (${createResponse.status})`);
         }
-      } catch (err: unknown) {
-        const errorMsg = err instanceof Error
-          ? (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')
-            ? 'Network error — check your connection and try again'
-            : err.message)
-          : 'An unexpected error occurred while saving';
+
+        const created = await createResponse.json();
+        currentTemplateId = created.id;
+        setActiveTemplateId(currentTemplateId);
+
+        // Update URL with new template ID so reloads work
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.set('templateId', currentTemplateId!);
+          window.history.replaceState({ saved: true, templateId: currentTemplateId }, '', url.toString());
+        }
+
+        addToast('success', 'Template created and draft saved', 3000);
+      }
+
+      // Now save draft to the existing (or newly created) template
+      const response = await fetch(`${apiBase}/templates/${currentTemplateId}/draft`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({
+          name,
+          schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+        }),
+      });
+
+      if (response.ok) {
+        setSaveStatus('saved');
+        // Only clear dirty flag if no changes occurred during the save
+        if (saveGenerationRef.current === saveGen) {
+          setIsDirty(false);
+          isDirtyRef.current = false;
+        }
+        if (!activeTemplateId) {
+          // First save message already shown above
+        } else {
+          addToast('success', 'Draft saved successfully', 3000);
+        }
+        announceStatus('Draft saved successfully');
+        // Replace current history entry to prevent re-submit on back button
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({ saved: true, templateId: currentTemplateId }, '', window.location.href);
+        }
+        setTimeout(() => setSaveStatus((prev) => prev === 'saved' ? 'idle' : prev), 3000);
+      } else {
+        const errBody = await response.json().catch(() => ({ message: `Server error (${response.status})` }));
+        const errorMsg = errBody.message || `Save failed with status ${response.status}`;
         setSaveStatus('error');
         setSaveError(errorMsg);
         addToast('error', errorMsg, 8000);
         announceError(`Save error: ${errorMsg}`);
         // DO NOT clear isDirty - unsaved changes preserved for retry
-        // Flag for auto-retry on reconnection
-        if (!navigator.onLine) setPendingRetrySave(true);
-      } finally {
-        isSavingRef.current = false;
       }
-    } else {
-      // No templateId - just clear dirty flag (local-only mode)
-      setIsDirty(false);
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error
+        ? (err.message.includes('fetch') || err.message.includes('network') || err.message.includes('Failed')
+          ? 'Network error — check your connection and try again'
+          : err.message)
+        : 'An unexpected error occurred while saving';
+      setSaveStatus('error');
+      setSaveError(errorMsg);
+      addToast('error', errorMsg, 8000);
+      announceError(`Save error: ${errorMsg}`);
+      // DO NOT clear isDirty - unsaved changes preserved for retry
+      // Flag for auto-retry on reconnection
+      if (!navigator.onLine) setPendingRetrySave(true);
+    } finally {
       isSavingRef.current = false;
     }
-  }, [name, pageSize, pages, onSave, onSaveDraft, templateId, authToken, apiBase, addToast, announceStatus, announceError]);
+  }, [name, pageSize, pages, onSave, onSaveDraft, activeTemplateId, authToken, apiBase, addToast, announceStatus, announceError]);
 
   // ─── Publish: publish template to backend ───
   const isPublishingRef = useRef(false);
   const handlePublish = useCallback(async () => {
     if (isPublishingRef.current) return; // Prevent double-click
     if (!canPublish) return; // Respect canPublish permission
-    if (!templateId) {
-      setPublishStatus('error');
-      setPublishError('Cannot publish: no template ID');
-      return;
-    }
 
     // Call external onPublish callback if provided
     if (onPublish) {
@@ -1510,7 +1541,53 @@ export default function ErpDesigner({
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
 
-      const response = await fetch(`${apiBase}/templates/${templateId}/publish`, {
+      let currentTemplateId = activeTemplateId;
+
+      // If no template ID, create a new template first ("Save As New" flow)
+      if (!currentTemplateId) {
+        const createResponse = await fetch(`${apiBase}/templates`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            name,
+            type: 'custom',
+            schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+          }),
+        });
+
+        if (!createResponse.ok) {
+          const errBody = await createResponse.json().catch(() => ({ message: `Create failed (${createResponse.status})` }));
+          throw new Error(errBody.message || `Failed to create template (${createResponse.status})`);
+        }
+
+        const created = await createResponse.json();
+        currentTemplateId = created.id;
+        setActiveTemplateId(currentTemplateId);
+
+        // Update URL with new template ID
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href);
+          url.searchParams.set('templateId', currentTemplateId!);
+          window.history.replaceState({ saved: true, templateId: currentTemplateId }, '', url.toString());
+        }
+
+        // Save draft before publishing
+        const draftResponse = await fetch(`${apiBase}/templates/${currentTemplateId}/draft`, {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({
+            name,
+            schema: { schemas: [], basePdf: 'BLANK_PDF', pageSize, pages },
+          }),
+        });
+
+        if (!draftResponse.ok) {
+          const errBody = await draftResponse.json().catch(() => ({ message: `Save draft failed (${draftResponse.status})` }));
+          throw new Error(errBody.message || `Failed to save draft before publish (${draftResponse.status})`);
+        }
+      }
+
+      const response = await fetch(`${apiBase}/templates/${currentTemplateId}/publish`, {
         method: 'POST',
         headers,
       });
@@ -1573,7 +1650,7 @@ export default function ErpDesigner({
     } finally {
       isPublishingRef.current = false;
     }
-  }, [templateId, authToken, apiBase, pages, canPublish, onPublish, name, pageSize, addToast, announceStatus, announceError]);
+  }, [activeTemplateId, authToken, apiBase, pages, canPublish, onPublish, name, pageSize, addToast, announceStatus, announceError]);
 
   // ─── Export JSON: download current template as JSON file ───
   const handleExportJson = useCallback(() => {
@@ -1616,7 +1693,7 @@ export default function ErpDesigner({
   // ─── Archive: soft-delete template and navigate back to list ───
   const [archiveStatus, setArchiveStatus] = useState<'idle' | 'archiving' | 'archived' | 'error'>('idle');
   const handleArchive = useCallback(async () => {
-    if (!templateId) return;
+    if (!activeTemplateId) return;
 
     const confirmed = window.confirm('Are you sure you want to archive this template? This action can be undone by an administrator.');
     if (!confirmed) return;
@@ -1627,7 +1704,7 @@ export default function ErpDesigner({
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
 
-      const response = await fetch(`${apiBase}/templates/${templateId}`, {
+      const response = await fetch(`${apiBase}/templates/${activeTemplateId}`, {
         method: 'DELETE',
         headers,
       });
@@ -1657,11 +1734,11 @@ export default function ErpDesigner({
       setArchiveStatus('error');
       addToast('error', errorMsg, 8000);
     }
-  }, [templateId, authToken, apiBase, addToast]);
+  }, [activeTemplateId, authToken, apiBase, addToast]);
 
   // ─── Auto-save: save draft to backend every 30 seconds ───
   const performAutoSave = useCallback(async () => {
-    if (!isDirtyRef.current || !templateId || isReadOnly) return;
+    if (!isDirtyRef.current || !activeTemplateId || isReadOnly) return;
 
     const autoSaveGen = saveGenerationRef.current;
     setAutoSaveStatus('saving');
@@ -1669,7 +1746,7 @@ export default function ErpDesigner({
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
 
-      const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
+      const response = await fetch(`${apiBase}/templates/${activeTemplateId}/draft`, {
         method: 'PUT',
         headers,
         body: JSON.stringify({
@@ -1703,11 +1780,11 @@ export default function ErpDesigner({
       if (!navigator.onLine) setPendingRetrySave(true);
       setTimeout(() => setAutoSaveStatus((prev) => prev === 'error' ? 'idle' : prev), 5000);
     }
-  }, [templateId, authToken, apiBase, name, pageSize, pages, announceStatus, announceError]);
+  }, [activeTemplateId, authToken, apiBase, name, pageSize, pages, announceStatus, announceError]);
 
   // Set up auto-save interval
   useEffect(() => {
-    if (!templateId || autoSaveInterval <= 0) return;
+    if (!activeTemplateId || autoSaveInterval <= 0) return;
 
     autoSaveTimerRef.current = setInterval(() => {
       performAutoSave();
@@ -1719,12 +1796,12 @@ export default function ErpDesigner({
         autoSaveTimerRef.current = null;
       }
     };
-  }, [templateId, autoSaveInterval, performAutoSave]);
+  }, [activeTemplateId, autoSaveInterval, performAutoSave]);
 
   // ─── Warn on navigation when there are unsaved changes ───
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isDirtyRef.current && templateId) {
+      if (isDirtyRef.current && activeTemplateId) {
         // Attempt to trigger auto-save before leaving
         performAutoSave();
         // Show browser's native "unsaved changes" dialog
@@ -1736,7 +1813,7 @@ export default function ErpDesigner({
 
     // Also trigger auto-save when page becomes hidden (tab switch, navigation)
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && isDirtyRef.current && templateId) {
+      if (document.visibilityState === 'hidden' && isDirtyRef.current && activeTemplateId) {
         performAutoSave();
       }
     };
@@ -1748,14 +1825,14 @@ export default function ErpDesigner({
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [templateId, performAutoSave]);
+  }, [activeTemplateId, performAutoSave]);
 
   // ─── Network connectivity detection & session recovery ───
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
       // If there are unsaved changes (dirty state or previous save error), retry auto-save
-      if (isDirtyRef.current && templateId && !isReadOnly) {
+      if (isDirtyRef.current && activeTemplateId && !isReadOnly) {
         setPendingRetrySave(true);
         saveRetryCountRef.current = 0;
       }
@@ -1781,11 +1858,11 @@ export default function ErpDesigner({
         reconnectRetryRef.current = null;
       }
     };
-  }, [templateId, isReadOnly]);
+  }, [activeTemplateId, isReadOnly]);
 
   // ─── Reconnection auto-save retry with exponential backoff ───
   useEffect(() => {
-    if (!pendingRetrySave || !isOnline || !templateId || isReadOnly) return;
+    if (!pendingRetrySave || !isOnline || !activeTemplateId || isReadOnly) return;
 
     const attemptRetrySave = async () => {
       if (!isDirtyRef.current) {
@@ -1801,7 +1878,7 @@ export default function ErpDesigner({
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (authToken) headers['Authorization'] = authToken.startsWith('Bearer ') ? authToken : `Bearer ${authToken}`;
 
-        const response = await fetch(`${apiBase}/templates/${templateId}/draft`, {
+        const response = await fetch(`${apiBase}/templates/${activeTemplateId}/draft`, {
           method: 'PUT',
           headers,
           body: JSON.stringify({
@@ -1856,7 +1933,7 @@ export default function ErpDesigner({
         reconnectRetryRef.current = null;
       }
     };
-  }, [pendingRetrySave, isOnline, templateId, isReadOnly, authToken, apiBase, name, pageSize, pages, saveStatus]);
+  }, [pendingRetrySave, isOnline, activeTemplateId, isReadOnly, authToken, apiBase, name, pageSize, pages, saveStatus]);
 
   // ─── Render / PDF generation handlers ───
 
@@ -2074,7 +2151,7 @@ export default function ErpDesigner({
 
   /** Single PDF render (preview or render/now) */
   const handlePreview = useCallback(async () => {
-    if (!templateId) {
+    if (!activeTemplateId) {
       setRenderStatus('error');
       setRenderMessage('Save the template first to generate a preview');
       setRenderResult({ error: 'No template ID' });
@@ -2089,7 +2166,8 @@ export default function ErpDesigner({
     setRenderProgress({ completed: 0, failed: 0, total: 1 });
 
     try {
-      const response = await fetch(`${apiBase}/templates/${templateId}/preview`, {
+      const tplId = activeTemplateId;
+      const response = await fetch(`${apiBase}/templates/${tplId}/preview`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ sampleRowCount: 5, channel: 'print' }),
@@ -2115,11 +2193,11 @@ export default function ErpDesigner({
       setRenderResult({ error: msg });
       announceError(`Preview failed: ${msg}`);
     }
-  }, [templateId, apiBase, getAuthHeaders, renderStatus]);
+  }, [activeTemplateId, apiBase, getAuthHeaders, renderStatus]);
 
   /** Single document render via render/now */
   const handleRenderNow = useCallback(async (entityId?: string) => {
-    if (!templateId) {
+    if (!activeTemplateId) {
       setRenderStatus('error');
       setRenderMessage('Save the template first');
       setRenderResult({ error: 'No template ID' });
@@ -2137,7 +2215,7 @@ export default function ErpDesigner({
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          templateId,
+          templateId: activeTemplateId,
           entityId: entityId || 'preview',
           channel: 'print',
         }),
@@ -2163,11 +2241,11 @@ export default function ErpDesigner({
       setRenderResult({ error: msg });
       announceError(`Render failed: ${msg}`);
     }
-  }, [templateId, apiBase, getAuthHeaders, announceError]);
+  }, [activeTemplateId, apiBase, getAuthHeaders, announceError]);
 
   /** Bulk render with SSE progress tracking */
   const handleBulkRender = useCallback(async (entityIds: string[]) => {
-    if (!templateId || entityIds.length === 0) return;
+    if (!activeTemplateId || entityIds.length === 0) return;
 
     // Cleanup any existing SSE connection
     if (sseRef.current) {
@@ -2185,7 +2263,7 @@ export default function ErpDesigner({
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          templateId,
+          templateId: activeTemplateId,
           entityIds,
           channel: 'print',
         }),
@@ -2255,7 +2333,7 @@ export default function ErpDesigner({
       setRenderMessage(`Bulk render failed: ${msg}`);
       setRenderResult({ error: msg });
     }
-  }, [templateId, apiBase, authToken, getAuthHeaders]);
+  }, [activeTemplateId, apiBase, authToken, getAuthHeaders]);
 
   /** Dismiss render overlay */
   const dismissRenderOverlay = useCallback(() => {
@@ -2276,7 +2354,7 @@ export default function ErpDesigner({
 
   /** Async render via queue with polling for status transitions */
   const handleAsyncRender = useCallback(async (entityId?: string) => {
-    if (!templateId) {
+    if (!activeTemplateId) {
       setRenderStatus('error');
       setRenderMessage('Save the template first');
       setRenderResult({ error: 'No template ID' });
@@ -2301,7 +2379,7 @@ export default function ErpDesigner({
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          templateId,
+          templateId: activeTemplateId,
           entityId: entityId || 'preview',
           channel: 'print',
         }),
@@ -2376,7 +2454,7 @@ export default function ErpDesigner({
       setRenderMessage(`Async render failed: ${msg}`);
       setRenderResult({ error: msg });
     }
-  }, [templateId, apiBase, getAuthHeaders]);
+  }, [activeTemplateId, apiBase, getAuthHeaders]);
 
   // Cleanup SSE and polling on unmount
   useEffect(() => {
@@ -4873,7 +4951,7 @@ export default function ErpDesigner({
         <div style={{ flex: 1 }} />
 
         {/* Connection status indicator */}
-        {templateId && !isOnline && (
+        {activeTemplateId && !isOnline && (
           <span
             data-testid="connection-status"
             style={{
@@ -4892,7 +4970,7 @@ export default function ErpDesigner({
             Offline — changes will save when reconnected
           </span>
         )}
-        {templateId && isOnline && pendingRetrySave && (
+        {activeTemplateId && isOnline && pendingRetrySave && (
           <span
             data-testid="connection-status-reconnecting"
             style={{
@@ -4913,7 +4991,7 @@ export default function ErpDesigner({
         )}
 
         {/* Auto-save status indicator */}
-        {templateId && (
+        {activeTemplateId && (
           <span
             data-testid="auto-save-indicator"
             role="status"
@@ -6896,7 +6974,7 @@ export default function ErpDesigner({
       onClose={() => setShowPrintDialog(false)}
       apiBase={apiBase}
       authToken={authToken}
-      templateId={templateId}
+      templateId={activeTemplateId}
       templateName={name}
       pageWidth={(PAGE_SIZE_DIMENSIONS[pageSize] || PAGE_SIZE_DIMENSIONS.A4).width}
       pageHeight={(PAGE_SIZE_DIMENSIONS[pageSize] || PAGE_SIZE_DIMENSIONS.A4).height}

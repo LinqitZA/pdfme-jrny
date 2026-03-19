@@ -1,3 +1,7 @@
-const { signJwt } = require('./create-signed-token');
-const token = signJwt({sub:'user-test',orgId:'org-test',roles:['template:edit','template:publish','render:trigger','template:import']});
-console.log(token);
+const jwt = require('jsonwebtoken');
+const token = jwt.sign(
+  { sub: 'user1', orgId: 'org1', permissions: ['template:read','template:write','template:publish','template:delete','render:execute','admin:seed'] },
+  'dev-secret',
+  { expiresIn: '1h' }
+);
+process.stdout.write(token);
