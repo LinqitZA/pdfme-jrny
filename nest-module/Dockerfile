@@ -7,7 +7,10 @@ COPY packages/generator/package.json packages/generator/
 COPY packages/schemas/package.json packages/schemas/
 COPY packages/converter/package.json packages/converter/
 COPY packages/pdf-lib/package.json packages/pdf-lib/
+COPY packages/manipulator/package.json packages/manipulator/
+COPY packages/ui/package.json packages/ui/
 COPY packages/erp-schemas/package.json packages/erp-schemas/
+COPY apps/designer-sandbox/package.json apps/designer-sandbox/
 COPY nest-module/package.json nest-module/
 RUN npm ci --ignore-scripts
 

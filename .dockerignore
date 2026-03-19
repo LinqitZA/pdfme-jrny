@@ -1,0 +1,13 @@
+node_modules
+.git
+.github
+.vscode
+.playwright
+.playwright-cli
+.next
+.autoforge
+screenshots
+tests
+claude-progress.txt
+app_spec.txt
+pdfme-erp-functional-spec-v1.2.md
