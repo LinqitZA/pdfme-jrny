@@ -26,7 +26,7 @@
     "@pdfme/generator": "*",
     "bullmq": "^5.0.0",
     "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "^0.30.0",
+    "drizzle-orm": "^0.45.1",
     "pg": "^8.20.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
