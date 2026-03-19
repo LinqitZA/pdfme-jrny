@@ -479,6 +479,125 @@ interface TableColumn {
   format?: string;
 }
 
+/** Table column configurator - extracted as a proper component to avoid React hooks violation.
+ * Hooks (useSensors, useSensor) must be called at the top level of a component, never conditionally. */
+function TableColumnConfigurator({
+  columns,
+  expandedColumnIdx,
+  onExpandColumn,
+  onUpdateColumns,
+  onUpdateElement,
+  selectedElementId,
+  showHeader,
+  borderStyle,
+  propInputStyle,
+  labelStyle,
+  toolbarBtnStyle,
+}: {
+  columns: TableColumn[];
+  expandedColumnIdx: number | null;
+  onExpandColumn: (idx: number | null) => void;
+  onUpdateColumns: (columns: TableColumn[]) => void;
+  onUpdateElement: (id: string, updates: Record<string, unknown>) => void;
+  selectedElementId: string;
+  showHeader: boolean;
+  borderStyle: string;
+  propInputStyle: React.CSSProperties;
+  labelStyle: React.CSSProperties;
+  toolbarBtnStyle: React.CSSProperties;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const columnIds = columns.map((_: TableColumn, i: number) => `col-${i}`);
+
+  return (
+    <div data-testid="properties-table" style={{ marginBottom: '16px' }}>
+      <label style={labelStyle}>Table Configuration</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input
+            id="prop-show-header"
+            data-testid="prop-show-header"
+            type="checkbox"
+            checked={showHeader}
+            onChange={(e) => onUpdateElement(selectedElementId, { showHeader: e.target.checked })}
+          />
+          <label htmlFor="prop-show-header" style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</label>
+        </div>
+        <div>
+          <label htmlFor="prop-border-style" style={{ fontSize: '11px', color: '#64748b' }}>Border Style</label>
+          <select
+            id="prop-border-style"
+            data-testid="prop-border-style"
+            style={propInputStyle}
+            value={borderStyle}
+            onChange={(e) => onUpdateElement(selectedElementId, { borderStyle: e.target.value as 'solid' | 'dashed' | 'none' })}
+          >
+            <option value="solid">Solid</option>
+            <option value="dashed">Dashed</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Columns <span style={{ fontSize: '10px', color: '#94a3b8' }}>(drag ⠿ to reorder)</span></label>
+          <div data-testid="column-list-container" style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={(event: DragEndEvent) => {
+                const { active, over } = event;
+                if (over && active.id !== over.id) {
+                  const oldIndex = columnIds.indexOf(String(active.id));
+                  const newIndex = columnIds.indexOf(String(over.id));
+                  const reordered = arrayMove([...columns], oldIndex, newIndex);
+                  onUpdateColumns(reordered);
+                }
+              }}
+            >
+              <SortableContext items={columnIds} strategy={verticalListSortingStrategy}>
+                {columns.map((col: TableColumn, colIdx: number) => (
+                  <SortableColumnItem
+                    key={`col-${colIdx}`}
+                    column={col}
+                    colIdx={colIdx}
+                    totalColumns={columns.length}
+                    isExpanded={expandedColumnIdx === colIdx}
+                    onToggleExpand={() => onExpandColumn(expandedColumnIdx === colIdx ? null : colIdx)}
+                    onChange={(updates) => {
+                      const newCols = [...columns];
+                      newCols[colIdx] = { ...newCols[colIdx], ...updates };
+                      onUpdateColumns(newCols);
+                    }}
+                    onRemove={() => {
+                      const newCols = columns.filter((_: TableColumn, i: number) => i !== colIdx);
+                      onUpdateColumns(newCols);
+                      if (expandedColumnIdx === colIdx) onExpandColumn(null);
+                    }}
+                    propInputStyle={propInputStyle}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          </div>
+          <button
+            data-testid="prop-add-column"
+            aria-label="Add table column"
+            style={{ ...toolbarBtnStyle, width: '100%', marginTop: '4px', fontSize: '11px' }}
+            onClick={() => {
+              const newCols: TableColumn[] = [...columns, { key: `col${columns.length + 1}`, header: `Column ${columns.length + 1}`, width: 80, align: 'left' }];
+              onUpdateColumns(newCols);
+            }}
+          >
+            + Add Column
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Sortable column item for drag-and-drop reordering in the properties panel */
 function SortableColumnItem({
   column,
@@ -648,6 +767,8 @@ export default function ErpDesigner({
   const [alignmentGuides, setAlignmentGuides] = useState<Array<{ type: 'horizontal' | 'vertical'; position: number; label?: string }>>([]);
   const [isDraggingElement, setIsDraggingElement] = useState(false);
   const dragStartRef = useRef<{ elementId: string; startX: number; startY: number; elStartX: number; elStartY: number } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<{ elementId: string; corner: 'tl' | 'tr' | 'bl' | 'br' | 'top' | 'right' | 'bottom' | 'left'; startX: number; startY: number; elStartX: number; elStartY: number; elStartW: number; elStartH: number } | null>(null);
   const SNAP_THRESHOLD = 5; // px distance to show guide and snap
 
   // ─── Grid snap state (Feature #59) ───
@@ -1416,6 +1537,7 @@ export default function ErpDesigner({
   const handleElementMouseDown = useCallback((e: React.MouseEvent, elementId: string) => {
     if (previewMode) return;
     if (e.button !== 0) return; // Only left click
+    if (isResizing) return; // Don't drag while resizing
     e.preventDefault();
     e.stopPropagation();
     const el = currentPage?.elements.find((el) => el.id === elementId);
@@ -1457,7 +1579,111 @@ export default function ErpDesigner({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
-  }, [currentPage, zoom, previewMode, calculateAlignmentGuides, updateElement, snapToGrid]);
+  }, [currentPage, zoom, previewMode, isResizing, calculateAlignmentGuides, updateElement, snapToGrid]);
+
+  // ─── Mouse-based element resize on canvas ───
+  const MIN_RESIZE_SIZE = 20; // minimum 20pt width/height
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent, elementId: string, corner: 'tl' | 'tr' | 'bl' | 'br' | 'top' | 'right' | 'bottom' | 'left') => {
+    if (previewMode) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = currentPage?.elements.find((el) => el.id === elementId);
+    if (!el) return;
+    resizeRef.current = {
+      elementId,
+      corner,
+      startX: e.clientX,
+      startY: e.clientY,
+      elStartX: el.x,
+      elStartY: el.y,
+      elStartW: el.w,
+      elStartH: el.h,
+    };
+    setIsResizing(true);
+    const scale = zoom / 100;
+
+    const handleResizeMove = (ev: MouseEvent) => {
+      if (!resizeRef.current) return;
+      const dx = (ev.clientX - resizeRef.current.startX) / scale;
+      const dy = (ev.clientY - resizeRef.current.startY) / scale;
+      const { elStartX, elStartY, elStartW, elStartH, corner: c } = resizeRef.current;
+      let newX = elStartX;
+      let newY = elStartY;
+      let newW = elStartW;
+      let newH = elStartH;
+
+      switch (c) {
+        case 'br':
+          newW = elStartW + dx;
+          newH = elStartH + dy;
+          break;
+        case 'bl':
+          newX = elStartX + dx;
+          newW = elStartW - dx;
+          newH = elStartH + dy;
+          break;
+        case 'tr':
+          newY = elStartY + dy;
+          newW = elStartW + dx;
+          newH = elStartH - dy;
+          break;
+        case 'tl':
+          newX = elStartX + dx;
+          newY = elStartY + dy;
+          newW = elStartW - dx;
+          newH = elStartH - dy;
+          break;
+        case 'top':
+          newY = elStartY + dy;
+          newH = elStartH - dy;
+          break;
+        case 'bottom':
+          newH = elStartH + dy;
+          break;
+        case 'left':
+          newX = elStartX + dx;
+          newW = elStartW - dx;
+          break;
+        case 'right':
+          newW = elStartW + dx;
+          break;
+      }
+
+      // Enforce minimum size
+      if (newW < MIN_RESIZE_SIZE) {
+        if (c === 'tl' || c === 'bl' || c === 'left') {
+          newX = elStartX + elStartW - MIN_RESIZE_SIZE;
+        }
+        newW = MIN_RESIZE_SIZE;
+      }
+      if (newH < MIN_RESIZE_SIZE) {
+        if (c === 'tl' || c === 'tr' || c === 'top') {
+          newY = elStartY + elStartH - MIN_RESIZE_SIZE;
+        }
+        newH = MIN_RESIZE_SIZE;
+      }
+
+      // Apply grid snapping
+      newX = snapToGrid(Math.max(0, Math.round(newX)));
+      newY = snapToGrid(Math.max(0, Math.round(newY)));
+      newW = Math.max(MIN_RESIZE_SIZE, snapToGrid(Math.round(newW)));
+      newH = Math.max(MIN_RESIZE_SIZE, snapToGrid(Math.round(newH)));
+
+      updateElement(resizeRef.current.elementId, { x: newX, y: newY, w: newW, h: newH });
+    };
+
+    const handleResizeUp = () => {
+      resizeRef.current = null;
+      setIsResizing(false);
+      setAlignmentGuides([]);
+      document.removeEventListener('mousemove', handleResizeMove);
+      document.removeEventListener('mouseup', handleResizeUp);
+    };
+
+    document.addEventListener('mousemove', handleResizeMove);
+    document.addEventListener('mouseup', handleResizeUp);
+  }, [currentPage, zoom, previewMode, updateElement, snapToGrid]);
 
   // ─── Multi-select helper: select/deselect with modifier ───
   const handleElementClick = useCallback((e: React.MouseEvent, elementId: string) => {
@@ -2859,7 +3085,7 @@ export default function ErpDesigner({
       height: `${el.h * scale}px`,
       border: borderStyle,
       borderRadius: isShape ? `${(el.cornerRadius || 0) * scale}px` : '2px',
-      cursor: previewMode ? 'default' : (isDraggingElement ? 'grabbing' : 'pointer'),
+      cursor: previewMode ? 'default' : (isDraggingElement ? 'grabbing' : 'move'),
       pointerEvents: previewMode ? 'none' : 'auto',
       boxSizing: 'border-box',
       overflow: isShape ? 'visible' : 'hidden',
@@ -3009,18 +3235,24 @@ export default function ErpDesigner({
         }}
       >
         {content}
-        {/* Selection handles */}
+        {/* Selection resize handles */}
         {(isSelected || isMultiSelected) && (
           <>
-            <div style={{ position: 'absolute', top: -4, left: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
-            <div style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
-            <div style={{ position: 'absolute', bottom: -4, left: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
-            <div style={{ position: 'absolute', bottom: -4, right: -4, width: 8, height: 8, backgroundColor: '#3b82f6', borderRadius: '50%', border: '1px solid white' }} />
+            {/* Corner handles */}
+            <div data-testid="resize-handle-tl" style={{ position: 'absolute', top: -6, left: -6, width: 12, height: 12, backgroundColor: '#3b82f6', borderRadius: '50%', border: '2px solid white', cursor: 'nwse-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'tl')} />
+            <div data-testid="resize-handle-tr" style={{ position: 'absolute', top: -6, right: -6, width: 12, height: 12, backgroundColor: '#3b82f6', borderRadius: '50%', border: '2px solid white', cursor: 'nesw-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'tr')} />
+            <div data-testid="resize-handle-bl" style={{ position: 'absolute', bottom: -6, left: -6, width: 12, height: 12, backgroundColor: '#3b82f6', borderRadius: '50%', border: '2px solid white', cursor: 'nesw-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bl')} />
+            <div data-testid="resize-handle-br" style={{ position: 'absolute', bottom: -6, right: -6, width: 12, height: 12, backgroundColor: '#3b82f6', borderRadius: '50%', border: '2px solid white', cursor: 'nwse-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'br')} />
+            {/* Edge handles */}
+            <div data-testid="resize-handle-top" style={{ position: 'absolute', top: -5, left: '50%', transform: 'translateX(-50%)', width: 10, height: 10, backgroundColor: '#3b82f6', borderRadius: '2px', border: '2px solid white', cursor: 'ns-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'top')} />
+            <div data-testid="resize-handle-bottom" style={{ position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)', width: 10, height: 10, backgroundColor: '#3b82f6', borderRadius: '2px', border: '2px solid white', cursor: 'ns-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'bottom')} />
+            <div data-testid="resize-handle-left" style={{ position: 'absolute', top: '50%', left: -5, transform: 'translateY(-50%)', width: 10, height: 10, backgroundColor: '#3b82f6', borderRadius: '2px', border: '2px solid white', cursor: 'ew-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'left')} />
+            <div data-testid="resize-handle-right" style={{ position: 'absolute', top: '50%', right: -5, transform: 'translateY(-50%)', width: 10, height: 10, backgroundColor: '#3b82f6', borderRadius: '2px', border: '2px solid white', cursor: 'ew-resize', zIndex: 10 }} onMouseDown={(e) => handleResizeMouseDown(e, el.id, 'right')} />
           </>
         )}
       </div>
     );
-  }, [zoom, selectedElementId, selectedElementIds, previewMode, isDraggingElement, handleElementClick, handleElementMouseDown]);
+  }, [zoom, selectedElementId, selectedElementIds, previewMode, isDraggingElement, handleElementClick, handleElementMouseDown, handleResizeMouseDown]);
 
   // ─── Properties Panel Rendering ───
 
@@ -3636,97 +3868,21 @@ export default function ErpDesigner({
         )}
 
         {/* Table column config - for table elements with drag-and-drop reorder */}
-        {category === 'table' && (() => {
-          const columns: TableColumn[] = selectedElement.columns || [];
-          const columnIds = columns.map((_: TableColumn, i: number) => `col-${i}`);
-          return (
-          <div data-testid="properties-table" style={{ marginBottom: '16px' }}>
-            <label style={labelStyle}>Table Configuration</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  id="prop-show-header"
-                  data-testid="prop-show-header"
-                  type="checkbox"
-                  checked={selectedElement.showHeader ?? true}
-                  onChange={(e) => updateElement(selectedElement.id, { showHeader: e.target.checked })}
-                />
-                <label htmlFor="prop-show-header" style={{ fontSize: '13px', color: '#334155' }}>Show Header Row</label>
-              </div>
-              <div>
-                <label htmlFor="prop-border-style" style={{ fontSize: '11px', color: '#64748b' }}>Border Style</label>
-                <select
-                  id="prop-border-style"
-                  data-testid="prop-border-style"
-                  style={propInputStyle}
-                  value={selectedElement.borderStyle || 'solid'}
-                  onChange={(e) => updateElement(selectedElement.id, { borderStyle: e.target.value as 'solid' | 'dashed' | 'none' })}
-                >
-                  <option value="solid">Solid</option>
-                  <option value="dashed">Dashed</option>
-                  <option value="none">None</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: '11px', color: '#64748b', display: 'block' }}>Columns <span style={{ fontSize: '10px', color: '#94a3b8' }}>(drag ⠿ to reorder)</span></label>
-                <div data-testid="column-list-container" style={{ border: '1px solid #e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
-                  <DndContext
-                    sensors={useSensors(
-                      useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-                      useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-                    )}
-                    collisionDetection={closestCenter}
-                    onDragEnd={(event: DragEndEvent) => {
-                      const { active, over } = event;
-                      if (over && active.id !== over.id) {
-                        const oldIndex = columnIds.indexOf(String(active.id));
-                        const newIndex = columnIds.indexOf(String(over.id));
-                        const reordered = arrayMove([...columns], oldIndex, newIndex);
-                        updateElement(selectedElement.id, { columns: reordered });
-                      }
-                    }}
-                  >
-                    <SortableContext items={columnIds} strategy={verticalListSortingStrategy}>
-                      {columns.map((col: TableColumn, colIdx: number) => (
-                        <SortableColumnItem
-                          key={`col-${colIdx}`}
-                          column={col}
-                          colIdx={colIdx}
-                          totalColumns={columns.length}
-                          isExpanded={expandedColumnIdx === colIdx}
-                          onToggleExpand={() => setExpandedColumnIdx(expandedColumnIdx === colIdx ? null : colIdx)}
-                          onChange={(updates) => {
-                            const newCols = [...columns];
-                            newCols[colIdx] = { ...newCols[colIdx], ...updates };
-                            updateElement(selectedElement.id, { columns: newCols });
-                          }}
-                          onRemove={() => {
-                            const newCols = columns.filter((_: TableColumn, i: number) => i !== colIdx);
-                            updateElement(selectedElement.id, { columns: newCols });
-                            if (expandedColumnIdx === colIdx) setExpandedColumnIdx(null);
-                          }}
-                          propInputStyle={propInputStyle}
-                        />
-                      ))}
-                    </SortableContext>
-                  </DndContext>
-                </div>
-                <button
-                  data-testid="prop-add-column"
-                  aria-label="Add table column"
-                  style={{ ...toolbarBtnStyle, width: '100%', marginTop: '4px', fontSize: '11px' }}
-                  onClick={() => {
-                    const newCols: TableColumn[] = [...columns, { key: `col${columns.length + 1}`, header: `Column ${columns.length + 1}`, width: 80, align: 'left' }];
-                    updateElement(selectedElement.id, { columns: newCols });
-                  }}
-                >
-                  + Add Column
-                </button>
-              </div>
-            </div>
-          </div>
-          );
-        })()}
+        {category === 'table' && (
+          <TableColumnConfigurator
+            columns={selectedElement.columns || []}
+            expandedColumnIdx={expandedColumnIdx}
+            onExpandColumn={setExpandedColumnIdx}
+            onUpdateColumns={(cols) => updateElement(selectedElement.id, { columns: cols })}
+            onUpdateElement={updateElement}
+            selectedElementId={selectedElement.id}
+            showHeader={selectedElement.showHeader ?? true}
+            borderStyle={selectedElement.borderStyle || 'solid'}
+            propInputStyle={propInputStyle}
+            labelStyle={labelStyle}
+            toolbarBtnStyle={toolbarBtnStyle}
+          />
+        )}
 
         {/* Data Binding section - for text, calculated, barcode, and QR elements */}
         {(category === 'text' || selectedElement.type === 'qr-barcode' || selectedElement.type === 'calculated') && (
