@@ -5888,3 +5888,32 @@ of undefined" (React error #321 - context mismatch between React versions).
 - .dockerignore - New file with build context exclusions
 
 ### Current Status: 416/416 features passing (100.0%)
+
+
+---
+
+## Session - 2026-03-19 - Features #417, #418 (TypeScript Build Fixes)
+
+### Completed Features:
+- **Feature #417**: Fix nest-module tsconfig moduleResolution for drizzle-orm subpath imports
+  - Changed module from commonjs to node16 in nest-module/tsconfig.json
+  - Changed moduleResolution from node to node16 for package.json exports support
+  - drizzle-orm, drizzle-orm/node-postgres, drizzle-orm/pg-core all resolve via exports
+  - Created src/globals.d.ts for Node.js timer globals (setTimeout, clearTimeout, etc.)
+  - types/node v25 removed timer globals from global scope, needed declarations
+  - Zero tsc errors, Docker build passes
+
+- **Feature #418**: Add type annotations for implicit any parameters
+  - Added typeof-based annotations to render.service.ts map callback (d parameter)
+  - Added typeof-based annotations to template.service.ts map callbacks (r, v, t parameters)
+  - Added as string[] cast for filter(Boolean) result in template type listing
+  - All parameters had proper inference from drizzle-orm - annotations added for code quality
+  - Zero tsc errors, Docker build passes, API health check OK
+
+### Key Files Modified:
+- nest-module/tsconfig.json - module/moduleResolution changed to node16
+- nest-module/src/globals.d.ts - NEW: Node.js timer global declarations
+- nest-module/src/render.service.ts - type annotation on map callback
+- nest-module/src/template.service.ts - type annotations on 4 map callbacks
+
+### Current Status: 418/418 features passing (100.0%)
