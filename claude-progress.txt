@@ -1,3 +1,36 @@
+## Session - 2026-03-19 - Feature #434 (Auto-fork System Templates on Load)
+
+### Completed Feature:
+- **Feature #434**: Auto-fork system templates on load in designer
+
+### What Was Verified:
+The auto-fork logic was already implemented in ErpDesigner.tsx (from a prior session). This session verified the implementation and added comprehensive tests.
+
+Frontend Logic (already present in ErpDesigner.tsx):
+- loadTemplate checks orgId after fetching template
+- Calls POST fork endpoint with original template name
+- On success: updates activeTemplateId, URL via replaceState, shows info toast
+- On failure: sets isReadOnly true, shows error toast with read-only mode message
+- Lock acquisition uses lockTemplateId which picks up forked template ID
+
+Test Results: 45/45 passing
+- Fork endpoint creates org-owned copy with draft status, version 1, forkedFromId
+- Fork preserves schema content identically
+- Fork with explicit name preserves it; without name adds Fork suffix
+- Multiple forks create independent unique copies
+- System template save blocked (403 on draft save, 404 on PUT)
+- Org-owned templates load and save normally without fork
+- Frontend code structure verified
+- Forked templates appear in template list with correct orgId and status
+
+Key Files:
+- apps/designer-sandbox/components/ErpDesigner.tsx - Auto-fork logic (already present)
+- tests/test-feature-434-auto-fork-system-template.js - 45 comprehensive tests
+
+Current Status: 427/431 features passing (99.1%)
+
+---
+
 ## Session - 2026-03-19 - Features #429, #430, #431 (Data Binding Field Schema)
 
 ### Completed Features:
