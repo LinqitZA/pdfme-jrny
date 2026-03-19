@@ -17,7 +17,8 @@ RUN npm ci --ignore-scripts
 # Stage 2: Build upstream packages + nest-module
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+#COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app ./
 COPY . .
 # Build upstream packages in order
 RUN npm run build:pdf-lib

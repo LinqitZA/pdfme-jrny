@@ -5917,3 +5917,50 @@ of undefined" (React error #321 - context mismatch between React versions).
 - nest-module/src/template.service.ts - type annotations on 4 map callbacks
 
 ### Current Status: 418/418 features passing (100.0%)
+
+---
+
+## Session - 2026-03-19 - Feature #419 (Rectangle Shape Element)
+
+### Completed Feature:
+- **Feature #419**: Add rectangle shape element with corner radius, border width, and shadow ✅
+
+### What Was Implemented:
+
+**New schema plugin:** `packages/erp-schemas/src/rectangle/index.ts`
+- RectangleSchema interface with cornerRadius, borderWidth, borderColor, fillColor, opacity, shadow
+- RectangleShadow interface with offsetX, offsetY, blur, color
+- parseHexColorWithAlpha() - parses #RGB, #RRGGBB, #RRGGBBAA formats
+- toUpstreamRectangleSchema() - converts ERP rectangle to upstream pdfme format
+- resolveRectangles() - resolves ERP rectangles in template, extracts shadow info
+- applyRectangleShadows() - post-processing step via pdf-lib for shadow rendering
+- Registered in erp-schemas index.ts with all exports
+
+**Designer UI changes:** `apps/designer-sandbox/components/ErpDesigner.tsx`
+- Added 'rectangle' to ElementType union
+- Added rectangle to getDefaultElement (120x80, border 1px black, no fill, no shadow)
+- Added 'shape' category to getElementCategory
+- Added 'Rectangle' to getElementTypeLabel
+- Added rectangle block to Layout category in BLOCK_CATEGORIES sidebar (▭ icon)
+- Canvas renders rectangle with CSS border, fill, cornerRadius, and box-shadow
+- Properties panel shows Shape Properties section with:
+  - Corner Radius, Border Width, Border Color, Fill Color (with clear button)
+  - Opacity, Shadow (offset X/Y, blur, color)
+- DesignElement interface extended with cornerRadius, borderWidth, borderColor, fillColor, shadow properties
+
+**Render pipeline:** `nest-module/src/render.service.ts`
+- Added resolveRectangles import from @pdfme-erp/schemas
+- Rectangle resolution step (3h2) converts ERP rectangles to upstream format
+- Shadow post-processing step (4c2) applies shadows via pdf-lib after PDF generation
+- Both render and preview pipelines updated
+
+### Key Files Modified:
+- packages/erp-schemas/src/rectangle/index.ts - NEW: Rectangle schema plugin
+- packages/erp-schemas/src/index.ts - Rectangle exports registered
+- apps/designer-sandbox/components/ErpDesigner.tsx - UI integration
+- nest-module/src/render.service.ts - Render pipeline integration
+- tests/test-feature-419-rectangle-shape.js - 47 comprehensive tests
+
+### Test Results: 47/47 tests passing
+### Current Status: 419/422 features passing (99.3%)
+
