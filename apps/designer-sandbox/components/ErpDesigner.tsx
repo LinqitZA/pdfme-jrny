@@ -104,7 +104,8 @@ type ElementType =
   | 'line-items'
   | 'grouped-table'
   | 'qr-barcode'
-  | 'watermark';
+  | 'watermark'
+  | 'rectangle';
 
 /** Full element model with type-specific properties */
 interface DesignElement {
@@ -144,6 +145,15 @@ interface DesignElement {
   visibilityCondition?: string;
   // Accessibility
   altText?: string;
+  // Rectangle/shape properties
+  cornerRadius?: number;
+  borderWidth?: number;
+  borderColor?: string;
+  fillColor?: string;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  shadowBlur?: number;
+  shadowColor?: string;
 }
 
 /** Represents a single page in the template */
@@ -332,13 +342,15 @@ function getDefaultElement(type: ElementType): Omit<DesignElement, 'id'> {
       return { ...base, w: 80, h: 80, content: '', binding: '' };
     case 'watermark':
       return { ...base, x: 100, y: 300, w: 395, h: 200, content: 'DRAFT', fontFamily: 'Helvetica', fontSize: 72, fontWeight: 'bold', fontStyle: 'normal', textAlign: 'center', color: '#00000015', opacity: 15, textOverflow: 'clip' };
+    case 'rectangle':
+      return { ...base, w: 120, h: 80, cornerRadius: 0, borderWidth: 1, borderColor: '#000000', fillColor: '', opacity: 100, shadowOffsetX: 0, shadowOffsetY: 0, shadowBlur: 0, shadowColor: '#00000040' };
     default:
       return { ...base, w: 100, h: 40 };
   }
 }
 
 /** Determine element type category for properties panel */
-function getElementCategory(type: ElementType): 'text' | 'image' | 'table' | 'other' {
+function getElementCategory(type: ElementType): 'text' | 'image' | 'table' | 'shape' | 'other' {
   switch (type) {
     case 'text':
     case 'rich-text':
@@ -353,6 +365,8 @@ function getElementCategory(type: ElementType): 'text' | 'image' | 'table' | 'ot
     case 'line-items':
     case 'grouped-table':
       return 'table';
+    case 'rectangle':
+      return 'shape';
     case 'qr-barcode':
     default:
       return 'other';
@@ -373,6 +387,7 @@ function getElementTypeLabel(type: ElementType): string {
     'grouped-table': 'Grouped Table',
     'qr-barcode': 'QR/Barcode',
     'watermark': 'Watermark',
+    'rectangle': 'Rectangle',
   };
   return labels[type] || type;
 }
@@ -403,6 +418,7 @@ const BLOCK_CATEGORIES = [
   {
     name: 'Layout',
     blocks: [
+      { id: 'rectangle' as ElementType, label: 'Rectangle', icon: '▭' },
       { id: 'watermark' as ElementType, label: 'Watermark', icon: 'Wm' },
     ],
   },
@@ -2833,7 +2849,8 @@ export default function ErpDesigner({
     const isMultiSelected = selectedElementIds.includes(el.id);
     const category = getElementCategory(el.type);
 
-    const borderStyle = !previewMode && (isSelected || isMultiSelected) ? '2px solid #3b82f6' : '1px solid #cbd5e1';
+    const isShape = category === 'shape';
+    const borderStyle = !previewMode && (isSelected || isMultiSelected) ? '2px solid #3b82f6' : (isShape ? 'none' : '1px solid #cbd5e1');
     const baseStyle: React.CSSProperties = {
       position: 'absolute',
       left: `${el.x * scale}px`,
@@ -2841,11 +2858,11 @@ export default function ErpDesigner({
       width: `${el.w * scale}px`,
       height: `${el.h * scale}px`,
       border: borderStyle,
-      borderRadius: '2px',
+      borderRadius: isShape ? `${(el.cornerRadius || 0) * scale}px` : '2px',
       cursor: previewMode ? 'default' : (isDraggingElement ? 'grabbing' : 'pointer'),
       pointerEvents: previewMode ? 'none' : 'auto',
       boxSizing: 'border-box',
-      overflow: 'hidden',
+      overflow: isShape ? 'visible' : 'hidden',
       backgroundColor: isMultiSelected && !isSelected ? 'rgba(59, 130, 246, 0.05)' : (category === 'image' ? '#f8fafc' : 'transparent'),
       // Crisp rendering at all zoom levels
       backfaceVisibility: 'hidden',
@@ -2932,6 +2949,28 @@ export default function ErpDesigner({
             {getElementTypeLabel(el.type)}
           </div>
         </div>
+      );
+    } else if (category === 'shape') {
+      const bw = (el.borderWidth || 0) * scale;
+      const shadowStyle: React.CSSProperties = {};
+      if (el.shadowOffsetX || el.shadowOffsetY || el.shadowBlur) {
+        shadowStyle.boxShadow = `${(el.shadowOffsetX || 0) * scale}px ${(el.shadowOffsetY || 0) * scale}px ${(el.shadowBlur || 0) * scale}px ${el.shadowColor || '#00000040'}`;
+      }
+      content = (
+        <div
+          data-testid={`shape-rect-${el.id}`}
+          style={{
+            width: '100%',
+            height: '100%',
+            boxSizing: 'border-box',
+            borderRadius: `${(el.cornerRadius || 0) * scale}px`,
+            border: bw > 0 ? `${bw}px solid ${el.borderColor || '#000000'}` : 'none',
+            backgroundColor: el.fillColor || 'transparent',
+            opacity: (el.opacity ?? 100) / 100,
+            ...shadowStyle,
+            userSelect: 'none',
+          }}
+        />
       );
     } else {
       content = (
@@ -3463,6 +3502,134 @@ export default function ErpDesigner({
                 <span style={{ fontSize: '10px', color: '#64748b', display: 'block', marginTop: '2px' }}>
                   Used in PDF/UA output for accessibility compliance
                 </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Shape properties - for rectangle elements */}
+        {category === 'shape' && (
+          <div data-testid="properties-shape" style={{ marginBottom: '16px' }}>
+            <label style={labelStyle}>Shape Properties</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div>
+                <label htmlFor="prop-corner-radius" style={{ fontSize: '11px', color: '#64748b' }}>Corner Radius (px)</label>
+                <input
+                  id="prop-corner-radius"
+                  data-testid="prop-corner-radius"
+                  type="number"
+                  min="0"
+                  style={propInputStyle}
+                  value={selectedElement.cornerRadius ?? 0}
+                  onChange={(e) => updateElement(selectedElement.id, { cornerRadius: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label htmlFor="prop-border-width" style={{ fontSize: '11px', color: '#64748b' }}>Border Width (px)</label>
+                <input
+                  id="prop-border-width"
+                  data-testid="prop-border-width"
+                  type="number"
+                  min="0"
+                  style={propInputStyle}
+                  value={selectedElement.borderWidth ?? 1}
+                  onChange={(e) => updateElement(selectedElement.id, { borderWidth: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label htmlFor="prop-border-color" style={{ fontSize: '11px', color: '#64748b' }}>Border Color</label>
+                <input
+                  id="prop-border-color"
+                  data-testid="prop-border-color"
+                  type="color"
+                  style={{ ...propInputStyle, height: '32px', padding: '2px' }}
+                  value={selectedElement.borderColor || '#000000'}
+                  onChange={(e) => updateElement(selectedElement.id, { borderColor: e.target.value })}
+                />
+              </div>
+              <div>
+                <label htmlFor="prop-fill-color" style={{ fontSize: '11px', color: '#64748b' }}>Fill Color</label>
+                <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                  <input
+                    id="prop-fill-color"
+                    data-testid="prop-fill-color"
+                    type="color"
+                    style={{ ...propInputStyle, height: '32px', padding: '2px', flex: 1 }}
+                    value={selectedElement.fillColor || '#ffffff'}
+                    onChange={(e) => updateElement(selectedElement.id, { fillColor: e.target.value })}
+                  />
+                  <button
+                    data-testid="btn-clear-fill"
+                    style={{ fontSize: '10px', padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', cursor: 'pointer', backgroundColor: '#f8fafc' }}
+                    onClick={() => updateElement(selectedElement.id, { fillColor: '' })}
+                    title="Set transparent fill"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="prop-shape-opacity" style={{ fontSize: '11px', color: '#64748b' }}>Opacity (%)</label>
+                <input
+                  id="prop-shape-opacity"
+                  data-testid="prop-shape-opacity"
+                  type="number"
+                  min="0"
+                  max="100"
+                  style={propInputStyle}
+                  value={selectedElement.opacity ?? 100}
+                  onChange={(e) => updateElement(selectedElement.id, { opacity: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+            <label style={{ ...labelStyle, marginTop: '12px' }}>Shadow</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div>
+                  <label htmlFor="prop-shadow-offset-x" style={{ fontSize: '11px', color: '#64748b' }}>Offset X</label>
+                  <input
+                    id="prop-shadow-offset-x"
+                    data-testid="prop-shadow-offset-x"
+                    type="number"
+                    style={propInputStyle}
+                    value={selectedElement.shadowOffsetX ?? 0}
+                    onChange={(e) => updateElement(selectedElement.id, { shadowOffsetX: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="prop-shadow-offset-y" style={{ fontSize: '11px', color: '#64748b' }}>Offset Y</label>
+                  <input
+                    id="prop-shadow-offset-y"
+                    data-testid="prop-shadow-offset-y"
+                    type="number"
+                    style={propInputStyle}
+                    value={selectedElement.shadowOffsetY ?? 0}
+                    onChange={(e) => updateElement(selectedElement.id, { shadowOffsetY: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+              <div>
+                <label htmlFor="prop-shadow-blur" style={{ fontSize: '11px', color: '#64748b' }}>Blur Radius</label>
+                <input
+                  id="prop-shadow-blur"
+                  data-testid="prop-shadow-blur"
+                  type="number"
+                  min="0"
+                  style={propInputStyle}
+                  value={selectedElement.shadowBlur ?? 0}
+                  onChange={(e) => updateElement(selectedElement.id, { shadowBlur: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label htmlFor="prop-shadow-color" style={{ fontSize: '11px', color: '#64748b' }}>Shadow Color</label>
+                <input
+                  id="prop-shadow-color"
+                  data-testid="prop-shadow-color"
+                  type="color"
+                  style={{ ...propInputStyle, height: '32px', padding: '2px' }}
+                  value={(selectedElement.shadowColor || '#000000').slice(0, 7)}
+                  onChange={(e) => updateElement(selectedElement.id, { shadowColor: e.target.value + '40' })}
+                />
               </div>
             </div>
           </div>

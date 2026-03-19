@@ -28,6 +28,8 @@ import {
   applySignatureBlocks,
   resolveCalculatedFields,
   resolveCurrencyFields,
+  resolveRectangles,
+  applyRectangleShadows,
   ExpressionEngine,
 } from '@pdfme-erp/schemas';
 import type { RichTextRenderInfo, SignatureBlockRenderInfo } from '@pdfme-erp/schemas';
@@ -541,7 +543,12 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     pdfmeTemplate = resolvedCurrency.template as typeof pdfmeTemplate;
     inputs = resolvedCurrency.inputs;
 
-    // 3h2. Resolve missing images with placeholder rectangles
+    // 3h2. Resolve ERP rectangle elements - convert to upstream format and extract shadows
+    const rectResult = resolveRectangles(pdfmeTemplate, inputs);
+    pdfmeTemplate = rectResult.template as typeof pdfmeTemplate;
+    const rectangleShadows = rectResult.shadowElements;
+
+    // 3h3. Resolve missing images with placeholder rectangles
     const placeholderImages = this.resolveMissingImages(pdfmeTemplate, inputs);
 
     // 3i. Extract watermark config (if any watermark element exists in template)
@@ -665,6 +672,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       } catch (err: unknown) {
         console.error('Watermark application failed:', err);
         // Continue without watermark rather than failing the entire render
+      }
+    }
+
+    // 4c2. Apply rectangle shadows if any
+    if (rectangleShadows.length > 0) {
+      try {
+        pdfBuffer = await applyRectangleShadows(pdfBuffer, rectangleShadows);
+      } catch (err: unknown) {
+        console.error('Rectangle shadow application failed:', err);
       }
     }
 
@@ -2210,7 +2226,12 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     pdfmeTemplate = resolvedCurrency.template as typeof pdfmeTemplate;
     inputs = resolvedCurrency.inputs;
 
-    // 3h2. Resolve missing images with placeholder rectangles
+    // 3h2. Resolve ERP rectangle elements
+    const previewRectResult = resolveRectangles(pdfmeTemplate, inputs);
+    pdfmeTemplate = previewRectResult.template as typeof pdfmeTemplate;
+    const previewRectShadows = previewRectResult.shadowElements;
+
+    // 3h3. Resolve missing images with placeholder rectangles
     const previewPlaceholders = this.resolveMissingImages(pdfmeTemplate, inputs);
 
     // 3i. Extract and remove watermark elements (template's own watermark)
@@ -2280,6 +2301,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, allPreviewPlaceholders);
       } catch {
         // Continue without placeholder overlays
+      }
+    }
+
+    // 4c2. Apply rectangle shadows for preview
+    if (previewRectShadows.length > 0) {
+      try {
+        pdfBuffer = await applyRectangleShadows(pdfBuffer, previewRectShadows);
+      } catch (err: unknown) {
+        console.error('Preview rectangle shadow application failed:', err);
       }
     }
 

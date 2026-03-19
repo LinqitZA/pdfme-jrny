@@ -20,6 +20,8 @@ export { calculatedField, resolveCalculatedFields } from './calculated-field';
 export { currencyField, resolveCurrencyFields } from './currency-field';
 export { richText, resolveRichText, applyRichText } from './rich-text';
 export type { RichTextRenderInfo } from './rich-text';
+export { rectangle, resolveRectangles, applyRectangleShadows, parseHexColorWithAlpha, toUpstreamRectangleSchema, RECTANGLE_DEFAULTS, SHADOW_DEFAULTS } from './rectangle';
+export type { RectangleSchema, RectangleShadow } from './rectangle';
 
 // Expression engine
 export { ExpressionEngine } from './expression-engine';
