@@ -7,8 +7,8 @@
  * This allows developers to browse the designer-sandbox directly without
  * needing to manually construct JWT tokens.
  *
- * SECURITY: This token is only generated when NODE_ENV !== 'production'.
- * The dev secret is publicly known and must never be used in production.
+ * SECURITY: The dev secret is publicly known and must never be used in production.
+ * The sandbox always generates dev tokens unless an explicit authToken is provided.
  */
 
 const DEV_JWT_SECRET = 'pdfme-dev-secret';
@@ -140,13 +140,14 @@ export function generateDevTokenSync(): string {
 
 /**
  * Check if we should use a dev token.
- * Returns true when:
- * 1. No explicit authToken is provided
- * 2. NODE_ENV is not 'production'
+ * Returns true when no explicit authToken is provided.
+ * The designer-sandbox is inherently a dev/demo tool, so we always
+ * auto-generate tokens unless an explicit authToken is provided.
+ * (Removed NODE_ENV === 'production' guard because next build bakes
+ * NODE_ENV=production into the client bundle, breaking Docker builds.)
  */
 export function shouldUseDevToken(authToken: string | undefined | null): boolean {
   if (authToken) return false;
-  if (process.env.NODE_ENV === 'production') return false;
   return true;
 }
 

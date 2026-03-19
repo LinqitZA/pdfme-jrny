@@ -4,19 +4,27 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useState, useEffect, useCallback } from 'react';
 import ErpDesigner from '@/components/ErpDesigner';
 import type { FieldSchemaEntry, BrandConfig } from '@/components/ErpDesigner';
-import { getAuthToken } from '@/lib/dev-token';
+import { generateDevToken } from '@/lib/dev-token';
 
 function DesignerContent() {
   const searchParams = useSearchParams();
   const templateId = searchParams.get('templateId') || undefined;
   const templateName = searchParams.get('templateName') || 'Invoice Template';
   const orgId = searchParams.get('orgId') || undefined;
-  const authToken = getAuthToken(searchParams.get('authToken'));
+  const explicitToken = searchParams.get('authToken') || undefined;
+  const [authToken, setAuthToken] = useState<string | undefined>(explicitToken);
   const autoSaveInterval = searchParams.get('autoSaveInterval')
     ? parseInt(searchParams.get('autoSaveInterval')!, 10)
     : 30000;
   const canPublish = searchParams.get('canPublish') !== 'false';
   const canExportJson = searchParams.get('canExportJson') !== 'false';
+
+  // Auto-generate dev token if no explicit token provided
+  useEffect(() => {
+    if (!explicitToken) {
+      generateDevToken().then(setAuthToken);
+    }
+  }, [explicitToken]);
 
   // Support external prop updates via window message or global for host app integration
   const [fieldSchema, setFieldSchema] = useState<FieldSchemaEntry[] | undefined>(undefined);

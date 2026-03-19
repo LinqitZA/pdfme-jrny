@@ -1,14 +1,21 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
-import { Suspense } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import TemplateList from '@/components/TemplateList';
-import { getAuthToken } from '@/lib/dev-token';
+import { generateDevToken } from '@/lib/dev-token';
 
 function TemplateListContent() {
   const searchParams = useSearchParams();
   const orgId = searchParams.get('orgId') || undefined;
-  const authToken = getAuthToken(searchParams.get('authToken'));
+  const explicitToken = searchParams.get('authToken') || undefined;
+  const [authToken, setAuthToken] = useState<string | undefined>(explicitToken);
+
+  useEffect(() => {
+    if (!explicitToken) {
+      generateDevToken().then(setAuthToken);
+    }
+  }, [explicitToken]);
 
   const handleSelectTemplate = (template: { id: string; name: string }) => {
     const params = new URLSearchParams();
