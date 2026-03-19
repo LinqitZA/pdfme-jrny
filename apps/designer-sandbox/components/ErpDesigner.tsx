@@ -132,6 +132,8 @@ interface DesignElement {
   columns?: Array<{ key: string; header: string; width: number; align?: 'left' | 'center' | 'right'; format?: string }>;
   showHeader?: boolean;
   borderStyle?: 'solid' | 'dashed' | 'none';
+  /** Array data source name for table elements (e.g., 'lineItems') - Feature #430 */
+  dataSource?: string;
   // Data binding
   binding?: string;
   // Page visibility scope
@@ -336,7 +338,7 @@ function getDefaultElement(type: ElementType): Omit<DesignElement, 'id'> {
     case 'drawn-signature':
       return { ...base, w: 200, h: 60, src: '', objectFit: 'contain', opacity: 100 };
     case 'line-items':
-      return { ...base, w: 495, h: 200, columns: [{ key: 'description', header: 'Description', width: 200 }, { key: 'qty', header: 'Qty', width: 60 }, { key: 'price', header: 'Price', width: 80 }, { key: 'total', header: 'Total', width: 80 }], showHeader: true, borderStyle: 'solid' };
+      return { ...base, w: 495, h: 200, columns: [{ key: 'description', header: 'Description', width: 200 }, { key: 'qty', header: 'Qty', width: 60 }, { key: 'price', header: 'Price', width: 80 }, { key: 'total', header: 'Total', width: 80 }], showHeader: true, borderStyle: 'solid', dataSource: 'lineItems' };
     case 'grouped-table':
       return { ...base, w: 495, h: 250, columns: [{ key: 'group', header: 'Group', width: 150 }, { key: 'value', header: 'Value', width: 100 }], showHeader: true, borderStyle: 'solid' };
     case 'qr-barcode':
@@ -1173,8 +1175,48 @@ export default function ErpDesigner({
           throw new Error(errBody.message || `Failed to load template (${response.status})`);
         }
 
-        const template = await response.json();
+        let template = await response.json();
         if (cancelled) return;
+
+        // ─── Auto-fork system templates (orgId=null) so edits go to an org-owned copy ───
+        if (template.orgId === null || template.orgId === undefined) {
+          try {
+            const forkRes = await fetch(`${apiBase}/templates/${activeTemplateId}/fork`, {
+              method: 'POST',
+              headers: { ...headers, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name: template.name }),
+              signal: abortController.signal,
+            });
+            if (forkRes.ok) {
+              const forkedTemplate = await forkRes.json();
+              if (cancelled) return;
+              // Switch to the forked copy
+              setActiveTemplateId(forkedTemplate.id);
+              const url = new URL(window.location.href);
+              url.searchParams.set('templateId', forkedTemplate.id);
+              window.history.replaceState({}, '', url.toString());
+              // Use forked template data going forward
+              template = forkedTemplate;
+              addToast('info', 'Forked from system template — editing your own copy', 5000);
+            } else {
+              // Fork failed — enter read-only mode
+              if (!cancelled) {
+                setIsReadOnly(true);
+                setLockHolder('system');
+                const errBody = await forkRes.json().catch(() => ({ message: `Fork failed (${forkRes.status})` }));
+                addToast('error', `This is a system template. Fork failed — read-only mode. ${errBody.message || ''}`, 8000);
+              }
+            }
+          } catch (forkErr: unknown) {
+            if (cancelled) return;
+            if (forkErr instanceof DOMException && forkErr.name === 'AbortError') return;
+            if (!cancelled) {
+              setIsReadOnly(true);
+              setLockHolder('system');
+              addToast('error', 'This is a system template. Fork failed — read-only mode.', 8000);
+            }
+          }
+        }
 
         // Populate state from template data
         if (template.status) {
@@ -1235,9 +1277,10 @@ export default function ErpDesigner({
           }
         }
 
-        // ─── Attempt to acquire edit lock ───
+        // ─── Attempt to acquire edit lock (use template.id which may be the forked copy) ───
+        const lockTemplateId = template.id || activeTemplateId;
         try {
-          const lockRes = await fetch(`${apiBase}/templates/${activeTemplateId}/lock`, {
+          const lockRes = await fetch(`${apiBase}/templates/${lockTemplateId}/lock`, {
             method: 'POST',
             headers,
           });
@@ -1261,7 +1304,7 @@ export default function ErpDesigner({
         } catch {
           // Lock acquisition failed - check lock status as fallback
           try {
-            const statusRes = await fetch(`${apiBase}/templates/${activeTemplateId}/lock`, { headers });
+            const statusRes = await fetch(`${apiBase}/templates/${lockTemplateId}/lock`, { headers });
             if (statusRes.ok) {
               const statusData = await statusRes.json().catch(() => ({}));
               if (!cancelled && statusData.locked && statusData.lockedBy) {
@@ -3122,29 +3165,65 @@ export default function ErpDesigner({
     setBindingSearch('');
   }, [selectedElementId, updateElement]);
 
-  // Filtered data fields for binding search
-  const filteredFields = useMemo(() => {
-    if (!bindingSearch) return dataFields;
-    const q = bindingSearch.toLowerCase();
+  // ─── Scalar vs Array field separation (Feature #430) ───
+  // Scalar fields: for text/calculated element bindings (e.g., document.number)
+  // Array fields: for table column key mapping (e.g., lineItems[].description)
+  const scalarFields = useMemo(() => {
     return dataFields.map((group) => ({
       ...group,
-      fields: group.fields.filter(
-        (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
-      ),
+      fields: group.fields.filter((f) => !f.key.includes('[].')),
     })).filter((g) => g.fields.length > 0);
-  }, [bindingSearch, dataFields]);
+  }, [dataFields]);
 
-  // Filtered data fields for Fields tab search
-  const filteredFieldTabFields = useMemo(() => {
-    if (!fieldTabSearch) return dataFields;
-    const q = fieldTabSearch.toLowerCase();
-    return dataFields.map((group) => ({
+  const arrayFieldGroups = useMemo(() => {
+    // Group array fields by their parent array name (e.g., lineItems[].* → "lineItems")
+    const grouped: Record<string, { label: string; parentKey: string; fields: Array<{ key: string; label: string; example: string; columnKey: string }> }> = {};
+    for (const group of dataFields) {
+      for (const field of group.fields) {
+        const arrMatch = field.key.match(/^([^[]+)\[\]\.(.+)$/);
+        if (arrMatch) {
+          const parentKey = arrMatch[1];
+          const columnKey = arrMatch[2];
+          if (!grouped[parentKey]) {
+            grouped[parentKey] = { label: group.group, parentKey, fields: [] };
+          }
+          grouped[parentKey].fields.push({
+            key: field.key,
+            label: field.label,
+            example: field.example,
+            columnKey,
+          });
+        }
+      }
+    }
+    return grouped;
+  }, [dataFields]);
+
+  // Filtered data fields for binding search (scalar only for text/calculated elements)
+  const filteredFields = useMemo(() => {
+    const base = scalarFields;
+    if (!bindingSearch) return base;
+    const q = bindingSearch.toLowerCase();
+    return base.map((group) => ({
       ...group,
       fields: group.fields.filter(
         (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
       ),
     })).filter((g) => g.fields.length > 0);
-  }, [fieldTabSearch, dataFields]);
+  }, [bindingSearch, scalarFields]);
+
+  // Filtered data fields for Fields tab search (scalar only)
+  const filteredFieldTabFields = useMemo(() => {
+    const base = scalarFields;
+    if (!fieldTabSearch) return base;
+    const q = fieldTabSearch.toLowerCase();
+    return base.map((group) => ({
+      ...group,
+      fields: group.fields.filter(
+        (f) => f.key.toLowerCase().includes(q) || f.label.toLowerCase().includes(q)
+      ),
+    })).filter((g) => g.fields.length > 0);
+  }, [fieldTabSearch, scalarFields]);
 
   // ─── Element visual representation on canvas ───
   const renderCanvasElement = useCallback((el: DesignElement) => {
@@ -5109,6 +5188,8 @@ export default function ErpDesigner({
       data-merged-field-groups={String(mergedDataFields.length)}
       data-field-schema-source={apiFieldSchema ? 'api' : 'hardcoded'}
       data-field-schema-template-type={templateType || ''}
+      data-scalar-field-groups={String(scalarFields.length)}
+      data-array-field-sources={Object.keys(arrayFieldGroups).join(',')}
       style={{
         ...brandStyles,
         display: 'flex',
