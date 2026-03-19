@@ -46,7 +46,7 @@
   "dependencies": {
     "@pdfme/common": "*",
     "@pdfme/pdf-lib": "*",
-    "pdfjs-dist": "^3.11.174"
+    "pdfjs-dist": "^5.5.0"
   },
   "devDependencies": {
     "@pdfme/generator": "*",
