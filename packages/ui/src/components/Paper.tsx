@@ -1,9 +1,9 @@
-import React, { MutableRefObject, ReactNode, useContext } from 'react';
+import React, { MutableRefObject, ReactNode, useContext, forwardRef, Ref } from 'react';
 import { ZOOM, SchemaForUI, Size, getFallbackFontName } from '@pdfme/common';
 import { FontContext } from '../contexts.js';
 import { RULER_HEIGHT, PAGE_GAP } from '../constants.js';
 
-const Paper = (props: {
+interface PaperProps {
   paperRefs: MutableRefObject<HTMLDivElement[]>;
   scale: number;
   size: Size;
@@ -13,7 +13,9 @@ const Paper = (props: {
   renderPaper: (arg: { index: number; paperSize: Size }) => ReactNode;
   renderSchema: (arg: { index: number; schema: SchemaForUI }) => ReactNode;
   hasRulers?: boolean;
-}) => {
+}
+
+const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
   const {
     paperRefs,
     scale,
@@ -34,6 +36,7 @@ const Paper = (props: {
 
   return (
     <div
+      ref={ref}
       style={{
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
@@ -113,5 +116,7 @@ const Paper = (props: {
     </div>
   );
 };
+
+const Paper = forwardRef<HTMLDivElement, PaperProps>(PaperInner);
 
 export default Paper;

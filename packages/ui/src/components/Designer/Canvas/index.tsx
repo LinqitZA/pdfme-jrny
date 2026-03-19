@@ -124,6 +124,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const verticalGuides = useRef<GuidesInterface[]>([]);
   const horizontalGuides = useRef<GuidesInterface[]>([]);
   const moveable = useRef<MoveableComponent>(null);
+  const paperScaleRef = useRef<HTMLDivElement>(null);
 
   const [isPressShiftKey, setIsPressShiftKey] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -413,6 +414,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
         }}
       />
       <Paper
+        ref={paperScaleRef}
         paperRefs={paperRefs}
         scale={scale}
         size={size}
@@ -454,6 +456,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                 <Moveable
                   ref={moveable}
                   target={activeElements}
+                  container={paperScaleRef.current}
                   bounds={{ left: 0, top: 0, bottom: paperSize.height, right: paperSize.width }}
                   horizontalGuidelines={getGuideLines(horizontalGuides.current, index)}
                   verticalGuidelines={getGuideLines(verticalGuides.current, index)}
