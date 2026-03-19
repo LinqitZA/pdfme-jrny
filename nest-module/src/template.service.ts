@@ -302,7 +302,7 @@ export class TemplateService {
       .from(templates)
       .where(and(...conditions));
 
-    const types = [...new Set(rows.map(r => r.type).filter(Boolean))].sort();
+    const types = [...new Set(rows.map((r: typeof rows[number]) => r.type).filter(Boolean))].sort() as string[];
     return types;
   }
 
@@ -921,7 +921,7 @@ export class TemplateService {
     if (allVersions.length <= maxVersions) return;
 
     // Delete versions beyond the cap
-    const idsToDelete = allVersions.slice(maxVersions).map(v => v.id);
+    const idsToDelete = allVersions.slice(maxVersions).map((v: typeof allVersions[number]) => v.id);
     if (idsToDelete.length > 0) {
       await this.db
         .delete(templateVersions)
@@ -1384,7 +1384,7 @@ export class TemplateService {
         ),
       );
     if (existingWithName.length > 0) {
-      const existingNames = new Set(existingWithName.map((t) => t.name));
+      const existingNames = new Set(existingWithName.map((t: typeof existingWithName[number]) => t.name));
       // Try (Import), (Import 2), (Import 3), etc.
       let suffix = '';
       let counter = 1;
@@ -1457,7 +1457,7 @@ export class TemplateService {
         or(eq(templates.orgId, orgId), isNull(templates.orgId)),
       );
 
-    const templateData = orgTemplates.map((t) => ({
+    const templateData = orgTemplates.map((t: typeof orgTemplates[number]) => ({
       id: t.id,
       name: t.name,
       type: t.type,
@@ -1735,7 +1735,7 @@ export class TemplateService {
           ),
         );
       if (existingWithName.length > 0) {
-        const existingNames = new Set(existingWithName.map((t) => t.name));
+        const existingNames = new Set(existingWithName.map((t: typeof existingWithName[number]) => t.name));
         if (existingNames.has(importName)) {
           let counter = 1;
           let suffix = '';

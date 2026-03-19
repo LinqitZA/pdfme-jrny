@@ -2528,7 +2528,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       })
       .from(generatedDocuments)
       .where(and(...conditions));
-    return docs.map(d => ({
+    return docs.map((d: typeof docs[number]) => ({
       ...d,
       hasInputSnapshot: d.inputSnapshot != null,
     }));
