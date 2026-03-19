@@ -9,7 +9,7 @@
 import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc, inArray, ilike } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
-import { Parser } from 'expr-eval';
+import { Parser } from 'expr-eval-fork';
 import { templates, templateVersions, userSignatures } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { AuditService } from './audit.service';
@@ -436,7 +436,7 @@ export class TemplateService {
    * Returns array of validation errors (empty = valid).
    */
   /**
-   * Try to parse and evaluate an expression string using expr-eval.
+   * Try to parse and evaluate an expression string using expr-eval-fork.
    * Returns null if valid, or an error message string if invalid.
    * Known functions are registered as stubs so they don't cause false positives.
    * Unknown variables are allowed (they represent field references at runtime).

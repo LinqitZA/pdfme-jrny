@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@pdfme/common": "*",
-    "expr-eval": "^2.0.2",
+    "expr-eval-fork": "^3.0.1",
     "dompurify": "^3.0.0",
     "signature_pad": "^4.2.0"
   },

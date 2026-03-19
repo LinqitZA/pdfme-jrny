@@ -1,7 +1,7 @@
 /**
  * Expression Engine
  *
- * Built on expr-eval (MIT) with custom extensions:
+ * Built on expr-eval-fork (MIT) with custom extensions:
  * - Arithmetic with field references
  * - String: LEFT, RIGHT, MID, UPPER, LOWER, TRIM, CONCAT, LEN,
  *           PADLEFT, PADRIGHT, REPLACE, SUBSTITUTE, SPLIT, FIND
@@ -12,7 +12,7 @@
  * - Sandboxed: no Node.js globals, no require(), no eval()
  */
 
-import { Parser, Value } from 'expr-eval';
+import { Parser, Value } from 'expr-eval-fork';
 
 export type ExpressionErrorMode = 'emptyString' | '#ERROR' | 'fail';
 
