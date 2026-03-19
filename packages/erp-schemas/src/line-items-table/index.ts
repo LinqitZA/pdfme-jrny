@@ -640,11 +640,22 @@ export function resolveLineItemsTables(
   };
 }
 
+import { uiRender } from './ui';
+import { pdfRender } from './pdf';
+import { propPanel } from './propPanel';
+
+/**
+ * Line Items Table icon - table grid SVG
+ */
+const LINE_ITEMS_TABLE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>';
+
 /**
  * The lineItemsTable plugin definition.
  *
- * The line items table is resolved by the render service before pdfme generate().
- * It converts to a standard pdfme table with footer rows appended to body data.
+ * Implements the full pdfme Plugin interface with pdf(), ui(), and propPanel
+ * members. The line items table is typically pre-resolved by the render service
+ * before pdfme generate(), but this Plugin implementation ensures the designer
+ * can render previews and configure properties without crashing.
  */
 export const lineItemsTable = {
   /**
@@ -707,6 +718,28 @@ export const lineItemsTable = {
       fontSize: 8,
     },
   },
+
+  /**
+   * PDF renderer - renders a table directly to the PDF page.
+   * Normally lineItemsTable is pre-resolved to a standard table by the render service,
+   * but this serves as a fallback if the element reaches the generator unresolved.
+   */
+  pdf: pdfRender,
+
+  /**
+   * UI renderer - renders a visual table preview on the designer canvas.
+   */
+  ui: uiRender,
+
+  /**
+   * Property panel - configures the property editor in the designer sidebar.
+   */
+  propPanel,
+
+  /**
+   * Icon for the element palette.
+   */
+  icon: LINE_ITEMS_TABLE_ICON,
 
   /**
    * Resolve line items tables in a template.

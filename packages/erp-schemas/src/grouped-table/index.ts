@@ -472,7 +472,88 @@ export class GroupedTable {
   }
 }
 
-// Default export for backward compatibility
+import { uiRender } from './ui';
+import { pdfRender } from './pdf';
+import { propPanel } from './propPanel';
+
+/**
+ * Grouped Table icon - layered table SVG
+ */
+const GROUPED_TABLE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="12" y1="3" x2="12" y2="21"/><rect x="5" y="5" width="4" height="2" rx="0.5" fill="currentColor" opacity="0.3"/></svg>';
+
+/**
+ * The groupedTable plugin definition.
+ *
+ * Implements the full pdfme Plugin interface with type, defaultSchema,
+ * pdf(), ui(), propPanel, and icon. Also provides the GroupedTable class
+ * for backward compatibility with existing code that uses it directly.
+ */
 export const groupedTable = {
+  /**
+   * Type identifier for this schema
+   */
+  type: 'groupedTable' as const,
+
+  /**
+   * Default properties for a new groupedTable element
+   */
+  defaultSchema: {
+    type: 'groupedTable',
+    content: '[]',
+    position: { x: 10, y: 60 },
+    width: 190,
+    height: 150,
+    columns: [
+      { key: 'category', header: 'Category', width: 60, align: 'left' as const },
+      { key: 'item', header: 'Item', width: 80, align: 'left' as const },
+      { key: 'amount', header: 'Amount', width: 50, align: 'right' as const, format: '#,##0.00', aggregation: 'SUM' as const },
+    ],
+    groupBy: ['category'],
+    showGroupHeaders: true,
+    showGroupFooters: true,
+    showGrandTotal: true,
+    alternateRowShading: false,
+    headerStyle: {
+      fontWeight: 'bold' as const,
+      borderBottom: '1px solid #000',
+    },
+    groupHeaderStyle: {
+      backgroundColor: '#d0d0d0',
+      fontWeight: 'bold' as const,
+    },
+    groupFooterStyle: {
+      fontWeight: 'bold' as const,
+      borderBottom: '1px solid #999',
+    },
+    grandTotalStyle: {
+      fontWeight: 'bold' as const,
+      borderBottom: '2px solid #000',
+      backgroundColor: '#e0e0e0',
+    },
+  },
+
+  /**
+   * PDF renderer - renders a grouped table to the PDF page.
+   */
+  pdf: pdfRender,
+
+  /**
+   * UI renderer - renders a visual grouped table preview on the designer canvas.
+   */
+  ui: uiRender,
+
+  /**
+   * Property panel - configures the property editor in the designer sidebar.
+   */
+  propPanel,
+
+  /**
+   * Icon for the element palette.
+   */
+  icon: GROUPED_TABLE_ICON,
+
+  /**
+   * The GroupedTable class for programmatic use (backward compatible).
+   */
   GroupedTable,
 };
