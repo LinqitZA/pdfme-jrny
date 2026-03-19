@@ -5864,3 +5864,27 @@ of undefined" (React error #321 - context mismatch between React versions).
 
 ### Test Results: 166/166 tests passing across 3 features
 ### Current Status: 414/414 features passing (100.0%) 🎉
+
+---
+
+## Session - 2026-03-19 - Features #415, #416 (Docker Build Fixes)
+
+### Completed Features:
+- **Feature #415**: Add missing workspace package.json copies to Dockerfile deps stage ✅
+  - Added COPY for packages/manipulator/package.json, packages/ui/package.json, apps/designer-sandbox/package.json
+  - These 3 missing packages caused npm ci to produce incomplete node_modules tree
+  - Without them, drizzle-orm and other deps weren't hoisted correctly → TypeScript errors
+  - Full Docker build succeeds, API health check passes, E2E tests pass (39/39)
+
+- **Feature #416**: Add .dockerignore to prevent unnecessary context in Docker builds ✅
+  - Created .dockerignore at repo root
+  - Excludes: node_modules, .git, .github, .vscode, .playwright, .next, .autoforge, screenshots, tests, docs
+  - Reduces Docker build context size significantly
+  - Note: cannot exclude **/node_modules or **/dist as those break the multi-stage build
+  - Full no-cache rebuild verified, API healthy, E2E tests pass (39/39)
+
+### Key Files Modified:
+- nest-module/Dockerfile - Added 3 missing COPY lines for workspace package.json files
+- .dockerignore - New file with build context exclusions
+
+### Current Status: 416/416 features passing (100.0%)
