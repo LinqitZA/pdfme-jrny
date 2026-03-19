@@ -5679,3 +5679,43 @@ npx ts-node --project nest-module/tsconfig.json nest-module/src/main.ts
 
 ### Test Results: 137/137 tests passing
 ### Current Status: 404/405 features passing (99.8%)
+
+---
+
+## Session - 2026-03-19 - Features #410, #411 (Security Dependency Upgrades)
+
+### Completed Features:
+- **Feature #410**: Upgrade pdfjs-dist to fix arbitrary JavaScript execution vulnerability ✅
+  - Upgraded pdfjs-dist from ^3.11.174 to ^5.5.0 (installed: 5.5.207)
+  - Fixes GHSA-wgrm-67xf-hhpq (high severity, arbitrary JS execution via malicious PDF)
+  - Breaking changes handled:
+    - Changed imports from .js to .mjs (5.x format): legacy/build/pdf.mjs
+    - Removed pdf.worker.entry.js import (removed in 5.x)
+    - Added canvas property to RenderParameters (required in 5.x)
+    - Configured GlobalWorkerOptions for browser entry
+  - Converter package builds cleanly (CJS + ESM)
+  - npm audit shows 0 pdfjs-dist vulnerabilities
+  - 29/29 tests passing, E2E workflow verified
+
+- **Feature #411**: Upgrade esbuild to fix development server request forgery vulnerability ✅
+  - Fixes GHSA-67mh-4wv8-2f99 (moderate severity, esbuild <=0.24.2)
+  - Root cause: drizzle-kit -> @esbuild-kit/esm-loader -> @esbuild-kit/core-utils -> esbuild@0.18.20
+  - Fix: Added npm override in root package.json to force @esbuild-kit/core-utils esbuild to 0.25.12
+  - Updated drizzle-orm from ^0.30.0 to ^0.45.1 for compatibility
+  - All esbuild instances now >= 0.25.0 (above vulnerable range)
+  - npm audit shows 0 esbuild vulnerabilities
+  - API starts successfully with drizzle-orm 0.45.1
+  - 25/25 tests passing, database operations verified
+
+### Key Files Modified:
+- packages/converter/package.json - pdfjs-dist ^3.11.174 → ^5.5.0
+- packages/converter/src/index.node.ts - Updated for pdfjs-dist 5.x (.mjs imports)
+- packages/converter/src/index.browser.ts - Updated for pdfjs-dist 5.x (no worker.entry.js)
+- packages/converter/src/pdf2img.ts - Added canvas property to render()
+- package.json - Added @esbuild-kit/core-utils esbuild override
+- nest-module/package.json - Updated drizzle-orm to ^0.45.1
+- tests/test-feature-410-pdfjs-upgrade.js - 29 tests
+- tests/test-feature-411-esbuild-upgrade.js - 25 tests
+
+### Test Results: 54/54 tests passing across 2 features
+### Current Status: 407/411 features passing (99.0%)
