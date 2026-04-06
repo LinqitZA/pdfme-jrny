@@ -16,7 +16,8 @@
     "strict": true,
     "noImplicitAny": true,
     "skipLibCheck": true,
-    "types": ["node", "multer"]
+    "types": ["node", "multer"],
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/**/*"],
   "ts-node": {
