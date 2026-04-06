@@ -42,6 +42,13 @@ import { RenderQueueService } from './render-queue.service';
 import { JwtAuthGuard } from './auth.guard';
 import { SeedService } from './seeds/seed.service';
 import { HashService } from './hash.service';
+import { OrgSettingsService } from './org-settings.service';
+import { OrgSettingsController } from './org-settings.controller';
+import { PrinterService } from './printer.service';
+import { PrinterController } from './printer.controller';
+import { RateLimiterService } from './rate-limiter.service';
+import { PrintJobService } from './print-job.service';
+import { SystemController } from './system.controller';
 
 @Module({})
 export class PdfmeErpModule {
@@ -154,6 +161,9 @@ export class PdfmeErpModule {
         DataSourceController,
         FontController,
         RenderQueueController,
+        OrgSettingsController,
+        PrinterController,
+        SystemController,
       ],
       providers: [
         storageProvider,
@@ -177,6 +187,10 @@ export class PdfmeErpModule {
         DataSourceRegistry,
         RenderQueueService,
         HashService,
+        OrgSettingsService,
+        PrinterService,
+        RateLimiterService,
+        PrintJobService,
       ],
       exports: [
         'DRIZZLE_DB',
