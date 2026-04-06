@@ -127,13 +127,13 @@ export class PdfmeErpModule {
       useFactory: () => new FieldSchemaRegistry(),
     };
 
-    // PG_POOL placeholder - if database.drizzleClient provides its own pool
+    // PG_POOL - use provided pool or create a no-op placeholder
     const pgPoolProvider = {
       provide: 'PG_POOL',
       useFactory: () => {
-        // When using register(), the drizzle client is provided externally.
-        // PG_POOL is for standalone usage; here we provide a no-op placeholder.
-        return null;
+        // When a pgPool is provided via config, use it for health checks etc.
+        // Otherwise, provide null (standalone usage creates its own pool).
+        return config.database.pgPool || null;
       },
     };
 

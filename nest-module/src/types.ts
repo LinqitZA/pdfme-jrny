@@ -23,6 +23,7 @@ export interface PdfmeErpModuleConfig {
   };
   database: {
     drizzleClient: unknown; // Drizzle instance
+    pgPool?: unknown;       // Optional node-postgres Pool for health checks
   };
   apiPrefix?: string; // default '/api/pdfme'
   rateLimits?: {
