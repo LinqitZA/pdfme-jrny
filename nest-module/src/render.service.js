@@ -1,0 +1,2393 @@
+"use strict";
+/**
+ * RenderService - PDF generation pipeline
+ *
+ * Pipeline: Fetch published template -> resolve inputs -> pdfme generate() ->
+ *   Hash (configurable: SHA-256 or BLAKE3) -> FileStorageService store -> GeneratedDocument record
+ */
+var RenderService_1;
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.RenderService = void 0;
+const tslib_1 = require("tslib");
+const common_1 = require("@nestjs/common");
+const drizzle_orm_1 = require("drizzle-orm");
+const cuid2_1 = require("@paralleldrive/cuid2");
+const schema_1 = require("./db/schema");
+const file_storage_service_1 = require("./file-storage.service");
+const signature_service_1 = require("./signature.service");
+const audit_service_1 = require("./audit.service");
+const events_1 = require("events");
+const schemas_1 = require("@pdfme-erp/schemas");
+const pdfa_processor_1 = require("./pdfa-processor");
+const datasource_registry_1 = require("./datasource.registry");
+const org_settings_service_1 = require("./org-settings.service");
+const hash_service_1 = require("./hash.service");
+const path = tslib_1.__importStar(require("path"));
+let RenderService = class RenderService {
+    static { RenderService_1 = this; }
+    db;
+    fileStorage;
+    signatureService;
+    pdfaProcessor;
+    auditService;
+    orgSettingsService;
+    hashService;
+    moduleConfig;
+    dataSourceRegistry;
+    logger = new common_1.Logger(RenderService_1.name);
+    /** EventEmitter for SSE progress streams, keyed by batchId */
+    batchEvents = new events_1.EventEmitter();
+    /** Track document IDs per batch for merge operations */
+    batchDocuments = new Map();
+    /** Font cache - LRU cache mapping "orgId:fontName" to font data buffers */
+    fontCache = new Map();
+    /** Maximum font cache size in bytes (50MB) */
+    fontCacheMaxBytes = 50 * 1024 * 1024;
+    /** Current font cache size in bytes */
+    fontCacheSizeBytes = 0;
+    /** Font cache hit/miss counters for stats */
+    fontCacheStats = { hits: 0, misses: 0, evictions: 0 };
+    /** In-memory registry of preview PDFs with expiry metadata */
+    previewRegistry = new Map();
+    /** Purge interval handle for cleanup */
+    purgeIntervalHandle = null;
+    /** Purge cycle interval in milliseconds (default: 5 minutes) */
+    purgeIntervalMs = 5 * 60 * 1000;
+    /** Retention period in milliseconds (default: 60 minutes) */
+    retentionPeriodMs = 60 * 60 * 1000;
+    /** Track last purge run metadata for observability */
+    lastPurgeResult = null;
+    /** Retry configuration for file storage operations */
+    retryConfig = {
+        maxRetries: 3,
+        baseDelayMs: 200, // 200ms, 400ms, 800ms with exponential backoff
+        maxDelayMs: 5000,
+    };
+    /** Track retry attempts for observability/testing */
+    lastRetryAttempts = 0;
+    constructor(db, fileStorage, signatureService, pdfaProcessor, auditService, orgSettingsService, hashService, moduleConfig, dataSourceRegistry) {
+        this.db = db;
+        this.fileStorage = fileStorage;
+        this.signatureService = signatureService;
+        this.pdfaProcessor = pdfaProcessor;
+        this.auditService = auditService;
+        this.orgSettingsService = orgSettingsService;
+        this.hashService = hashService;
+        this.moduleConfig = moduleConfig;
+        this.dataSourceRegistry = dataSourceRegistry;
+        // Allow many listeners (one per SSE client)
+        this.batchEvents.setMaxListeners(100);
+    }
+    onModuleInit() {
+        this.startPurgeCycle();
+    }
+    onModuleDestroy() {
+        this.stopPurgeCycle();
+    }
+    /**
+     * Start the periodic purge cycle for expired preview files.
+     * Runs every purgeIntervalMs (default 5 minutes).
+     */
+    startPurgeCycle() {
+        if (this.purgeIntervalHandle)
+            return; // Already running
+        this.logger.log(`Starting preview purge cycle (interval: ${this.purgeIntervalMs}ms, retention: ${this.retentionPeriodMs}ms)`);
+        this.purgeIntervalHandle = setInterval(() => {
+            this.purgeExpiredPreviews().catch((err) => {
+                this.logger.error(`Purge cycle error: ${err.message}`);
+            });
+        }, this.purgeIntervalMs);
+    }
+    /**
+     * Stop the periodic purge cycle.
+     */
+    stopPurgeCycle() {
+        if (this.purgeIntervalHandle) {
+            clearInterval(this.purgeIntervalHandle);
+            this.purgeIntervalHandle = null;
+            this.logger.log('Stopped preview purge cycle');
+        }
+    }
+    /**
+     * Purge all expired preview files from storage and remove from registry.
+     * Returns the count of purged previews.
+     */
+    async purgeExpiredPreviews() {
+        const now = new Date();
+        let purgedCount = 0;
+        let errors = 0;
+        for (const [previewId, record] of this.previewRegistry.entries()) {
+            if (new Date(record.expiresAt) < now) {
+                // Expired - delete file and remove from registry
+                try {
+                    await this.fileStorage.delete(record.filePath);
+                }
+                catch {
+                    // File may already be gone - that's OK
+                    errors++;
+                }
+                this.previewRegistry.delete(previewId);
+                purgedCount++;
+            }
+        }
+        const remainingCount = this.previewRegistry.size;
+        this.lastPurgeResult = {
+            timestamp: now.toISOString(),
+            purgedCount,
+            remainingCount,
+            errors,
+        };
+        if (purgedCount > 0) {
+            this.logger.log(`Purged ${purgedCount} expired preview(s), ${remainingCount} remaining, ${errors} file errors`);
+        }
+        return { purgedCount, remainingCount, errors };
+    }
+    /**
+     * Execute a file storage operation with retry logic and exponential backoff.
+     * Retries up to maxRetries times on transient failures.
+     *
+     * @param operation - Async function to retry
+     * @param operationName - Description for logging
+     * @returns Result of the operation
+     * @throws Last error if all retries exhausted
+     */
+    async withRetry(operation, operationName = 'file operation') {
+        let lastError;
+        this.lastRetryAttempts = 0;
+        for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+            try {
+                const result = await operation();
+                this.lastRetryAttempts = attempt;
+                return result;
+            }
+            catch (err) {
+                lastError = err instanceof Error ? err : new Error(String(err));
+                this.lastRetryAttempts = attempt + 1;
+                if (attempt < this.retryConfig.maxRetries) {
+                    const delay = Math.min(this.retryConfig.baseDelayMs * Math.pow(2, attempt), this.retryConfig.maxDelayMs);
+                    console.warn(`[RenderService] ${operationName} failed (attempt ${attempt + 1}/${this.retryConfig.maxRetries + 1}), retrying in ${delay}ms: ${lastError.message}`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+        }
+        console.error(`[RenderService] ${operationName} failed after ${this.retryConfig.maxRetries + 1} attempts: ${lastError.message}`);
+        throw lastError;
+    }
+    /**
+     * Write to file storage with retry logic.
+     */
+    async writeWithRetry(filePath, data) {
+        return this.withRetry(() => this.fileStorage.write(filePath, data), `write(${filePath})`);
+    }
+    /**
+     * Read from file storage with retry logic.
+     */
+    async readWithRetry(filePath) {
+        return this.withRetry(() => this.fileStorage.read(filePath), `read(${filePath})`);
+    }
+    /**
+     * Check if storing a document of the given size would exceed the tenant's storage quota.
+     * Returns null if within quota, or an error object if quota exceeded.
+     */
+    async checkDocumentStorageQuota(orgId, newDocumentSizeBytes) {
+        // Get per-tenant quota override, or fall back to global default
+        const perTenantQuota = this.orgSettingsService.getDocumentsQuotaBytes(orgId);
+        const globalQuota = this.moduleConfig?.quotas?.documentsBytes ?? 5 * 1024 * 1024 * 1024; // 5GB default
+        const quotaBytes = perTenantQuota !== null ? perTenantQuota : globalQuota;
+        // Get current usage
+        const usage = await this.fileStorage.usage(orgId);
+        const currentUsageBytes = usage.documents;
+        if (currentUsageBytes + newDocumentSizeBytes > quotaBytes) {
+            return {
+                exceeded: true,
+                currentUsageBytes,
+                quotaBytes,
+                newDocumentSizeBytes,
+            };
+        }
+        return null;
+    }
+    /**
+     * Set custom retry configuration (for testing).
+     */
+    setRetryConfig(config) {
+        if (config.maxRetries !== undefined)
+            this.retryConfig.maxRetries = config.maxRetries;
+        if (config.baseDelayMs !== undefined)
+            this.retryConfig.baseDelayMs = config.baseDelayMs;
+        if (config.maxDelayMs !== undefined)
+            this.retryConfig.maxDelayMs = config.maxDelayMs;
+    }
+    /**
+     * Get current retry configuration (for testing).
+     */
+    getRetryConfig() {
+        return { ...this.retryConfig };
+    }
+    /**
+     * Check font availability for a template without rendering.
+     * Returns which fonts are available and which would fall back.
+     */
+    async checkTemplateFonts(templateId, orgId) {
+        const [template] = await this.db
+            .select()
+            .from(schema_1.templates)
+            .where((0, drizzle_orm_1.eq)(schema_1.templates.id, templateId));
+        if (!template) {
+            return { error: 'Template not found' };
+        }
+        const templateSchema = template.schema;
+        const pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+        const fontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+        const fontNames = new Set();
+        for (const page of pdfmeTemplate.schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (element && typeof element === 'object' && 'fontName' in element) {
+                    const fn = element.fontName;
+                    if (fn && typeof fn === 'string' && fn.trim()) {
+                        fontNames.add(fn.trim());
+                    }
+                }
+            }
+        }
+        return {
+            templateId,
+            fontsReferenced: Array.from(fontNames),
+            fontsResolved: fontResult.font ? Object.keys(fontResult.font) : [],
+            warnings: fontResult.warnings,
+            fallbackUsed: fontResult.warnings.length > 0,
+        };
+    }
+    /**
+     * Synchronous render: generates a PDF immediately and returns the document record.
+     */
+    async renderNow(dto, orgId, userId) {
+        // 1. Check if template exists first, then verify it's published
+        const [anyTemplate] = await this.db
+            .select()
+            .from(schema_1.templates)
+            .where((0, drizzle_orm_1.eq)(schema_1.templates.id, dto.templateId));
+        if (!anyTemplate) {
+            return { error: 'Template not found', statusCode: 404 };
+        }
+        if (anyTemplate.status !== 'published') {
+            return { error: `Template is in '${anyTemplate.status}' status and must be published before rendering`, statusCode: 422, templateStatus: anyTemplate.status };
+        }
+        const template = anyTemplate;
+        // 2. Build pdfme template structure from the stored schema
+        // Use publishedSchema if available (allows draft edits while published version stays live)
+        const templateSchema = (template.publishedSchema || template.schema);
+        let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+        // 3. Resolve inputs - use provided inputs or create empty inputs
+        // Always merge with empty defaults to prevent undefined values crashing text plugins
+        const emptyDefaults = this.buildEmptyInputs(pdfmeTemplate);
+        let inputs = dto.inputs && dto.inputs.length > 0
+            ? dto.inputs.map(inp => ({ ...emptyDefaults, ...inp }))
+            : [emptyDefaults];
+        // 3-ds. If a DataSource is registered for this template type and no explicit inputs,
+        //       resolve data from the DataSource
+        if (this.dataSourceRegistry && this.dataSourceRegistry.has(template.type) && (!dto.inputs || dto.inputs.length === 0)) {
+            try {
+                const dataSource = this.dataSourceRegistry.resolve(template.type);
+                const resolvedData = await dataSource.resolve(dto.entityId, orgId);
+                if (Array.isArray(resolvedData) && resolvedData.length > 0) {
+                    inputs = resolvedData.map((item) => typeof item === 'object' && item !== null
+                        ? Object.fromEntries(Object.entries(item).map(([k, v]) => [k, String(v ?? '')]))
+                        : {});
+                }
+            }
+            catch (err) {
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                // Create a failed document record for DataSource errors
+                const docId = (0, cuid2_1.createId)();
+                const [failedDoc] = await this.db
+                    .insert(schema_1.generatedDocuments)
+                    .values({
+                    id: docId,
+                    orgId,
+                    templateId: dto.templateId,
+                    templateVer: template.version,
+                    entityType: dto.entityType || template.type,
+                    entityId: dto.entityId,
+                    filePath: '',
+                    pdfHash: '',
+                    status: 'failed',
+                    outputChannel: dto.channel,
+                    triggeredBy: userId,
+                    inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
+                    errorMessage: `DataSource error: ${errorMessage}`,
+                })
+                    .returning();
+                return { error: `DataSource error: ${errorMessage}`, document: failedDoc };
+            }
+        }
+        // 3a. Resolve field bindings with fallbackValue for missing/empty inputs
+        this.resolveFieldBindings(pdfmeTemplate, inputs);
+        // 3a2. Resolve expressions in all text-containing schema element values
+        this.resolveExpressions(pdfmeTemplate, inputs);
+        // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
+        try {
+            await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+        }
+        catch (sigErr) {
+            const errorMessage = sigErr instanceof Error ? sigErr.message : String(sigErr);
+            const docId = (0, cuid2_1.createId)();
+            const [failedDoc] = await this.db
+                .insert(schema_1.generatedDocuments)
+                .values({
+                id: docId,
+                orgId,
+                templateId: dto.templateId,
+                templateVer: template.version,
+                entityType: dto.entityType || template.type,
+                entityId: dto.entityId,
+                filePath: '',
+                pdfHash: '',
+                status: 'failed',
+                outputChannel: dto.channel,
+                triggeredBy: userId,
+                inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
+                errorMessage,
+            })
+                .returning();
+            return { error: errorMessage, document: failedDoc };
+        }
+        // 3b2. Resolve erpImage elements - fetch from FileStorageService and convert to base64
+        const erpImageResult = await (0, schemas_1.resolveErpImages)(pdfmeTemplate, inputs, {
+            readFile: (p) => this.fileStorage.read(p),
+            fileExists: (p) => this.fileStorage.exists(p),
+            listFiles: (p) => this.fileStorage.list(p),
+            orgId,
+        });
+        pdfmeTemplate = erpImageResult.template;
+        inputs = erpImageResult.inputs;
+        const erpImagePlaceholders = erpImageResult.placeholders || [];
+        // 3c. Resolve lineItemsTable elements - convert to standard table with footer rows
+        const resolvedLit = (0, schemas_1.resolveLineItemsTables)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedLit.template;
+        inputs = resolvedLit.inputs;
+        // 3d. Resolve qrBarcode elements - convert to standard pdfme qrcode with URL bindings
+        const resolvedQr = (0, schemas_1.resolveQrBarcodes)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedQr.template;
+        inputs = resolvedQr.inputs;
+        // 3e. Resolve richText elements - extract for post-processing via pdf-lib
+        const richTextResult = (0, schemas_1.resolveRichText)(pdfmeTemplate, inputs);
+        pdfmeTemplate = richTextResult.template;
+        inputs = richTextResult.inputs;
+        const richTextInfo = richTextResult.richTextInfo;
+        // 3e2. Resolve signatureBlock elements - extract for post-processing via pdf-lib
+        const sigBlockResult = (0, schemas_1.resolveSignatureBlocks)(pdfmeTemplate, inputs);
+        pdfmeTemplate = sigBlockResult.template;
+        inputs = sigBlockResult.inputs;
+        const signatureBlockInfo = sigBlockResult.signatureBlockInfo;
+        // 3f. Resolve page scopes - filter elements by first/last/all/notFirst
+        this.resolvePageScopes(pdfmeTemplate);
+        // 3g. Resolve conditions - hide elements based on fieldNonEmpty/expression conditions
+        this.resolveConditions(pdfmeTemplate, inputs);
+        // 3g2. Resolve output channel filtering - remove elements not matching the requested channel
+        this.resolveOutputChannels(pdfmeTemplate, dto.channel);
+        // 3h. Resolve calculatedField elements - evaluate expressions and convert to text
+        const resolvedCalc = (0, schemas_1.resolveCalculatedFields)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedCalc.template;
+        inputs = resolvedCalc.inputs;
+        // 3h1. Resolve currencyField elements - format with symbol and dual-currency display
+        const resolvedCurrency = (0, schemas_1.resolveCurrencyFields)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedCurrency.template;
+        inputs = resolvedCurrency.inputs;
+        // 3h2. Resolve ERP rectangle elements - convert to upstream format and extract shadows
+        const rectResult = (0, schemas_1.resolveRectangles)(pdfmeTemplate, inputs);
+        pdfmeTemplate = rectResult.template;
+        const rectangleShadows = rectResult.shadowElements;
+        // 3h3. Resolve missing images with placeholder rectangles
+        const placeholderImages = this.resolveMissingImages(pdfmeTemplate, inputs);
+        // 3i. Extract watermark config (if any watermark element exists in template)
+        const watermarkConfig = (0, schemas_1.extractWatermarkFromTemplate)(pdfmeTemplate.schemas, inputs);
+        // 3i. Always remove watermark elements from schemas (pdfme doesn't know about them)
+        // This must happen regardless of whether watermarkConfig is set (e.g. variable='' hides watermark)
+        pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page) => {
+            if (!Array.isArray(page))
+                return page;
+            return page.filter((field) => {
+                if (field && typeof field === 'object' && 'type' in field) {
+                    return field.type !== 'watermark';
+                }
+                return true;
+            });
+        });
+        // 3j. Resolve fonts - load custom fonts or fall back to default
+        const fontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+        // 4. Generate PDF using @pdfme/generator
+        let pdfBuffer;
+        try {
+            const { generate } = await Promise.resolve().then(() => tslib_1.__importStar(require('@pdfme/generator')));
+            const schemas = await Promise.resolve().then(() => tslib_1.__importStar(require('@pdfme/schemas')));
+            // Build plugins map from all available schemas
+            const plugins = {
+                text: schemas.text,
+                image: schemas.image,
+                table: schemas.table,
+                line: schemas.line,
+                rectangle: schemas.rectangle,
+                ellipse: schemas.ellipse,
+                svg: schemas.svg,
+                multiVariableText: schemas.multiVariableText,
+                dateTime: schemas.dateTime,
+                date: schemas.date,
+                time: schemas.time,
+                select: schemas.select,
+                radioGroup: schemas.radioGroup,
+                checkbox: schemas.checkbox,
+                ...schemas.barcodes,
+                // ERP custom: drawnSignature uses image plugin for PDF rendering
+                // (signature data resolved to base64 in step 3b above)
+                drawnSignature: schemas.image,
+            };
+            const generateOptions = {};
+            if (fontResult.font) {
+                generateOptions.font = fontResult.font;
+            }
+            pdfBuffer = await generate({
+                template: pdfmeTemplate,
+                inputs,
+                plugins,
+                options: generateOptions,
+            });
+        }
+        catch (err) {
+            const errorMessage = err instanceof Error ? err.message : String(err);
+            if (err instanceof Error && err.stack) {
+                this.logger.error(`PDF generation failed: ${err.stack}`);
+            }
+            // Create a failed document record
+            const docId = (0, cuid2_1.createId)();
+            const [failedDoc] = await this.db
+                .insert(schema_1.generatedDocuments)
+                .values({
+                id: docId,
+                orgId,
+                templateId: dto.templateId,
+                templateVer: template.version,
+                entityType: dto.entityType || template.type,
+                entityId: dto.entityId,
+                filePath: '',
+                pdfHash: '',
+                status: 'failed',
+                outputChannel: dto.channel,
+                triggeredBy: userId,
+                inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
+                errorMessage: errorMessage,
+            })
+                .returning();
+            return { error: errorMessage, document: failedDoc };
+        }
+        // 4b. Apply rich text rendering via pdf-lib (post-processing)
+        if (richTextInfo.length > 0) {
+            try {
+                pdfBuffer = await (0, schemas_1.applyRichText)(pdfBuffer, richTextInfo);
+            }
+            catch (err) {
+                console.error('Rich text rendering failed:', err);
+                // Continue without rich text rather than failing the entire render
+            }
+        }
+        // 4b2. Apply signature block rendering via pdf-lib (post-processing)
+        if (signatureBlockInfo.length > 0) {
+            try {
+                pdfBuffer = await (0, schemas_1.applySignatureBlocks)(pdfBuffer, signatureBlockInfo);
+            }
+            catch (err) {
+                console.error('Signature block rendering failed:', err);
+            }
+        }
+        // 4b3. Apply placeholder image "Image not found" text overlay via pdf-lib
+        const allPlaceholders = [...erpImagePlaceholders, ...placeholderImages];
+        if (allPlaceholders.length > 0) {
+            try {
+                pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, allPlaceholders);
+            }
+            catch (err) {
+                console.error('Placeholder image overlay failed:', err);
+            }
+        }
+        // 4c. Apply watermark overlay if configured
+        if (watermarkConfig) {
+            try {
+                pdfBuffer = await (0, schemas_1.applyWatermark)(pdfBuffer, watermarkConfig);
+            }
+            catch (err) {
+                console.error('Watermark application failed:', err);
+                // Continue without watermark rather than failing the entire render
+            }
+        }
+        // 4c2. Apply rectangle shadows if any
+        if (rectangleShadows.length > 0) {
+            try {
+                pdfBuffer = await (0, schemas_1.applyRectangleShadows)(pdfBuffer, rectangleShadows);
+            }
+            catch (err) {
+                console.error('Rectangle shadow application failed:', err);
+            }
+        }
+        // 4d. Convert to PDF/A-3b (Ghostscript or pdf-lib fallback)
+        let pdfaConversionFailed = false;
+        let pdfaErrorMessage = '';
+        try {
+            const pdfaResult = await this.pdfaProcessor.convertToPdfA3b(pdfBuffer);
+            pdfBuffer = new Uint8Array(pdfaResult.pdfBuffer);
+        }
+        catch (err) {
+            pdfaConversionFailed = true;
+            pdfaErrorMessage = err instanceof Error ? err.message : String(err);
+            console.error(`[RenderService] PDF/A-3b conversion failed: ${pdfaErrorMessage}`);
+            console.error('[RenderService] Storing raw (non-PDF/A) PDF for debugging');
+        }
+        // 4e. Apply PDF/UA accessibility tags if enabled for this org
+        if (this.orgSettingsService && this.orgSettingsService.isPdfUAEnabled(orgId)) {
+            try {
+                const pdfuaBuffer = await this.pdfaProcessor.applyPdfUATags(Buffer.from(pdfBuffer), { lang: 'en', title: template.name || 'Document' });
+                pdfBuffer = new Uint8Array(pdfuaBuffer);
+            }
+            catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                console.error(`[RenderService] PDF/UA tagging failed: ${errMsg}`);
+                // Continue without PDF/UA tags rather than failing the render
+            }
+        }
+        // 4f. Apply N-up sheet layout for label batch printing
+        if (dto.layout && typeof dto.layout === 'object' && dto.layout.type === 'sheet') {
+            try {
+                pdfBuffer = await this.applyNupLayout(pdfBuffer, dto.layout);
+            }
+            catch (err) {
+                const errorMessage = err instanceof Error ? err.message : String(err);
+                console.error(`[RenderService] N-up layout failed: ${errorMessage}`);
+                // Continue with original single-per-page layout
+            }
+        }
+        // 5. Compute document hash (algorithm configurable via module config)
+        const pdfHash = this.hashService.computeHash(Buffer.from(pdfBuffer));
+        // 5b. Check document storage quota before storing
+        const quotaCheck = await this.checkDocumentStorageQuota(orgId, pdfBuffer.length);
+        if (quotaCheck && quotaCheck.exceeded) {
+            return {
+                error: `Storage quota exceeded. Current usage: ${quotaCheck.currentUsageBytes} bytes, quota: ${quotaCheck.quotaBytes} bytes, new document: ${quotaCheck.newDocumentSizeBytes} bytes`,
+                statusCode: 413,
+                quotaExceeded: true,
+                currentUsageBytes: quotaCheck.currentUsageBytes,
+                quotaBytes: quotaCheck.quotaBytes,
+            };
+        }
+        // 6. Store PDF via FileStorageService
+        const docId = (0, cuid2_1.createId)();
+        if (pdfaConversionFailed) {
+            // Store the raw PDF with _non-pdfa suffix for debugging
+            const nonPdfaFilePath = `${orgId}/documents/${docId}_non-pdfa.pdf`;
+            await this.writeWithRetry(nonPdfaFilePath, Buffer.from(pdfBuffer));
+            // Create a failed GeneratedDocument record with the debug file path
+            const [failedDoc] = await this.db
+                .insert(schema_1.generatedDocuments)
+                .values({
+                id: docId,
+                orgId,
+                templateId: dto.templateId,
+                templateVer: template.version,
+                entityType: dto.entityType || template.type,
+                entityId: dto.entityId,
+                filePath: nonPdfaFilePath,
+                pdfHash,
+                status: 'failed',
+                outputChannel: dto.channel,
+                triggeredBy: userId,
+                inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
+                errorMessage: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`,
+            })
+                .returning();
+            return { error: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`, document: failedDoc };
+        }
+        const filePath = `${orgId}/documents/${docId}.pdf`;
+        await this.writeWithRetry(filePath, Buffer.from(pdfBuffer));
+        // 7. Create GeneratedDocument record
+        const [document] = await this.db
+            .insert(schema_1.generatedDocuments)
+            .values({
+            id: docId,
+            orgId,
+            templateId: dto.templateId,
+            templateVer: template.version,
+            entityType: dto.entityType || template.type,
+            entityId: dto.entityId,
+            filePath,
+            pdfHash,
+            status: 'done',
+            outputChannel: dto.channel,
+            triggeredBy: userId,
+            inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
+        })
+            .returning();
+        // Audit log for document render
+        try {
+            await this.auditService.log({
+                orgId,
+                entityType: 'generatedDocument',
+                entityId: docId,
+                action: 'document.rendered',
+                userId,
+                metadata: { templateId: dto.templateId, templateVer: template.version, channel: dto.channel, entityId: dto.entityId },
+            });
+        }
+        catch (_auditErr) {
+            // Non-critical: don't fail the render if audit logging fails
+        }
+        return { document };
+    }
+    /**
+     * Apply N-up layout: arrange multiple single-label pages onto sheets (e.g., 3x7 on A4).
+     * Uses pdf-lib to read each page from the input PDF and embed them onto new sheet-sized pages.
+     */
+    async applyNupLayout(pdfBuffer, layout) {
+        const { PDFDocument } = await Promise.resolve().then(() => tslib_1.__importStar(require('pdf-lib')));
+        const MM_TO_PT = 2.83465;
+        // Sheet dimensions in points
+        const sheetDims = {
+            A4: { width: 595, height: 842 },
+            Letter: { width: 612, height: 792 },
+        };
+        const sheet = sheetDims[layout.sheetSize || 'A4'] || sheetDims.A4;
+        const cols = Math.max(1, Math.floor(layout.columns));
+        const rows = Math.max(1, Math.floor(layout.rows));
+        const labelsPerSheet = cols * rows;
+        // Margins in points
+        const marginTop = (layout.margins?.top ?? 10) * MM_TO_PT;
+        const marginLeft = (layout.margins?.left ?? 5) * MM_TO_PT;
+        const colGap = (layout.margins?.columnGap ?? 2) * MM_TO_PT;
+        const rowGap = (layout.margins?.rowGap ?? 2) * MM_TO_PT;
+        // Calculate label cell size
+        const availableWidth = sheet.width - 2 * marginLeft;
+        const availableHeight = sheet.height - 2 * marginTop;
+        const cellWidth = (availableWidth - (cols - 1) * colGap) / cols;
+        const cellHeight = (availableHeight - (rows - 1) * rowGap) / rows;
+        // Read input PDF
+        const inputPdf = await PDFDocument.load(pdfBuffer);
+        const pageCount = inputPdf.getPageCount();
+        if (pageCount === 0)
+            return pdfBuffer;
+        // Create output PDF
+        const outputPdf = await PDFDocument.create();
+        let labelIndex = 0;
+        while (labelIndex < pageCount) {
+            // Create a new sheet page
+            const sheetPage = outputPdf.addPage([sheet.width, sheet.height]);
+            for (let row = 0; row < rows && labelIndex < pageCount; row++) {
+                for (let col = 0; col < cols && labelIndex < pageCount; col++) {
+                    // Embed the label page
+                    const [embeddedPage] = await outputPdf.embedPdf(inputPdf, [labelIndex]);
+                    // Calculate position (top-left origin in PDF is bottom-left)
+                    const x = marginLeft + col * (cellWidth + colGap);
+                    const y = sheet.height - marginTop - (row + 1) * cellHeight - row * rowGap;
+                    // Scale label to fit cell
+                    const labelDims = inputPdf.getPage(labelIndex).getSize();
+                    const scaleX = cellWidth / labelDims.width;
+                    const scaleY = cellHeight / labelDims.height;
+                    const scale = Math.min(scaleX, scaleY);
+                    // Center label within cell
+                    const scaledWidth = labelDims.width * scale;
+                    const scaledHeight = labelDims.height * scale;
+                    const offsetX = (cellWidth - scaledWidth) / 2;
+                    const offsetY = (cellHeight - scaledHeight) / 2;
+                    sheetPage.drawPage(embeddedPage, {
+                        x: x + offsetX,
+                        y: y + offsetY,
+                        width: scaledWidth,
+                        height: scaledHeight,
+                    });
+                    labelIndex++;
+                }
+            }
+        }
+        return outputPdf.save();
+    }
+    /**
+     * Bulk render: creates a RenderBatch record, then processes each entityId asynchronously.
+     * Returns immediately with 202 and the batchId.
+     */
+    async renderBulk(dto, orgId, userId) {
+        const templateType = dto.entityType || 'document';
+        // Check for already-running batch with same templateType + orgId
+        const [existingBatch] = await this.db
+            .select({ id: schema_1.renderBatches.id, status: schema_1.renderBatches.status, totalJobs: schema_1.renderBatches.totalJobs, completedJobs: schema_1.renderBatches.completedJobs })
+            .from(schema_1.renderBatches)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.renderBatches.orgId, orgId), (0, drizzle_orm_1.eq)(schema_1.renderBatches.templateType, templateType), (0, drizzle_orm_1.eq)(schema_1.renderBatches.status, 'running')))
+            .limit(1);
+        if (existingBatch) {
+            return {
+                error: 'A bulk render is already in progress for this template type',
+                existingBatchId: existingBatch.id,
+                status: existingBatch.status,
+                totalJobs: existingBatch.totalJobs,
+                completedJobs: existingBatch.completedJobs,
+                conflict: true,
+            };
+        }
+        const batchId = (0, cuid2_1.createId)();
+        const onFailure = dto.onFailure || 'continue';
+        // Create batch record
+        const [batch] = await this.db
+            .insert(schema_1.renderBatches)
+            .values({
+            id: batchId,
+            orgId,
+            templateType: dto.entityType || 'document',
+            channel: dto.channel,
+            totalJobs: dto.entityIds.length,
+            completedJobs: 0,
+            failedJobs: 0,
+            failedIds: [],
+            status: 'running',
+            onFailure,
+            notifyUrl: dto.notifyUrl || null,
+        })
+            .returning();
+        // Process entities asynchronously (fire and forget)
+        this.processBatchAsync(batchId, dto, orgId, userId).catch((err) => {
+            console.error(`Batch ${batchId} processing error:`, err);
+        });
+        return { batchId: batch.id, status: batch.status, totalJobs: batch.totalJobs };
+    }
+    /**
+     * Process batch entities sequentially in the background.
+     */
+    async processBatchAsync(batchId, dto, orgId, userId) {
+        let completedJobs = 0;
+        let failedJobs = 0;
+        const failedIds = [];
+        const documentIds = [];
+        let aborted = false;
+        // Initialize batch document tracking
+        this.batchDocuments.set(batchId, documentIds);
+        for (const entityId of dto.entityIds) {
+            if (aborted)
+                break;
+            const renderDto = {
+                templateId: dto.templateId,
+                entityId,
+                entityType: dto.entityType,
+                channel: dto.channel,
+                inputs: dto.inputs || undefined,
+            };
+            const result = await this.renderNow(renderDto, orgId, userId);
+            if ('error' in result && !('document' in result)) {
+                // Template not found error
+                failedJobs++;
+                failedIds.push(entityId);
+                this.batchEvents.emit(`batch:${batchId}`, {
+                    type: 'job_failed',
+                    entityId,
+                    error: result.error,
+                    completedJobs,
+                    failedJobs,
+                    totalJobs: dto.entityIds.length,
+                });
+                if (dto.onFailure === 'abort') {
+                    aborted = true;
+                }
+            }
+            else if ('error' in result && 'document' in result) {
+                // PDF generation failed
+                failedJobs++;
+                failedIds.push(entityId);
+                this.batchEvents.emit(`batch:${batchId}`, {
+                    type: 'job_failed',
+                    entityId,
+                    error: result.error,
+                    completedJobs,
+                    failedJobs,
+                    totalJobs: dto.entityIds.length,
+                });
+                if (dto.onFailure === 'abort') {
+                    aborted = true;
+                }
+            }
+            else {
+                // Success
+                completedJobs++;
+                const docId = result.document.id;
+                documentIds.push(docId);
+                this.batchEvents.emit(`batch:${batchId}`, {
+                    type: 'job_completed',
+                    entityId,
+                    documentId: docId,
+                    completedJobs,
+                    failedJobs,
+                    totalJobs: dto.entityIds.length,
+                });
+            }
+            // Update batch progress in DB
+            const batchStatus = aborted
+                ? 'aborted'
+                : (completedJobs + failedJobs >= dto.entityIds.length)
+                    ? (failedJobs > 0 ? 'completedWithErrors' : 'completed')
+                    : 'running';
+            await this.db
+                .update(schema_1.renderBatches)
+                .set({
+                completedJobs,
+                failedJobs,
+                failedIds: failedIds.length > 0 ? failedIds : [],
+                status: batchStatus,
+                ...(batchStatus !== 'running' ? { completedAt: new Date() } : {}),
+            })
+                .where((0, drizzle_orm_1.eq)(schema_1.renderBatches.id, batchId));
+        }
+        // Final status
+        const finalStatus = aborted
+            ? 'aborted'
+            : (failedJobs > 0 ? 'completedWithErrors' : 'completed');
+        await this.db
+            .update(schema_1.renderBatches)
+            .set({
+            completedJobs,
+            failedJobs,
+            failedIds: failedIds.length > 0 ? failedIds : [],
+            status: finalStatus,
+            completedAt: new Date(),
+        })
+            .where((0, drizzle_orm_1.eq)(schema_1.renderBatches.id, batchId));
+        // Emit batch complete event
+        this.batchEvents.emit(`batch:${batchId}`, {
+            type: 'batch_complete',
+            status: finalStatus,
+            completedJobs,
+            failedJobs,
+            totalJobs: dto.entityIds.length,
+        });
+        // Webhook callback if configured
+        if (dto.notifyUrl) {
+            try {
+                await fetch(dto.notifyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        batchId,
+                        status: finalStatus,
+                        completedJobs,
+                        failedJobs,
+                        totalJobs: dto.entityIds.length,
+                    }),
+                });
+            }
+            catch {
+                console.error(`Webhook callback failed for batch ${batchId}`);
+            }
+        }
+    }
+    /**
+     * Get batch status by ID.
+     */
+    async getBatchStatus(batchId, orgId) {
+        const [batch] = await this.db
+            .select()
+            .from(schema_1.renderBatches)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.renderBatches.id, batchId), (0, drizzle_orm_1.eq)(schema_1.renderBatches.orgId, orgId)));
+        if (!batch) {
+            return null;
+        }
+        return {
+            id: batch.id,
+            status: batch.status,
+            totalJobs: batch.totalJobs,
+            completedJobs: batch.completedJobs,
+            failedJobs: batch.failedJobs,
+            failedIds: batch.failedIds,
+            channel: batch.channel,
+            onFailure: batch.onFailure,
+            createdAt: batch.createdAt,
+            completedAt: batch.completedAt,
+        };
+    }
+    /**
+     * Merge all PDFs from a completed batch into a single PDF file.
+     */
+    async mergeBatchPdfs(batchId, orgId) {
+        // 1. Get batch
+        const [batch] = await this.db
+            .select()
+            .from(schema_1.renderBatches)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.renderBatches.id, batchId), (0, drizzle_orm_1.eq)(schema_1.renderBatches.orgId, orgId)));
+        if (!batch) {
+            return { error: 'Batch not found' };
+        }
+        if (batch.status === 'running') {
+            return { error: 'Batch is still running' };
+        }
+        // 2. Get all successful documents for this batch using tracked document IDs
+        const batchDocIds = this.batchDocuments.get(batchId) || [];
+        let relevantDocs = [];
+        if (batchDocIds.length > 0) {
+            relevantDocs = await this.db
+                .select({ id: schema_1.generatedDocuments.id, filePath: schema_1.generatedDocuments.filePath })
+                .from(schema_1.generatedDocuments)
+                .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId), (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.status, 'done'), (0, drizzle_orm_1.inArray)(schema_1.generatedDocuments.id, batchDocIds)));
+        }
+        if (relevantDocs.length === 0) {
+            return { error: 'No completed documents found in batch' };
+        }
+        // 3. Read all PDF buffers
+        const pdfBuffers = [];
+        for (const doc of relevantDocs) {
+            try {
+                const buffer = await this.readWithRetry(doc.filePath);
+                if (buffer) {
+                    pdfBuffers.push(buffer);
+                }
+            }
+            catch {
+                console.error(`Failed to read PDF: ${doc.filePath}`);
+            }
+        }
+        if (pdfBuffers.length === 0) {
+            return { error: 'No PDF files could be read' };
+        }
+        // 4. Merge PDFs using pdf-lib
+        const { PDFDocument } = await Promise.resolve().then(() => tslib_1.__importStar(require('pdf-lib')));
+        const mergedPdf = await PDFDocument.create();
+        let totalPages = 0;
+        for (const pdfBuffer of pdfBuffers) {
+            try {
+                const sourcePdf = await PDFDocument.load(pdfBuffer);
+                const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+                for (const page of copiedPages) {
+                    mergedPdf.addPage(page);
+                    totalPages++;
+                }
+            }
+            catch (err) {
+                console.error('Failed to merge a PDF:', err);
+            }
+        }
+        // 5. Save merged PDF
+        const mergedBytes = await mergedPdf.save();
+        const mergedHash = this.hashService.computeHash(Buffer.from(mergedBytes));
+        const mergedDocId = (0, cuid2_1.createId)();
+        const mergedFilePath = `${orgId}/documents/merged_${batchId}_${mergedDocId}.pdf`;
+        await this.writeWithRetry(mergedFilePath, Buffer.from(mergedBytes));
+        return {
+            mergedDocumentId: mergedDocId,
+            filePath: mergedFilePath,
+            pdfHash: mergedHash,
+            totalPages,
+            documentsIncluded: relevantDocs.length,
+        };
+    }
+    /**
+     * Build a pdfme-compatible Template object from stored schema JSON.
+     * If the schema is already a full pdfme template (has basePdf + schemas),
+     * use it directly. Otherwise wrap it in a minimal template.
+     */
+    buildPdfmeTemplate(schema) {
+        const basePdf = schema.basePdf || { width: 210, height: 297, padding: [10, 10, 10, 10] };
+        // Support both storage formats:
+        // 1. "schemas" format (legacy pdfme): [[{name, type, position, ...}, ...]]
+        // 2. "pages" format (API): [{elements: [{name, type, position, ...}], size: {...}}, ...]
+        let rawSchemas;
+        if (schema.schemas && Array.isArray(schema.schemas)) {
+            rawSchemas = schema.schemas;
+        }
+        else if (schema.pages && Array.isArray(schema.pages)) {
+            // Convert pages[].elements[] to pdfme schemas[][] format
+            rawSchemas = schema.pages.map((page) => {
+                if (page && typeof page === 'object' && 'elements' in page) {
+                    return page.elements || [];
+                }
+                return [];
+            });
+        }
+        else {
+            rawSchemas = [[]];
+        }
+        // Convert legacy keyed format to flat pdfme format:
+        // Legacy: [[{fieldName: {type, position, ...}}, ...]]
+        // pdfme:  [[{name: fieldName, type, position, ...}, ...]]
+        const schemas = rawSchemas.map((page) => {
+            if (!Array.isArray(page))
+                return page;
+            const flatPage = [];
+            for (const item of page) {
+                if (!item || typeof item !== 'object') {
+                    flatPage.push(item);
+                    continue;
+                }
+                const obj = item;
+                // If the object already has 'name' and 'type' at top level, it's already flat
+                if ('name' in obj && 'type' in obj) {
+                    flatPage.push(obj);
+                }
+                else {
+                    // Keyed format: {fieldName: {type, position, ...}} — flatten each key
+                    for (const [key, value] of Object.entries(obj)) {
+                        if (value && typeof value === 'object') {
+                            flatPage.push({ ...value, name: key });
+                        }
+                    }
+                }
+            }
+            return flatPage;
+        });
+        // Normalize table elements: if a table has a simplified 'columns' array
+        // but is missing pdfme's required properties (head, headWidthPercentages,
+        // tableStyles, headStyles, bodyStyles, columnStyles), fill in defaults.
+        for (const page of schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (let i = 0; i < page.length; i++) {
+                const el = page[i];
+                if (!el || el.type !== 'table')
+                    continue;
+                // If 'columns' is present but 'head' is missing, convert from simplified format
+                if (Array.isArray(el.columns) && !el.head) {
+                    const cols = el.columns;
+                    const numCols = cols.length || 1;
+                    const pct = Math.round(10000 / numCols) / 100; // equal width
+                    el.head = cols;
+                    el.headWidthPercentages = cols.map((_, idx) => idx < numCols - 1 ? pct : Math.round((100 - pct * (numCols - 1)) * 100) / 100);
+                    el.showHead = el.showHead !== undefined ? el.showHead : true;
+                    el.tableStyles = el.tableStyles || { borderColor: '#000000', borderWidth: 0.3 };
+                    el.headStyles = el.headStyles || {
+                        fontName: undefined,
+                        alignment: 'left',
+                        verticalAlignment: 'middle',
+                        fontSize: 10,
+                        lineHeight: 1,
+                        characterSpacing: 0,
+                        fontColor: '#ffffff',
+                        backgroundColor: '#2980ba',
+                        borderColor: '',
+                        borderWidth: { top: 0, right: 0, bottom: 0, left: 0 },
+                        padding: { top: 5, bottom: 5, left: 5, right: 5 },
+                    };
+                    el.bodyStyles = el.bodyStyles || {
+                        fontName: undefined,
+                        alignment: 'left',
+                        verticalAlignment: 'middle',
+                        fontSize: 10,
+                        lineHeight: 1,
+                        characterSpacing: 0,
+                        fontColor: '#000000',
+                        backgroundColor: '',
+                        borderColor: '#888888',
+                        borderWidth: { top: 0.1, right: 0.1, bottom: 0.1, left: 0.1 },
+                        padding: { top: 5, bottom: 5, left: 5, right: 5 },
+                        alternateBackgroundColor: '#f5f5f5',
+                    };
+                    el.columnStyles = el.columnStyles || {};
+                    // Ensure content is set (empty body if not provided via inputs)
+                    if (!el.content) {
+                        el.content = '[]';
+                    }
+                }
+                // If head exists but headWidthPercentages is missing, compute equal widths
+                if (Array.isArray(el.head) && !el.headWidthPercentages) {
+                    const numCols = el.head.length || 1;
+                    const pct = Math.round(10000 / numCols) / 100;
+                    el.headWidthPercentages = el.head.map((_, idx) => idx < numCols - 1 ? pct : Math.round((100 - pct * (numCols - 1)) * 100) / 100);
+                }
+            }
+        }
+        return { basePdf, schemas };
+    }
+    /**
+     * Build empty inputs from template schemas (one empty string per field).
+     */
+    buildEmptyInputs(template) {
+        const inputs = {};
+        if (Array.isArray(template.schemas)) {
+            for (const page of template.schemas) {
+                if (Array.isArray(page)) {
+                    for (const field of page) {
+                        if (field && typeof field === 'object' && 'name' in field) {
+                            inputs[field.name] = '';
+                        }
+                    }
+                }
+            }
+        }
+        return inputs;
+    }
+    /**
+     * Resolve field bindings with fallbackValue support.
+     * For each schema element, if the corresponding input value is missing or empty
+     * and the element has a fallbackValue property, use the fallback value.
+     * Without a fallbackValue, missing/empty bindings remain as empty string.
+     */
+    resolveFieldBindings(pdfmeTemplate, inputs) {
+        // Build a map of field name -> fallbackValue from schema elements
+        const fallbackMap = new Map();
+        for (const page of pdfmeTemplate.schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (!element || typeof element !== 'object')
+                    continue;
+                const el = element;
+                const name = el.name;
+                const fallbackValue = el.fallbackValue;
+                if (name && fallbackValue !== undefined && fallbackValue !== null) {
+                    fallbackMap.set(name, String(fallbackValue));
+                }
+            }
+        }
+        // Apply fallback values to each input record
+        for (const inputRecord of inputs) {
+            // Ensure all schema fields exist in inputs; apply fallback for missing/empty values
+            for (const page of pdfmeTemplate.schemas) {
+                if (!Array.isArray(page))
+                    continue;
+                for (const element of page) {
+                    if (!element || typeof element !== 'object')
+                        continue;
+                    const el = element;
+                    const name = el.name;
+                    if (!name)
+                        continue;
+                    // If input is missing or empty, apply fallback or empty string
+                    if (!(name in inputRecord) || inputRecord[name] === '' || inputRecord[name] === undefined || inputRecord[name] === null) {
+                        const fallback = fallbackMap.get(name);
+                        inputRecord[name] = fallback !== undefined ? fallback : '';
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * Expression pattern detection regex.
+     * Matches values containing function calls (e.g. CONCAT(...), IF(...), FORMAT_DATE(...))
+     * or arithmetic operators between non-whitespace tokens (e.g. "100 + 200", "qty * price").
+     * Simple values like "INV-001" or "Hello World" will NOT match.
+     */
+    static EXPRESSION_PATTERN = /(?:[A-Z_][A-Z0-9_]*\s*\()|(?:(?:^|[^a-zA-Z])\d+(?:\.\d+)?\s*[+\-*\/]\s*\d)|(?:\w+\s*[+\-*\/]\s*\w+)/i;
+    /**
+     * Types that should be skipped during expression resolution.
+     * calculatedField has its own expression evaluation pipeline.
+     * image/drawnSignature/erpImage contain binary data, not text expressions.
+     */
+    static EXPRESSION_SKIP_TYPES = new Set([
+        'calculatedField', 'image', 'drawnSignature', 'erpImage', 'table',
+    ]);
+    /**
+     * Resolve expressions in all text-containing schema element values.
+     * Runs AFTER resolveFieldBindings() so {{field}} placeholders are already substituted.
+     * For each input value, if it contains expression syntax (function calls like CONCAT(),
+     * IF(), arithmetic operators, etc.), evaluate via ExpressionEngine with the full data context.
+     *
+     * Skips calculatedField schemas (they have their own evaluation in resolveCalculatedFields).
+     * Simple {{field}} placeholder values (already resolved to plain text) pass through unchanged.
+     */
+    resolveExpressions(pdfmeTemplate, inputs) {
+        if (!Array.isArray(pdfmeTemplate.schemas) || inputs.length === 0)
+            return;
+        // Build a set of element names that should be skipped (calculatedField, image, etc.)
+        const skipNames = new Set();
+        for (const page of pdfmeTemplate.schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (!element || typeof element !== 'object')
+                    continue;
+                const el = element;
+                const elType = el.type;
+                const elName = el.name;
+                if (elName && elType && RenderService_1.EXPRESSION_SKIP_TYPES.has(elType)) {
+                    skipNames.add(elName);
+                }
+            }
+        }
+        // Build a set of all element names that are text-containing schemas
+        const textElementNames = new Set();
+        for (const page of pdfmeTemplate.schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (!element || typeof element !== 'object')
+                    continue;
+                const el = element;
+                const elName = el.name;
+                if (elName && !skipNames.has(elName)) {
+                    textElementNames.add(elName);
+                }
+            }
+        }
+        if (textElementNames.size === 0)
+            return;
+        const engine = new schemas_1.ExpressionEngine({ onError: '#ERROR' });
+        for (const inputRecord of inputs) {
+            // Build the evaluation context from ALL input values
+            // Try to parse numeric values for arithmetic support
+            const context = {};
+            for (const [key, value] of Object.entries(inputRecord)) {
+                if (value === '' || value === undefined || value === null) {
+                    context[key] = value;
+                    continue;
+                }
+                const num = Number(value);
+                context[key] = (value !== '' && !isNaN(num)) ? num : value;
+            }
+            // Scan text element values for expression patterns
+            for (const fieldName of textElementNames) {
+                const value = inputRecord[fieldName];
+                if (!value || typeof value !== 'string')
+                    continue;
+                // Skip values that are clearly not expressions:
+                // - Empty strings
+                // - Data URIs (base64 images)
+                // - Very short values unlikely to be expressions
+                if (value.startsWith('data:') || value.length < 3)
+                    continue;
+                // Check if the value contains expression syntax
+                if (RenderService_1.EXPRESSION_PATTERN.test(value)) {
+                    try {
+                        const result = engine.evaluate(value, context);
+                        inputRecord[fieldName] = String(result ?? '');
+                    }
+                    catch {
+                        // If expression evaluation fails, leave the original value unchanged
+                        // This ensures backward compatibility — plain text with coincidental
+                        // pattern matches won't break rendering
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * Resolve missing images with placeholder rectangles.
+     * For any 'image' type element whose input is missing or empty (no data URI),
+     * generates a placeholder PNG and records the element info for pdf-lib
+     * post-processing (drawing "Image not found" text on the placeholder area).
+     * This prevents render failures from missing image references.
+     */
+    resolveMissingImages(pdfmeTemplate, inputs) {
+        const placeholders = [];
+        for (let pi = 0; pi < pdfmeTemplate.schemas.length; pi++) {
+            const page = pdfmeTemplate.schemas[pi];
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (!element || typeof element !== 'object')
+                    continue;
+                const el = element;
+                if (el.type !== 'image')
+                    continue;
+                const name = el.name;
+                if (!name)
+                    continue;
+                const width = el.width || 50;
+                const height = el.height || 50;
+                const position = el.position;
+                for (const inputRecord of inputs) {
+                    const val = inputRecord[name];
+                    if (!val || (typeof val === 'string' && !val.startsWith('data:'))) {
+                        inputRecord[name] = (0, schemas_1.generatePlaceholderImage)(width, height);
+                        if (position) {
+                            placeholders.push({
+                                pageIndex: pi,
+                                x: position.x,
+                                y: position.y,
+                                width,
+                                height,
+                                fieldName: name,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        return placeholders;
+    }
+    /**
+     * Apply "Image not found" text overlays on placeholder images via pdf-lib.
+     * Draws a dashed border rectangle and centered text on each placeholder area.
+     */
+    async applyPlaceholderOverlays(pdfBuffer, placeholders) {
+        const { PDFDocument, rgb, StandardFonts } = await Promise.resolve().then(() => tslib_1.__importStar(require('pdf-lib')));
+        const pdfDoc = await PDFDocument.load(pdfBuffer);
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const pages = pdfDoc.getPages();
+        const MM_TO_PT = 2.8346; // 1mm = 2.8346 points
+        for (const ph of placeholders) {
+            const page = pages[ph.pageIndex];
+            if (!page)
+                continue;
+            const pageHeight = page.getHeight();
+            const x = ph.x * MM_TO_PT;
+            const y = pageHeight - (ph.y * MM_TO_PT) - (ph.height * MM_TO_PT);
+            const w = ph.width * MM_TO_PT;
+            const h = ph.height * MM_TO_PT;
+            // Draw light grey filled rectangle
+            page.drawRectangle({
+                x, y, width: w, height: h,
+                color: rgb(0.94, 0.94, 0.94), // #f0f0f0
+                borderColor: rgb(0.8, 0.8, 0.8), // #cccccc
+                borderWidth: 0.5,
+            });
+            // Draw diagonal cross lines
+            page.drawLine({
+                start: { x, y: y + h }, end: { x: x + w, y },
+                color: rgb(0.8, 0.8, 0.8), thickness: 0.3,
+            });
+            page.drawLine({
+                start: { x, y }, end: { x: x + w, y: y + h },
+                color: rgb(0.8, 0.8, 0.8), thickness: 0.3,
+            });
+            // Draw "Image not found" text centered in the rectangle
+            const text = 'Image not found';
+            const fontSize = Math.max(6, Math.min(10, w / 12));
+            const textWidth = font.widthOfTextAtSize(text, fontSize);
+            const textX = x + (w - textWidth) / 2;
+            const textY = y + (h - fontSize) / 2;
+            page.drawText(text, {
+                x: textX, y: textY,
+                size: fontSize,
+                font,
+                color: rgb(0.6, 0.6, 0.6), // #999999
+            });
+        }
+        return new Uint8Array(await pdfDoc.save());
+    }
+    /**
+     * Resolve drawnSignature fields in the template.
+     * Scans template schemas for drawnSignature type fields, fetches the user's
+     * signature PNG from storage, and replaces input values with base64 data URIs.
+     * Also converts the schema type to 'image' for pdfme compatibility.
+     *
+     * Supports configurable fallbackBehaviour when signature is missing:
+     * - 'blank' (default): renders empty/transparent space
+     * - 'placeholder': shows a signature placeholder image
+     * - 'error': throws an error to fail the render
+     */
+    async resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId) {
+        const signatureFields = [];
+        if (Array.isArray(pdfmeTemplate.schemas)) {
+            for (const page of pdfmeTemplate.schemas) {
+                if (Array.isArray(page)) {
+                    for (const field of page) {
+                        if (field &&
+                            typeof field === 'object' &&
+                            'type' in field &&
+                            field.type === 'drawnSignature' &&
+                            'name' in field) {
+                            const f = field;
+                            const fallback = f.fallbackBehaviour || 'blank';
+                            signatureFields.push({
+                                name: f.name,
+                                fallbackBehaviour: fallback,
+                                width: f.width || 50,
+                                height: f.height || 20,
+                            });
+                            // Convert type to 'image' for pdfme compatibility
+                            field.type = 'image';
+                        }
+                    }
+                }
+            }
+        }
+        if (signatureFields.length === 0)
+            return;
+        // Fetch the user's current signature
+        let signatureDataUri = '';
+        try {
+            const signature = await this.signatureService.getMySignature(orgId, userId);
+            if (signature) {
+                const fileExists = await this.signatureService.signatureFileExists(signature.filePath);
+                if (fileExists) {
+                    const pngBuffer = await this.signatureService.readSignatureFile(signature.filePath);
+                    if (pngBuffer && pngBuffer.length > 0) {
+                        signatureDataUri = `data:image/png;base64,${pngBuffer.toString('base64')}`;
+                    }
+                }
+            }
+        }
+        catch {
+            // Signature not found - use fallback behaviour
+        }
+        // Set the signature data in all input records
+        for (const inputRecord of inputs) {
+            for (const sigField of signatureFields) {
+                if (signatureDataUri) {
+                    // Signature exists - use it
+                    inputRecord[sigField.name] = signatureDataUri;
+                }
+                else {
+                    // Signature missing - apply fallback behaviour
+                    switch (sigField.fallbackBehaviour) {
+                        case 'error':
+                            throw new Error(`Signature required but not found for field "${sigField.name}". User "${userId}" has no signature on file.`);
+                        case 'placeholder': {
+                            // Generate a signature placeholder (light grey box with "Sign here" text)
+                            // Uses a 1x1 transparent PNG; the resolveMissingImages step will overlay text
+                            inputRecord[sigField.name] = (0, schemas_1.generatePlaceholderImage)(sigField.width, sigField.height);
+                            break;
+                        }
+                        case 'blank':
+                        default: {
+                            // Generate a 1x1 transparent PNG to render blank/empty space
+                            // This minimal PNG prevents pdfme from failing on empty image input
+                            const transparentPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+                            inputRecord[sigField.name] = `data:image/png;base64,${transparentPng}`;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * Resolve page scopes: filter elements based on their pageScope property.
+     * - 'all' (default): element appears on every page
+     * - 'first': element only appears on the first page
+     * - 'last': element only appears on the last page
+     * - 'notFirst': element appears on all pages except the first
+     *
+     * Mutates the template schemas in place.
+     */
+    resolvePageScopes(pdfmeTemplate) {
+        if (!Array.isArray(pdfmeTemplate.schemas) || pdfmeTemplate.schemas.length === 0)
+            return;
+        const totalPages = pdfmeTemplate.schemas.length;
+        pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page, pageIndex) => {
+            if (!Array.isArray(page))
+                return page;
+            const isFirst = pageIndex === 0;
+            const isLast = pageIndex === totalPages - 1;
+            return page.filter((field) => {
+                if (!field || typeof field !== 'object')
+                    return true;
+                const f = field;
+                const scope = f.pageScope || 'all';
+                switch (scope) {
+                    case 'first':
+                        return isFirst;
+                    case 'last':
+                        return isLast;
+                    case 'notFirst':
+                        return !isFirst;
+                    case 'all':
+                    default:
+                        return true;
+                }
+            }).map((field) => {
+                // Remove pageScope from the element since pdfme doesn't understand it
+                if (!field || typeof field !== 'object')
+                    return field;
+                const f = field;
+                if ('pageScope' in f) {
+                    const { pageScope: _removed, ...rest } = f;
+                    return rest;
+                }
+                return field;
+            });
+        });
+    }
+    /**
+     * Resolve conditions: hide elements based on their condition property.
+     * Condition types:
+     * - 'fieldNonEmpty': element visible only if the specified field has a non-empty value
+     * - 'expression': element visible only if the expression evaluates to truthy
+     *
+     * Mutates the template schemas and removes hidden elements' inputs.
+     */
+    resolveConditions(pdfmeTemplate, inputs) {
+        if (!Array.isArray(pdfmeTemplate.schemas))
+            return;
+        // Build a context from the first input record for condition evaluation
+        const context = inputs.length > 0 ? inputs[0] : {};
+        pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page) => {
+            if (!Array.isArray(page))
+                return page;
+            return page.filter((field) => {
+                if (!field || typeof field !== 'object')
+                    return true;
+                const f = field;
+                const condition = f.condition;
+                if (!condition)
+                    return true; // No condition = always visible
+                const condType = condition.type;
+                if (condType === 'fieldNonEmpty') {
+                    const fieldKey = condition.field;
+                    if (!fieldKey)
+                        return true;
+                    const value = context[fieldKey];
+                    // Field is non-empty if it exists, is not empty string, not null, not undefined
+                    return value !== undefined && value !== null && value !== '';
+                }
+                if (condType === 'expression') {
+                    const expr = condition.expression;
+                    if (!expr)
+                        return true;
+                    try {
+                        return this.evaluateConditionExpression(expr, context);
+                    }
+                    catch {
+                        // If expression evaluation fails, keep the element visible
+                        return true;
+                    }
+                }
+                return true; // Unknown condition type = always visible
+            }).map((field) => {
+                // Remove condition from the element since pdfme doesn't understand it
+                if (!field || typeof field !== 'object')
+                    return field;
+                const f = field;
+                if ('condition' in f) {
+                    const { condition: _removed, ...rest } = f;
+                    return rest;
+                }
+                return field;
+            });
+        });
+    }
+    /**
+     * Evaluate a simple condition expression.
+     * Supports: field == value, field != value, field > value, field < value,
+     * field >= value, field <= value
+     * Also supports simple truthy checks: just a field name returns true if non-empty
+     */
+    evaluateConditionExpression(expr, context) {
+        const trimmed = expr.trim();
+        // Try comparison operators
+        const comparisonMatch = trimmed.match(/^([a-zA-Z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/);
+        if (comparisonMatch) {
+            const [, fieldKey, operator, rawValue] = comparisonMatch;
+            const fieldValue = context[fieldKey] ?? '';
+            // Remove quotes from value if present
+            let compareValue = rawValue.trim();
+            if ((compareValue.startsWith("'") && compareValue.endsWith("'")) ||
+                (compareValue.startsWith('"') && compareValue.endsWith('"'))) {
+                compareValue = compareValue.slice(1, -1);
+            }
+            // Try numeric comparison
+            const numField = Number(fieldValue);
+            const numCompare = Number(compareValue);
+            const isNumeric = !isNaN(numField) && !isNaN(numCompare) && fieldValue !== '';
+            switch (operator) {
+                case '==':
+                    return isNumeric ? numField === numCompare : fieldValue === compareValue;
+                case '!=':
+                    return isNumeric ? numField !== numCompare : fieldValue !== compareValue;
+                case '>':
+                    return isNumeric ? numField > numCompare : fieldValue > compareValue;
+                case '<':
+                    return isNumeric ? numField < numCompare : fieldValue < compareValue;
+                case '>=':
+                    return isNumeric ? numField >= numCompare : fieldValue >= compareValue;
+                case '<=':
+                    return isNumeric ? numField <= numCompare : fieldValue <= compareValue;
+                default:
+                    return true;
+            }
+        }
+        // Simple truthy check: field name only
+        const value = context[trimmed] ?? '';
+        return value !== '' && value !== '0' && value !== 'false';
+    }
+    /**
+     * Resolve output channels: filter elements based on their outputChannel property
+     * and the requested render channel.
+     *
+     * outputChannel values on elements: 'both' (default), 'email', 'print'
+     * - 'both': element appears in all channels
+     * - 'email': element only appears when rendering for email channel
+     * - 'print': element only appears when rendering for print channel
+     *
+     * Elements tagged as email-only are excluded when channel='print' and vice versa.
+     * This supports pre-printed stationery: suppress email-only elements (company logo,
+     * header graphics) when printing on pre-printed paper.
+     *
+     * Mutates the template schemas in place, also strips the outputChannel property
+     * since pdfme doesn't understand it.
+     */
+    resolveOutputChannels(pdfmeTemplate, channel) {
+        if (!Array.isArray(pdfmeTemplate.schemas))
+            return;
+        pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page) => {
+            if (!Array.isArray(page))
+                return page;
+            return page.filter((field) => {
+                if (!field || typeof field !== 'object')
+                    return true;
+                const f = field;
+                const elementChannel = f.outputChannel || 'both';
+                // 'both' always passes through
+                if (elementChannel === 'both')
+                    return true;
+                // Element channel must match the requested render channel
+                return elementChannel === channel;
+            }).map((field) => {
+                // Remove outputChannel from the element since pdfme doesn't understand it
+                if (!field || typeof field !== 'object')
+                    return field;
+                const f = field;
+                if ('outputChannel' in f) {
+                    const { outputChannel: _removed, ...rest } = f;
+                    return rest;
+                }
+                return field;
+            });
+        });
+    }
+    /**
+     * Get a font from cache, or return null if not cached.
+     */
+    fontCacheGet(orgId, fontName) {
+        const key = `${orgId}:${fontName}`;
+        const entry = this.fontCache.get(key);
+        if (entry) {
+            entry.accessedAt = Date.now();
+            this.fontCacheStats.hits++;
+            return entry.data;
+        }
+        this.fontCacheStats.misses++;
+        return null;
+    }
+    /**
+     * Put a font into the cache, evicting LRU entries if needed.
+     */
+    fontCachePut(orgId, fontName, data) {
+        const key = `${orgId}:${fontName}`;
+        // If already cached, remove old entry first
+        const existing = this.fontCache.get(key);
+        if (existing) {
+            this.fontCacheSizeBytes -= existing.data.byteLength;
+            this.fontCache.delete(key);
+        }
+        // Evict LRU entries until we have room
+        while (this.fontCacheSizeBytes + data.byteLength > this.fontCacheMaxBytes && this.fontCache.size > 0) {
+            // Find LRU entry
+            let oldestKey = '';
+            let oldestTime = Infinity;
+            for (const [k, v] of this.fontCache) {
+                if (v.accessedAt < oldestTime) {
+                    oldestTime = v.accessedAt;
+                    oldestKey = k;
+                }
+            }
+            if (oldestKey) {
+                const evicted = this.fontCache.get(oldestKey);
+                if (evicted) {
+                    this.fontCacheSizeBytes -= evicted.data.byteLength;
+                    this.fontCache.delete(oldestKey);
+                    this.fontCacheStats.evictions++;
+                }
+            }
+        }
+        this.fontCache.set(key, { data, accessedAt: Date.now() });
+        this.fontCacheSizeBytes += data.byteLength;
+    }
+    /**
+     * Get font cache statistics.
+     */
+    getFontCacheStats() {
+        return {
+            entries: this.fontCache.size,
+            sizeBytes: this.fontCacheSizeBytes,
+            sizeMB: Math.round(this.fontCacheSizeBytes / 1024 / 1024 * 100) / 100,
+            maxSizeMB: this.fontCacheMaxBytes / 1024 / 1024,
+            hits: this.fontCacheStats.hits,
+            misses: this.fontCacheStats.misses,
+            evictions: this.fontCacheStats.evictions,
+            hitRate: this.fontCacheStats.hits + this.fontCacheStats.misses > 0
+                ? Math.round(this.fontCacheStats.hits / (this.fontCacheStats.hits + this.fontCacheStats.misses) * 10000) / 100
+                : 0,
+        };
+    }
+    /**
+     * Clear the font cache (useful for testing).
+     */
+    clearFontCache() {
+        const cleared = this.fontCache.size;
+        const freedBytes = this.fontCacheSizeBytes;
+        this.fontCache.clear();
+        this.fontCacheSizeBytes = 0;
+        this.fontCacheStats = { hits: 0, misses: 0, evictions: 0 };
+        return { cleared, freedBytes };
+    }
+    /**
+     * Resolve fonts for a template.
+     *
+     * Scans template schemas for fontName references, attempts to load custom fonts
+     * from org file storage, and falls back to pdfme's built-in default font (Roboto)
+     * for any fonts that cannot be found. Logs a warning for each missing font.
+     *
+     * Returns a Font map suitable for passing to pdfme generate() via options.font,
+     * plus an array of warnings for any fonts that had to be substituted.
+     */
+    async resolveFonts(pdfmeTemplate, orgId) {
+        const warnings = [];
+        // 1. Extract all fontName references from template schemas
+        const fontNames = new Set();
+        for (const page of pdfmeTemplate.schemas) {
+            if (!Array.isArray(page))
+                continue;
+            for (const element of page) {
+                if (element && typeof element === 'object' && 'fontName' in element) {
+                    const fn = element.fontName;
+                    if (fn && typeof fn === 'string' && fn.trim()) {
+                        fontNames.add(fn.trim());
+                    }
+                }
+            }
+        }
+        // If no custom fonts referenced, let pdfme use its built-in default
+        if (fontNames.size === 0) {
+            return { font: null, warnings };
+        }
+        // 2. Get pdfme's built-in default font (Roboto) for fallback
+        const { getDefaultFont } = await Promise.resolve().then(() => tslib_1.__importStar(require('@pdfme/common')));
+        const defaultFont = getDefaultFont();
+        // The default font map has exactly one entry with fallback: true
+        const defaultFontName = Object.keys(defaultFont)[0]; // 'Roboto'
+        const defaultFontData = defaultFont[defaultFontName];
+        // 3. Build the font map, attempting to load each referenced font
+        const fontMap = {};
+        // Always include the fallback font
+        fontMap[defaultFontName] = { ...defaultFontData, fallback: true };
+        for (const fontName of fontNames) {
+            // Skip if it's the default font
+            if (fontName === defaultFontName)
+                continue;
+            // Try font cache first, then load from org font storage
+            let loaded = false;
+            const cachedData = this.fontCacheGet(orgId, fontName);
+            if (cachedData) {
+                fontMap[fontName] = { data: cachedData, subset: true };
+                loaded = true;
+            }
+            else {
+                try {
+                    // Try common font file extensions
+                    const extensions = ['.ttf', '.otf', '.woff2'];
+                    const fontDir = `${orgId}/fonts`;
+                    const files = await this.fileStorage.list(fontDir).catch(() => []);
+                    for (const ext of extensions) {
+                        // Look for a file matching the font name (case-insensitive)
+                        const matchingFile = files.find((f) => {
+                            const baseName = path.basename(f, path.extname(f)).toLowerCase().replace(/[_-]/g, '');
+                            const searchName = fontName.toLowerCase().replace(/[_-\s]/g, '');
+                            return baseName.includes(searchName) || searchName.includes(baseName);
+                        });
+                        if (matchingFile) {
+                            try {
+                                const fontData = await this.fileStorage.read(matchingFile);
+                                const fontUint8 = new Uint8Array(fontData);
+                                fontMap[fontName] = { data: fontUint8, subset: true };
+                                // Store in cache for future renders
+                                this.fontCachePut(orgId, fontName, fontUint8);
+                                loaded = true;
+                                break;
+                            }
+                            catch {
+                                // File exists but couldn't be read - continue to fallback
+                            }
+                        }
+                    }
+                }
+                catch {
+                    // Storage access failed - continue to fallback
+                }
+            }
+            if (!loaded) {
+                // Font not found - log warning and map to fallback
+                const warning = {
+                    fontName,
+                    message: `Font "${fontName}" not found in storage, falling back to ${defaultFontName}`,
+                };
+                warnings.push(warning);
+                console.warn(`[RenderService] ${warning.message}`);
+                // Register the missing font name pointing to the fallback font data
+                // This prevents pdfme from throwing an error about unknown fonts
+                fontMap[fontName] = { data: defaultFontData.data, subset: true };
+            }
+        }
+        return { font: fontMap, warnings };
+    }
+    /**
+     * Generate a preview PDF from a template with sample data.
+     *
+     * This endpoint works on any template status (draft or published).
+     * It generates sample inputs from the template's field names,
+     * runs the full render pipeline, and applies a "PREVIEW — NOT A LEGAL DOCUMENT"
+     * watermark. The preview is stored temporarily and a download URL is returned.
+     *
+     * @param template - The template record (any status)
+     * @param orgId - Tenant org ID
+     * @param userId - User ID
+     * @param channel - Output channel (email/print)
+     * @param sampleRowCount - Number of sample line items (5, 15, or 30)
+     */
+    async generatePreview(template, orgId, userId, channel, sampleRowCount) {
+        // 1. Build pdfme template from the stored schema
+        const templateSchema = template.schema;
+        let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
+        // 2. Generate sample inputs from template field names
+        let inputs = [this.buildSampleInputs(pdfmeTemplate, sampleRowCount)];
+        // 3. Run the full render pipeline (same as renderNow but without DB record)
+        // 3a. Resolve field bindings with fallbackValue
+        this.resolveFieldBindings(pdfmeTemplate, inputs);
+        // 3a2. Resolve expressions in all text-containing schema element values
+        this.resolveExpressions(pdfmeTemplate, inputs);
+        // 3b. Resolve drawnSignature fields
+        await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
+        // 3b2. Resolve erpImage elements
+        const erpImageResult = await (0, schemas_1.resolveErpImages)(pdfmeTemplate, inputs, {
+            readFile: (p) => this.fileStorage.read(p),
+            fileExists: (p) => this.fileStorage.exists(p),
+            listFiles: (p) => this.fileStorage.list(p),
+            orgId,
+        });
+        pdfmeTemplate = erpImageResult.template;
+        inputs = erpImageResult.inputs;
+        const previewErpPlaceholders = erpImageResult.placeholders || [];
+        // 3c. Resolve lineItemsTable elements
+        const resolvedLit = (0, schemas_1.resolveLineItemsTables)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedLit.template;
+        inputs = resolvedLit.inputs;
+        // 3d. Resolve qrBarcode elements
+        const resolvedQr = (0, schemas_1.resolveQrBarcodes)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedQr.template;
+        inputs = resolvedQr.inputs;
+        // 3e. Resolve richText elements
+        const richTextResult = (0, schemas_1.resolveRichText)(pdfmeTemplate, inputs);
+        pdfmeTemplate = richTextResult.template;
+        inputs = richTextResult.inputs;
+        const richTextInfo = richTextResult.richTextInfo;
+        // 3e2. Resolve signatureBlock elements
+        const sigBlockResult = (0, schemas_1.resolveSignatureBlocks)(pdfmeTemplate, inputs);
+        pdfmeTemplate = sigBlockResult.template;
+        inputs = sigBlockResult.inputs;
+        // 3f. Resolve page scopes
+        this.resolvePageScopes(pdfmeTemplate);
+        // 3g. Resolve conditions
+        this.resolveConditions(pdfmeTemplate, inputs);
+        // 3g2. Resolve output channels
+        this.resolveOutputChannels(pdfmeTemplate, channel);
+        // 3h. Resolve calculated fields
+        const resolvedCalc = (0, schemas_1.resolveCalculatedFields)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedCalc.template;
+        inputs = resolvedCalc.inputs;
+        // 3h1. Resolve currency fields
+        const resolvedCurrency = (0, schemas_1.resolveCurrencyFields)(pdfmeTemplate, inputs);
+        pdfmeTemplate = resolvedCurrency.template;
+        inputs = resolvedCurrency.inputs;
+        // 3h2. Resolve ERP rectangle elements
+        const previewRectResult = (0, schemas_1.resolveRectangles)(pdfmeTemplate, inputs);
+        pdfmeTemplate = previewRectResult.template;
+        const previewRectShadows = previewRectResult.shadowElements;
+        // 3h3. Resolve missing images with placeholder rectangles
+        const previewPlaceholders = this.resolveMissingImages(pdfmeTemplate, inputs);
+        // 3i. Extract and remove watermark elements (template's own watermark)
+        const _templateWatermark = (0, schemas_1.extractWatermarkFromTemplate)(pdfmeTemplate.schemas, inputs);
+        pdfmeTemplate.schemas = pdfmeTemplate.schemas.map((page) => {
+            if (!Array.isArray(page))
+                return page;
+            return page.filter((field) => {
+                if (field && typeof field === 'object' && 'type' in field) {
+                    return field.type !== 'watermark';
+                }
+                return true;
+            });
+        });
+        // 3j. Resolve fonts - load custom fonts or fall back to default
+        const previewFontResult = await this.resolveFonts(pdfmeTemplate, orgId);
+        // 4. Generate PDF
+        let pdfBuffer;
+        const { generate } = await Promise.resolve().then(() => tslib_1.__importStar(require('@pdfme/generator')));
+        const schemas = await Promise.resolve().then(() => tslib_1.__importStar(require('@pdfme/schemas')));
+        const plugins = {
+            text: schemas.text,
+            image: schemas.image,
+            table: schemas.table,
+            line: schemas.line,
+            rectangle: schemas.rectangle,
+            ellipse: schemas.ellipse,
+            svg: schemas.svg,
+            multiVariableText: schemas.multiVariableText,
+            dateTime: schemas.dateTime,
+            date: schemas.date,
+            time: schemas.time,
+            select: schemas.select,
+            radioGroup: schemas.radioGroup,
+            checkbox: schemas.checkbox,
+            ...schemas.barcodes,
+            drawnSignature: schemas.image,
+        };
+        const previewGenerateOptions = {};
+        if (previewFontResult.font) {
+            previewGenerateOptions.font = previewFontResult.font;
+        }
+        pdfBuffer = await generate({
+            template: pdfmeTemplate,
+            inputs,
+            plugins,
+            options: previewGenerateOptions,
+        });
+        // 4b. Apply rich text
+        if (richTextInfo.length > 0) {
+            try {
+                pdfBuffer = await (0, schemas_1.applyRichText)(pdfBuffer, richTextInfo);
+            }
+            catch {
+                // Continue without rich text
+            }
+        }
+        // 4b3. Apply placeholder image overlays
+        const allPreviewPlaceholders = [...previewErpPlaceholders, ...previewPlaceholders];
+        if (allPreviewPlaceholders.length > 0) {
+            try {
+                pdfBuffer = await this.applyPlaceholderOverlays(pdfBuffer, allPreviewPlaceholders);
+            }
+            catch {
+                // Continue without placeholder overlays
+            }
+        }
+        // 4c2. Apply rectangle shadows for preview
+        if (previewRectShadows.length > 0) {
+            try {
+                pdfBuffer = await (0, schemas_1.applyRectangleShadows)(pdfBuffer, previewRectShadows);
+            }
+            catch (err) {
+                console.error('Preview rectangle shadow application failed:', err);
+            }
+        }
+        // 5. Apply PREVIEW watermark (always, regardless of template's own watermark)
+        const previewWatermarkConfig = {
+            text: 'PREVIEW \u2014 NOT A LEGAL DOCUMENT',
+            opacity: 0.15,
+            rotation: 45,
+            color: { r: 0.6, g: 0.6, b: 0.6 },
+            fontSize: 48,
+        };
+        pdfBuffer = await (0, schemas_1.applyWatermark)(pdfBuffer, previewWatermarkConfig);
+        // 6. Store preview temporarily
+        const previewId = `prev_${(0, cuid2_1.createId)()}`;
+        const filePath = `${orgId}/previews/${previewId}.pdf`;
+        await this.fileStorage.write(filePath, Buffer.from(pdfBuffer));
+        // 7. Register preview with expiry metadata
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 60 * 60 * 1000).toISOString(); // 1 hour
+        const previewRecord = {
+            previewId,
+            orgId,
+            filePath,
+            expiresAt,
+            createdAt: now.toISOString(),
+        };
+        this.previewRegistry.set(previewId, previewRecord);
+        // 8. Return preview metadata
+        return {
+            previewId,
+            downloadUrl: `/api/pdfme/render/download/${previewId}`,
+            expiresAt,
+            templateId: template.id,
+            templateName: template.name,
+            channel,
+            sampleRowCount,
+        };
+    }
+    /**
+     * Get a preview PDF for download. Returns the PDF buffer if valid,
+     * or an error object if expired, not found, or purged.
+     */
+    async getPreviewForDownload(previewId, orgId) {
+        const record = this.previewRegistry.get(previewId);
+        // Not found in registry
+        if (!record) {
+            // Could be expired and purged, or never existed
+            return { error: 'Preview not found or has expired', statusCode: 410 };
+        }
+        // Check org isolation
+        if (record.orgId !== orgId) {
+            return { error: 'Preview not found or has expired', statusCode: 410 };
+        }
+        // Check expiry
+        if (new Date(record.expiresAt) < new Date()) {
+            // Expired - clean up registry and try to delete file
+            this.previewRegistry.delete(previewId);
+            try {
+                await this.fileStorage.delete(record.filePath);
+            }
+            catch {
+                // File may already be gone
+            }
+            return { error: 'Preview has expired', statusCode: 410 };
+        }
+        // Try to read the file
+        try {
+            const buffer = await this.fileStorage.read(record.filePath);
+            return { buffer, previewId };
+        }
+        catch {
+            // File was purged from disk
+            this.previewRegistry.delete(previewId);
+            return { error: 'Preview file has been purged', statusCode: 410 };
+        }
+    }
+    /**
+     * Force-expire a preview for testing purposes.
+     * Sets the expiresAt to a past date.
+     */
+    forceExpirePreview(previewId) {
+        const record = this.previewRegistry.get(previewId);
+        if (!record)
+            return false;
+        record.expiresAt = new Date(Date.now() - 1000).toISOString(); // 1 second ago
+        return true;
+    }
+    /**
+     * Verify document integrity by comparing the stored hash with the
+     * actual hash of the PDF file on disk. Supports both SHA-256 and BLAKE3,
+     * with backward compatibility for legacy un-prefixed SHA-256 hashes.
+     *
+     * @param documentId - The ID of the generated document
+     * @param orgId - Tenant org ID
+     * @returns Verification result with integrity status
+     */
+    async verifyDocument(documentId, orgId) {
+        // 1. Look up the document record
+        const [doc] = await this.db
+            .select()
+            .from(schema_1.generatedDocuments)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.id, documentId), (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId)));
+        if (!doc) {
+            return { error: 'Document not found' };
+        }
+        // 2. Read the PDF file from storage
+        let pdfBuffer;
+        try {
+            pdfBuffer = await this.fileStorage.read(doc.filePath);
+        }
+        catch {
+            return {
+                documentId: doc.id,
+                verified: false,
+                status: 'file_missing',
+                message: 'PDF file not found on disk',
+                storedHash: doc.pdfHash,
+            };
+        }
+        if (!pdfBuffer || pdfBuffer.length === 0) {
+            return {
+                documentId: doc.id,
+                verified: false,
+                status: 'file_missing',
+                message: 'PDF file is empty or not found on disk',
+                storedHash: doc.pdfHash,
+            };
+        }
+        // 3. Verify hash using HashService (handles algorithm prefix and legacy hashes)
+        const verification = this.hashService.verifyHash(pdfBuffer, doc.pdfHash);
+        return {
+            documentId: doc.id,
+            verified: verification.verified,
+            status: verification.verified ? 'intact' : 'tampered',
+            message: verification.verified
+                ? 'Document integrity confirmed — hash matches'
+                : 'Document integrity check failed — PDF has been modified (tamper detected)',
+            storedHash: doc.pdfHash,
+            currentHash: verification.currentHash,
+            algorithm: verification.algorithm,
+            filePath: doc.filePath,
+            createdAt: doc.createdAt,
+        };
+    }
+    /**
+     * Get a generated document for download. Returns the PDF buffer from disk cache.
+     * No re-render is triggered — the previously generated PDF file is served directly.
+     *
+     * @param documentId - The ID of the generated document
+     * @param orgId - Tenant org ID
+     * @returns PDF buffer and metadata, or error object
+     */
+    async getDocumentForDownload(documentId, orgId) {
+        // 1. Look up the document record in the database
+        const [doc] = await this.db
+            .select()
+            .from(schema_1.generatedDocuments)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.id, documentId), (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId)));
+        if (!doc) {
+            return { error: 'Document not found', statusCode: 404 };
+        }
+        if (doc.status === 'failed') {
+            return { error: 'Document generation failed — no PDF available', statusCode: 404 };
+        }
+        if (!doc.filePath) {
+            return { error: 'Document has no associated file', statusCode: 404 };
+        }
+        // 2. Read the cached PDF from disk (no re-render)
+        try {
+            const buffer = await this.fileStorage.read(doc.filePath);
+            return { buffer, documentId: doc.id, pdfHash: doc.pdfHash, filePath: doc.filePath };
+        }
+        catch {
+            return { error: 'Document file not found on disk', statusCode: 404 };
+        }
+    }
+    /**
+     * List generated documents for a specific template, optionally filtered by orgId.
+     * Documents persist independently of template status (including archived templates).
+     */
+    async listDocumentsByTemplate(templateId, orgId, status) {
+        const conditions = [
+            (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.templateId, templateId),
+            (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId),
+        ];
+        // Apply status filter if provided
+        if (status) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.status, status));
+        }
+        const docs = await this.db
+            .select({
+            id: schema_1.generatedDocuments.id,
+            templateId: schema_1.generatedDocuments.templateId,
+            templateVer: schema_1.generatedDocuments.templateVer,
+            entityType: schema_1.generatedDocuments.entityType,
+            entityId: schema_1.generatedDocuments.entityId,
+            status: schema_1.generatedDocuments.status,
+            outputChannel: schema_1.generatedDocuments.outputChannel,
+            createdAt: schema_1.generatedDocuments.createdAt,
+            pdfHash: schema_1.generatedDocuments.pdfHash,
+            inputSnapshot: schema_1.generatedDocuments.inputSnapshot,
+        })
+            .from(schema_1.generatedDocuments)
+            .where((0, drizzle_orm_1.and)(...conditions));
+        return docs.map((d) => ({
+            ...d,
+            hasInputSnapshot: d.inputSnapshot != null,
+        }));
+    }
+    /**
+     * Get the input snapshot for a specific generated document.
+     * Returns the full JSON snapshot used for audit/reproduction.
+     */
+    async getDocumentSnapshot(documentId, orgId) {
+        const [doc] = await this.db
+            .select({
+            id: schema_1.generatedDocuments.id,
+            inputSnapshot: schema_1.generatedDocuments.inputSnapshot,
+            templateId: schema_1.generatedDocuments.templateId,
+            entityId: schema_1.generatedDocuments.entityId,
+            entityType: schema_1.generatedDocuments.entityType,
+            createdAt: schema_1.generatedDocuments.createdAt,
+        })
+            .from(schema_1.generatedDocuments)
+            .where((0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.id, documentId), (0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId)));
+        if (!doc) {
+            return { error: 'Document not found' };
+        }
+        return {
+            documentId: doc.id,
+            hasSnapshot: doc.inputSnapshot != null,
+            inputSnapshot: doc.inputSnapshot,
+        };
+    }
+    /**
+     * List all generated documents for an org, optionally filtered by entityType and/or status.
+     * Used for render history across all templates.
+     */
+    async listDocuments(orgId, entityType, status, limit) {
+        const conditions = [(0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId)];
+        if (entityType) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.entityType, entityType));
+        }
+        if (status) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.status, status));
+        }
+        const whereClause = conditions.length === 1 ? conditions[0] : (0, drizzle_orm_1.and)(...conditions);
+        const effectiveLimit = Math.min(limit || 100, 500);
+        const docs = await this.db
+            .select({
+            id: schema_1.generatedDocuments.id,
+            templateId: schema_1.generatedDocuments.templateId,
+            templateVer: schema_1.generatedDocuments.templateVer,
+            entityType: schema_1.generatedDocuments.entityType,
+            entityId: schema_1.generatedDocuments.entityId,
+            status: schema_1.generatedDocuments.status,
+            outputChannel: schema_1.generatedDocuments.outputChannel,
+            createdAt: schema_1.generatedDocuments.createdAt,
+            pdfHash: schema_1.generatedDocuments.pdfHash,
+        })
+            .from(schema_1.generatedDocuments)
+            .where(whereClause)
+            .limit(effectiveLimit);
+        return {
+            data: docs,
+            pagination: { total: docs.length, limit: effectiveLimit },
+        };
+    }
+    /**
+     * List render history for an org with cursor-based pagination.
+     * Returns documents ordered by createdAt descending (most recent first).
+     */
+    async listHistory(orgId, options = {}) {
+        const effectiveLimit = Math.min(options.limit || 10, 500);
+        const conditions = [(0, drizzle_orm_1.eq)(schema_1.generatedDocuments.orgId, orgId)];
+        if (options.entityType) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.entityType, options.entityType));
+        }
+        if (options.status) {
+            conditions.push((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.status, options.status));
+        }
+        if (options.cursor) {
+            // Cursor is a document ID - find the createdAt of that doc to paginate
+            const cursorDoc = await this.db
+                .select({ createdAt: schema_1.generatedDocuments.createdAt, id: schema_1.generatedDocuments.id })
+                .from(schema_1.generatedDocuments)
+                .where((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.id, options.cursor))
+                .limit(1);
+            if (cursorDoc.length > 0) {
+                // Composite cursor: documents strictly older, OR same time but with id < cursor id
+                // This handles ties where multiple docs have the same createdAt timestamp
+                const cursorTime = cursorDoc[0].createdAt;
+                const cursorId = cursorDoc[0].id;
+                conditions.push((0, drizzle_orm_1.or)((0, drizzle_orm_1.lt)(schema_1.generatedDocuments.createdAt, cursorTime), (0, drizzle_orm_1.and)((0, drizzle_orm_1.eq)(schema_1.generatedDocuments.createdAt, cursorTime), (0, drizzle_orm_1.lt)(schema_1.generatedDocuments.id, cursorId))));
+            }
+        }
+        const whereClause = conditions.length === 1 ? conditions[0] : (0, drizzle_orm_1.and)(...conditions);
+        // Fetch one extra to determine hasMore
+        const docs = await this.db
+            .select({
+            id: schema_1.generatedDocuments.id,
+            templateId: schema_1.generatedDocuments.templateId,
+            templateVer: schema_1.generatedDocuments.templateVer,
+            entityType: schema_1.generatedDocuments.entityType,
+            entityId: schema_1.generatedDocuments.entityId,
+            status: schema_1.generatedDocuments.status,
+            outputChannel: schema_1.generatedDocuments.outputChannel,
+            createdAt: schema_1.generatedDocuments.createdAt,
+            pdfHash: schema_1.generatedDocuments.pdfHash,
+        })
+            .from(schema_1.generatedDocuments)
+            .where(whereClause)
+            .orderBy((0, drizzle_orm_1.desc)(schema_1.generatedDocuments.createdAt), (0, drizzle_orm_1.desc)(schema_1.generatedDocuments.id))
+            .limit(effectiveLimit + 1);
+        const hasMore = docs.length > effectiveLimit;
+        const resultDocs = hasMore ? docs.slice(0, effectiveLimit) : docs;
+        const nextCursor = hasMore ? resultDocs[resultDocs.length - 1].id : null;
+        return {
+            data: resultDocs,
+            pagination: {
+                limit: effectiveLimit,
+                hasMore,
+                nextCursor,
+            },
+        };
+    }
+    /**
+     * Build sample inputs from template field names for preview generation.
+     * Generates realistic-looking sample values based on field name patterns.
+     */
+    buildSampleInputs(template, sampleRowCount) {
+        const inputs = {};
+        if (Array.isArray(template.schemas)) {
+            for (const page of template.schemas) {
+                if (Array.isArray(page)) {
+                    for (const field of page) {
+                        if (field && typeof field === 'object' && 'name' in field) {
+                            const name = field.name;
+                            const type = field.type || 'text';
+                            inputs[name] = this.generateSampleValue(name, type, sampleRowCount);
+                        }
+                    }
+                }
+            }
+        }
+        return inputs;
+    }
+    /**
+     * Generate a sample value for a field based on its name and type.
+     */
+    generateSampleValue(fieldName, fieldType, sampleRowCount) {
+        const lowerName = fieldName.toLowerCase();
+        // Line items table - generate sample rows as JSON
+        if (fieldType === 'lineItemsTable') {
+            const items = [];
+            for (let i = 1; i <= sampleRowCount; i++) {
+                items.push({
+                    description: `Sample Item ${i}`,
+                    qty: Math.floor(Math.random() * 10) + 1,
+                    unitPrice: Math.floor(Math.random() * 10000) / 100,
+                    total: 0,
+                });
+                items[items.length - 1].total = items[items.length - 1].qty * items[items.length - 1].unitPrice;
+            }
+            return JSON.stringify(items);
+        }
+        // Common field name patterns
+        if (lowerName.includes('date'))
+            return '2026-03-15';
+        if (lowerName.includes('number') || lowerName.includes('invoiceno') || lowerName.includes('inv_no'))
+            return 'INV-2026-001';
+        if (lowerName.includes('company') && lowerName.includes('name'))
+            return 'Acme Corporation (Pty) Ltd';
+        if (lowerName.includes('customer') && lowerName.includes('name'))
+            return 'Sample Customer';
+        if (lowerName.includes('name'))
+            return 'Sample Name';
+        if (lowerName.includes('email'))
+            return 'sample@example.com';
+        if (lowerName.includes('phone') || lowerName.includes('tel'))
+            return '+27 11 555 0100';
+        if (lowerName.includes('address'))
+            return '123 Sample Street, Sandton, 2196';
+        if (lowerName.includes('vat') && (lowerName.includes('no') || lowerName.includes('number')))
+            return '4123456789';
+        if (lowerName.includes('total') || lowerName.includes('amount') || lowerName.includes('subtotal'))
+            return '12,500.00';
+        if (lowerName.includes('vat'))
+            return '1,875.00';
+        if (lowerName.includes('tax'))
+            return '1,875.00';
+        if (lowerName.includes('discount'))
+            return '500.00';
+        if (lowerName.includes('price') || lowerName.includes('rate'))
+            return '250.00';
+        if (lowerName.includes('qty') || lowerName.includes('quantity'))
+            return '10';
+        if (lowerName.includes('description') || lowerName.includes('desc'))
+            return 'Sample description text';
+        if (lowerName.includes('note') || lowerName.includes('comment'))
+            return 'Sample note for preview';
+        if (lowerName.includes('currency'))
+            return 'ZAR';
+        if (lowerName.includes('logo') || lowerName.includes('image') || lowerName.includes('stamp'))
+            return '';
+        if (lowerName.includes('signature'))
+            return '';
+        if (lowerName.includes('ref') || lowerName.includes('reference'))
+            return 'REF-2026-001';
+        if (lowerName.includes('terms'))
+            return 'Payment due within 30 days';
+        if (lowerName.includes('bank'))
+            return 'First National Bank';
+        if (lowerName.includes('account'))
+            return '62123456789';
+        if (lowerName.includes('branch'))
+            return '250655';
+        // Default sample value
+        return `Sample ${fieldName}`;
+    }
+};
+exports.RenderService = RenderService;
+exports.RenderService = RenderService = RenderService_1 = tslib_1.__decorate([
+    (0, common_1.Injectable)(),
+    tslib_1.__param(0, (0, common_1.Inject)('DRIZZLE_DB')),
+    tslib_1.__param(1, (0, common_1.Inject)('FILE_STORAGE')),
+    tslib_1.__param(7, (0, common_1.Optional)()),
+    tslib_1.__param(7, (0, common_1.Inject)('PDFME_MODULE_CONFIG')),
+    tslib_1.__param(8, (0, common_1.Optional)()),
+    tslib_1.__metadata("design:paramtypes", [Object, file_storage_service_1.FileStorageService,
+        signature_service_1.SignatureService,
+        pdfa_processor_1.PdfaProcessor,
+        audit_service_1.AuditService,
+        org_settings_service_1.OrgSettingsService,
+        hash_service_1.HashService, Object, datasource_registry_1.DataSourceRegistry])
+], RenderService);
+//# sourceMappingURL=render.service.js.map
