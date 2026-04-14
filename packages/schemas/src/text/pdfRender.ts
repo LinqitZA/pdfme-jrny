@@ -207,7 +207,7 @@ export const pdfRender = async (arg: PDFRenderProps<TextSchema>) => {
     } else {
       // Even with all lines fitting vertically, check each line width
       // (splitTextToSize should handle this, but just in case for single lines)
-      lines = lines.map((line, idx) => {
+      lines = lines.map((line, _idx) => {
         const trimmedLine = line.replace('\n', '');
         const lineWidth = widthOfTextAtSize(trimmedLine, fontKitFont, fontSize, characterSpacing);
         if (lineWidth > width && trimmedLine.length > 3) {
