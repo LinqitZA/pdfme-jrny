@@ -3,9 +3,11 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "rootDir": ".",
     "outDir": "./dist/node",
     "declaration": true,
     "declarationDir": "dist/types",
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["__tests__", "**/*.test.ts", "**/*.spec.ts"]
 }

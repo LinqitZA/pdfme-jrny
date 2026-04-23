@@ -2,9 +2,11 @@
   "extends": "../../tsconfig.base",
   "compilerOptions": {
     "module": "commonjs",
+    "rootDir": ".",
     "outDir": "./dist/cjs",
     "declaration": true,
     "declarationDir": "dist/types",
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["__tests__", "**/*.test.ts", "**/*.spec.ts"]
 }

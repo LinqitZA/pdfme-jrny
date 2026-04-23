@@ -3,7 +3,9 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "node",
+    "rootDir": ".",
     "outDir": "./dist/node",
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["__tests__", "**/*.test.ts", "**/*.spec.ts"]
 }
