@@ -57,7 +57,7 @@ export class PrinterService {
       host: dto.host,
       port: dto.port || 9100,
       type: dto.type || 'raw',
-      isDefault: dto.isDefault ? 'true' : 'false',
+      isDefault: dto.isDefault ?? false,
       createdAt: now,
       updatedAt: now,
     };
