@@ -93,9 +93,9 @@ export class TemplateService {
       .values({
         id,
         orgId: dto.orgId ?? null,
-        type: dto.type,
+        documentType: dto.type,
         name: dto.name,
-        schema: dto.schema,
+        templateData: dto.schema,
         status: dto.status || 'draft',
         version: 1,
         createdBy: dto.createdBy,
@@ -112,7 +112,7 @@ export class TemplateService {
         entityId: result.id,
         action: 'template.created',
         userId: dto.createdBy,
-        metadata: { name: result.name, type: result.type },
+        metadata: { name: result.name, type: result.documentType },
       });
     }
 
@@ -144,12 +144,12 @@ export class TemplateService {
       .values({
         id,
         orgId,
-        type: source.type,
+        documentType: source.documentType,
         name: newName || `${source.name} (Fork)`,
-        schema: source.schema,
+        templateData: source.templateData,
         status: 'draft',
         version: 1,
-        forkedFromId: sourceId,
+        forkedFrom: sourceId,
         createdBy: userId,
         createdAt: now,
         updatedAt: now,
@@ -193,7 +193,7 @@ export class TemplateService {
     }
 
     if (options?.type) {
-      conditions.push(eq(templates.type, options.type));
+      conditions.push(eq(templates.documentType, options.type));
     }
 
     // Search by name (case-insensitive partial match)
@@ -210,9 +210,9 @@ export class TemplateService {
       createdAt: templates.createdAt,
       name: templates.name,
       updatedAt: templates.updatedAt,
-      type: templates.type,
+      documentType: templates.documentType,
     };
-    const sortCol = sortColumnMap[options?.sort || 'createdAt'] || templates.createdAt;
+    const sortCol = sortColumnMap[(options?.sort === 'type' ? 'documentType' : options?.sort) || 'createdAt'] || templates.createdAt;
     const sortDir = options?.order === 'asc' ? asc : desc;
 
     // Decode cursor if provided
@@ -265,7 +265,7 @@ export class TemplateService {
       countConditions.push(or(eq(templates.orgId, orgId), isNull(templates.orgId))!);
     }
     if (options?.type) {
-      countConditions.push(eq(templates.type, options.type));
+      countConditions.push(eq(templates.documentType, options.type));
     }
     if (options?.search && options.search.trim()) {
       countConditions.push(ilike(templates.name, `%${options.search.trim()}%`));
@@ -298,11 +298,11 @@ export class TemplateService {
     }
 
     const rows = await this.db
-      .select({ type: templates.type })
+      .select({ documentType: templates.documentType })
       .from(templates)
       .where(and(...conditions));
 
-    const types = [...new Set(rows.map((r: typeof rows[number]) => r.type).filter(Boolean))].sort() as string[];
+    const types = [...new Set(rows.map((r: typeof rows[number]) => r.documentType).filter(Boolean))].sort() as string[];
     return types;
   }
 
@@ -342,9 +342,9 @@ export class TemplateService {
       updatedAt: new Date(),
     };
     if (dto.name !== undefined) updateData.name = dto.name;
-    if (dto.schema !== undefined) updateData.schema = dto.schema;
+    if (dto.schema !== undefined) updateData.templateData = dto.schema;
     if (dto.status !== undefined) updateData.status = dto.status;
-    if (dto.type !== undefined) updateData.type = dto.type;
+    if (dto.type !== undefined) updateData.documentType = dto.type;
 
     const conditions: SQL[] = [eq(templates.id, id)];
     if (orgId) {
@@ -380,7 +380,7 @@ export class TemplateService {
       updateData.status = 'draft';
     }
 
-    if (dto.schema !== undefined) updateData.schema = dto.schema;
+    if (dto.schema !== undefined) updateData.templateData = dto.schema;
     if (dto.name !== undefined) updateData.name = dto.name;
     if (dto.saveMode !== undefined) updateData.saveMode = dto.saveMode;
 
@@ -407,7 +407,7 @@ export class TemplateService {
         orgId: result.orgId,
         version: result.version,
         status: 'draft',
-        schema: result.schema,
+        schema: result.templateData,
         createdBy: userId || 'unknown',
       }, dto.saveMode === 'newVersion' ? 'New version save' : 'Draft save');
 
@@ -508,7 +508,7 @@ export class TemplateService {
     return keys;
   }
 
-  validateTemplateForPublish(template: { name: string; type: string; schema: Record<string, unknown> }): Array<{ field: string; message: string }> {
+  validateTemplateForPublish(template: { name: string; documentType: string; templateData: Record<string, unknown> }): Array<{ field: string; message: string }> {
     const errors: Array<{ field: string; message: string }> = [];
 
     // Check template name
@@ -517,17 +517,17 @@ export class TemplateService {
     }
 
     // Check template type
-    if (!template.type || typeof template.type !== 'string' || template.type.trim().length === 0) {
-      errors.push({ field: 'type', message: 'Template type is required' });
+    if (!template.documentType || typeof template.documentType !== 'string' || template.documentType.trim().length === 0) {
+      errors.push({ field: 'documentType', message: 'Template type is required' });
     }
 
     // Check schema exists
-    if (!template.schema || typeof template.schema !== 'object') {
-      errors.push({ field: 'schema', message: 'Template schema is required' });
+    if (!template.templateData || typeof template.templateData !== 'object') {
+      errors.push({ field: 'templateData', message: 'Template schema is required' });
       return errors;
     }
 
-    const schema = template.schema;
+    const schema = template.templateData;
 
     // Check pages/schemas array exists and has content
     const pages = (schema.pages || schema.schemas) as unknown[] | undefined;
@@ -537,7 +537,7 @@ export class TemplateService {
     }
 
     // Build set of known field keys for binding validation (#268)
-    const knownFields = this.getKnownFieldKeys(template.type);
+    const knownFields = this.getKnownFieldKeys(template.documentType);
 
     // Validate bindings in elements
     const bindingPattern = /\{\{([^}]*)\}\}/g;
@@ -578,7 +578,7 @@ export class TemplateService {
               // Feature #268: Check binding against known field schema
               errors.push({
                 field: `${path}.${key}`,
-                message: `Unresolvable binding: {{${binding}}} - field '${binding}' is not defined in the '${template.type}' field schema`,
+                message: `Unresolvable binding: {{${binding}}} - field '${binding}' is not defined in the '${template.documentType}' field schema`,
               });
               // Feature #386: Track as orphaned element
               orphanedElements.push({
@@ -605,7 +605,7 @@ export class TemplateService {
               if (!knownFields.has(fieldRef)) {
                 errors.push({
                   field: `${path}.${key}`,
-                  message: `Orphaned element: references field '${fieldRef}' which is not defined in the '${template.type}' field schema. This element may reference a deleted or renamed field.`,
+                  message: `Orphaned element: references field '${fieldRef}' which is not defined in the '${template.documentType}' field schema. This element may reference a deleted or renamed field.`,
                 });
                 orphanedElements.push({
                   element: elementName || path,
@@ -775,7 +775,7 @@ export class TemplateService {
 
     if (template.status === 'published') {
       // Check if draft schema differs from published schema (re-publish scenario)
-      const draftSchemaStr = JSON.stringify(template.schema);
+      const draftSchemaStr = JSON.stringify(template.templateData);
       const publishedSchemaStr = template.publishedSchema ? JSON.stringify(template.publishedSchema) : null;
       if (publishedSchemaStr && draftSchemaStr === publishedSchemaStr) {
         // Already published with same schema — return as-is (idempotent)
@@ -792,8 +792,8 @@ export class TemplateService {
     if (validate) {
       const validationErrors = this.validateTemplateForPublish({
         name: template.name,
-        type: template.type,
-        schema: template.schema as Record<string, unknown>,
+        documentType: template.documentType,
+        templateData: template.templateData as Record<string, unknown>,
       });
       if (validationErrors.length > 0) {
         return { validationErrors };
@@ -809,7 +809,7 @@ export class TemplateService {
         status: 'published',
         version: newVersion,
         publishedVer: newVersion,
-        publishedSchema: template.schema, // snapshot the current schema for rendering
+        publishedSchema: template.templateData, // snapshot the current schema for rendering
         updatedAt: new Date(),
       })
       .where(eq(templates.id, id))
@@ -822,7 +822,7 @@ export class TemplateService {
         orgId: result.orgId,
         version: result.version,
         status: 'published',
-        schema: result.schema,
+        schema: result.templateData,
         createdBy: result.createdBy,
       }, 'Published');
     }
@@ -999,7 +999,7 @@ export class TemplateService {
     const [result] = await this.db
       .update(templates)
       .set({
-        schema: historicalVersion.schema,
+        templateData: historicalVersion.schema,
         status: 'draft',
         updatedAt: now,
       })
@@ -1013,7 +1013,7 @@ export class TemplateService {
         orgId: result.orgId || '',
         version: result.version,
         status: result.status,
-        schema: result.schema as Record<string, unknown>,
+        schema: result.templateData as Record<string, unknown>,
         createdBy: userId,
       }, `Restored from version ${versionNumber}`);
     }
@@ -1089,7 +1089,7 @@ export class TemplateService {
     if (!template) return null;
 
     const { images: imagePaths, fonts: fontPaths } = this.extractAssetPaths(
-      template.schema as Record<string, unknown>,
+      template.templateData as Record<string, unknown>,
     );
 
     const MIME_MAP: Record<string, string> = {
@@ -1146,9 +1146,9 @@ export class TemplateService {
       version: 1,
       exportedAt: new Date().toISOString(),
       template: {
-        type: template.type,
+        type: template.documentType,
         name: template.name,
-        schema: template.schema as Record<string, unknown>,
+        schema: template.templateData as Record<string, unknown>,
         status: template.status,
         version: template.version,
       },
@@ -1409,7 +1409,7 @@ export class TemplateService {
       id: result.id,
       status: result.status,
       name: result.name,
-      type: result.type,
+      type: result.documentType,
       version: result.version,
       createdAt: result.createdAt,
       fontValidation: {
@@ -1457,13 +1457,13 @@ export class TemplateService {
         or(eq(templates.orgId, orgId), isNull(templates.orgId)),
       );
 
-    const templateData = orgTemplates.map((t: typeof orgTemplates[number]) => ({
+    const tplData = orgTemplates.map((t: typeof orgTemplates[number]) => ({
       id: t.id,
       name: t.name,
-      type: t.type,
+      type: t.documentType,
       status: t.status,
       version: t.version,
-      schema: t.schema,
+      schema: t.templateData,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
     }));
@@ -1550,7 +1550,7 @@ export class TemplateService {
       version: 1,
       exportedAt,
       orgId,
-      templates: templateData,
+      templates: tplData,
       assets: { images, fonts },
       signatures: signatureData,
       localeConfig: localeConfig || null,
@@ -1611,15 +1611,15 @@ export class TemplateService {
       const templateJson = {
         id: t.id,
         name: t.name,
-        type: t.type,
+        type: t.documentType,
         status: t.status,
         version: t.version,
-        schema: t.schema,
+        schema: t.templateData,
         createdAt: t.createdAt,
         updatedAt: t.updatedAt,
       };
       archive.append(JSON.stringify(templateJson, null, 2), { name: filename });
-      templateIndex.push({ id: t.id, name: t.name, type: t.type, status: t.status, file: filename });
+      templateIndex.push({ id: t.id, name: t.name, type: t.documentType, status: t.status, file: filename });
     }
     archive.append(JSON.stringify(templateIndex, null, 2), { name: 'templates/index.json' });
 
@@ -1755,7 +1755,7 @@ export class TemplateService {
         createdBy: importedBy,
         status: 'draft',
       });
-      createdTemplates.push({ id: result.id, name: result.name, type: result.type, status: result.status });
+      createdTemplates.push({ id: result.id, name: result.name, type: result.documentType, status: result.status });
     }
 
     // 2. Restore assets (images + fonts with license validation)
