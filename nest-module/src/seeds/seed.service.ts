@@ -38,9 +38,9 @@ export class SeedService implements OnModuleInit {
         await this.db
           .update(templates)
           .set({
-            type: tpl.type,
+            documentType: tpl.documentType,
             name: tpl.name,
-            schema: tpl.schema,
+            templateData: tpl.templateData,
             updatedAt: new Date(),
           })
           .where(eq(templates.id, tpl.id));
@@ -49,10 +49,11 @@ export class SeedService implements OnModuleInit {
         const now = new Date();
         await this.db.insert(templates).values({
           id: tpl.id,
+          code: tpl.id,
           orgId: null,
-          type: tpl.type,
+          documentType: tpl.documentType,
           name: tpl.name,
-          schema: tpl.schema,
+          templateData: tpl.templateData,
           status: 'published',
           version: 1,
           publishedVer: 1,

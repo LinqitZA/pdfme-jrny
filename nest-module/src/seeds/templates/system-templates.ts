@@ -7,9 +7,9 @@
 
 export interface SystemTemplateSeed {
   id: string;
-  type: string;
+  documentType: string;
   name: string;
-  schema: Record<string, unknown>;
+  templateData: Record<string, unknown>;
 }
 
 const A4_WIDTH = 210;
@@ -40,9 +40,9 @@ function makeLabelSchema(
 export const systemTemplates: SystemTemplateSeed[] = [
   {
     id: 'sys-invoice-standard',
-    type: 'invoice',
+    documentType: 'invoice',
     name: 'Invoice - Standard',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { companyName: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 10, fontSize: 16, fontWeight: 'bold' } },
       { companyLogo: { type: 'image', position: { x: 160, y: 10 }, width: 40, height: 20 } },
       { invoiceNumber: { type: 'text', position: { x: 10, y: 35 }, width: 80, height: 8 } },
@@ -57,9 +57,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-invoice-simple',
-    type: 'invoice',
+    documentType: 'invoice',
     name: 'Invoice - Simple',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { invoiceTitle: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 12, fontSize: 18, fontWeight: 'bold' } },
       { invoiceNumber: { type: 'text', position: { x: 10, y: 28 }, width: 80, height: 8 } },
       { invoiceDate: { type: 'text', position: { x: 100, y: 28 }, width: 50, height: 8 } },
@@ -70,9 +70,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-statement-account',
-    type: 'statement',
+    documentType: 'statement',
     name: 'Statement of Account',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { companyName: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 10, fontSize: 16, fontWeight: 'bold' } },
       { statementDate: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { customerName: { type: 'text', position: { x: 10, y: 30 }, width: 100, height: 8 } },
@@ -84,9 +84,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-purchase-order',
-    type: 'purchase_order',
+    documentType: 'purchase_order',
     name: 'Purchase Order - Standard',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { companyName: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 10, fontSize: 16, fontWeight: 'bold' } },
       { poNumber: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { poDate: { type: 'text', position: { x: 140, y: 20 }, width: 60, height: 8 } },
@@ -99,9 +99,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-delivery-note',
-    type: 'delivery_note',
+    documentType: 'delivery_note',
     name: 'Delivery Note',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { companyName: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 10, fontSize: 16, fontWeight: 'bold' } },
       { deliveryNoteNumber: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { deliveryDate: { type: 'text', position: { x: 140, y: 20 }, width: 60, height: 8 } },
@@ -114,9 +114,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-credit-note',
-    type: 'credit_note',
+    documentType: 'credit_note',
     name: 'Credit Note - Standard',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { companyName: { type: 'text', position: { x: 10, y: 10 }, width: 100, height: 10, fontSize: 16, fontWeight: 'bold' } },
       { creditNoteNumber: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { creditNoteDate: { type: 'text', position: { x: 140, y: 20 }, width: 60, height: 8 } },
@@ -128,9 +128,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-report-aged-debtors',
-    type: 'report_aged_debtors',
+    documentType: 'report_aged_debtors',
     name: 'Report - Aged Debtors',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { reportTitle: { type: 'text', position: { x: 10, y: 10 }, width: 120, height: 12, fontSize: 18, fontWeight: 'bold' } },
       { reportDate: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { debtorsTable: { type: 'table', position: { x: 10, y: 30 }, width: 190, height: 220, columns: ['customer', 'current', '30days', '60days', '90days', '120plus', 'total'] } },
@@ -139,9 +139,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-report-stock-on-hand',
-    type: 'report_stock_on_hand',
+    documentType: 'report_stock_on_hand',
     name: 'Report - Stock on Hand',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { reportTitle: { type: 'text', position: { x: 10, y: 10 }, width: 120, height: 12, fontSize: 18, fontWeight: 'bold' } },
       { reportDate: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { stockTable: { type: 'table', position: { x: 10, y: 30 }, width: 190, height: 230, columns: ['category', 'itemCode', 'description', 'qty', 'value', 'reorderFlag'] } },
@@ -150,9 +150,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-report-sales-summary',
-    type: 'report_sales_summary',
+    documentType: 'report_sales_summary',
     name: 'Report - Sales Summary',
-    schema: makeBlankSchema([
+    templateData: makeBlankSchema([
       { reportTitle: { type: 'text', position: { x: 10, y: 10 }, width: 120, height: 12, fontSize: 18, fontWeight: 'bold' } },
       { dateRange: { type: 'text', position: { x: 140, y: 10 }, width: 60, height: 8 } },
       { salesTable: { type: 'table', position: { x: 10, y: 30 }, width: 190, height: 230, columns: ['customer', 'product', 'qty', 'revenue', 'cost', 'margin'] } },
@@ -164,9 +164,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
 
   {
     id: 'sys-label-shipping',
-    type: 'label',
+    documentType: 'label',
     name: 'Shipping Label',
-    schema: makeLabelSchema(101.6, 152.4, [
+    templateData: makeLabelSchema(101.6, 152.4, [
       { companyLogo: { type: 'image', position: { x: 2, y: 2 }, width: 25, height: 12 } },
       { senderAddress: { type: 'text', position: { x: 30, y: 2 }, width: 69.6, height: 18, fontSize: 7 } },
       { recipientName: { type: 'text', position: { x: 2, y: 28 }, width: 97.6, height: 8, fontSize: 12, fontWeight: 'bold' } },
@@ -180,9 +180,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-label-product',
-    type: 'label',
+    documentType: 'label',
     name: 'Product Label',
-    schema: makeLabelSchema(102, 64, [
+    templateData: makeLabelSchema(102, 64, [
       { companyLogo: { type: 'image', position: { x: 2, y: 2 }, width: 20, height: 10 } },
       { productName: { type: 'text', position: { x: 24, y: 2 }, width: 76, height: 10, fontSize: 11, fontWeight: 'bold' } },
       { description: { type: 'text', position: { x: 2, y: 14 }, width: 98, height: 12, fontSize: 7 } },
@@ -193,9 +193,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-label-asset-tag',
-    type: 'label',
+    documentType: 'label',
     name: 'Asset Tag',
-    schema: makeLabelSchema(76, 51, [
+    templateData: makeLabelSchema(76, 51, [
       { assetIdBarcode: { type: 'code128', position: { x: 2, y: 2 }, width: 50, height: 14 } },
       { assetQr: { type: 'qrcode', position: { x: 54, y: 2 }, width: 20, height: 20 } },
       { assetName: { type: 'text', position: { x: 2, y: 20 }, width: 72, height: 8, fontSize: 10, fontWeight: 'bold' } },
@@ -206,9 +206,9 @@ export const systemTemplates: SystemTemplateSeed[] = [
   },
   {
     id: 'sys-label-shelf',
-    type: 'label',
+    documentType: 'label',
     name: 'Shelf Label',
-    schema: makeLabelSchema(80, 40, [
+    templateData: makeLabelSchema(80, 40, [
       { productName: { type: 'text', position: { x: 2, y: 2 }, width: 76, height: 7, fontSize: 9, fontWeight: 'bold' } },
       { price: { type: 'text', position: { x: 2, y: 10 }, width: 45, height: 14, fontSize: 20, fontWeight: 'bold' } },
       { sku: { type: 'text', position: { x: 50, y: 12 }, width: 28, height: 6, fontSize: 7 } },

@@ -70,13 +70,13 @@ export async function runSeedData(db: PdfmeDatabase): Promise<{
 
     // Find system templates of this type
     const systemTpls = await db
-      .select({ id: templates.id, schema: templates.schema })
+      .select({ id: templates.id, templateData: templates.templateData })
       .from(templates)
-      .where(eq(templates.type, type));
+      .where(eq(templates.documentType, type));
 
     for (const tpl of systemTpls) {
       if (tpl.id && tpl.id.startsWith('sys-')) {
-        const schema = tpl.schema as Record<string, unknown>;
+        const schema = tpl.templateData as Record<string, unknown>;
         if (schema) {
           // Add sample data to the template schema
           const updatedSchema = {
@@ -85,7 +85,7 @@ export async function runSeedData(db: PdfmeDatabase): Promise<{
           };
           await db
             .update(templates)
-            .set({ schema: updatedSchema, updatedAt: new Date() })
+            .set({ templateData: updatedSchema, updatedAt: new Date() })
             .where(eq(templates.id, tpl.id));
           updatedTemplates++;
         }
