@@ -265,7 +265,7 @@ export class TemplateController {
       id: result.id,
       status: result.status,
       name: result.name,
-      type: result.type,
+      type: result.documentType,
       version: result.version,
       createdAt: result.createdAt,
     };
@@ -938,8 +938,8 @@ export class TemplateController {
 
     const errors = this.templateService.validateTemplateForPublish({
       name: template.name,
-      type: template.type,
-      schema: template.schema as Record<string, unknown>,
+      documentType: template.documentType,
+      templateData: template.templateData as Record<string, unknown>,
     });
 
     // Feature #386: Extract orphaned elements info if present

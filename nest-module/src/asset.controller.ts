@@ -260,11 +260,11 @@ export class AssetController {
     const matching: Array<{ id: string; name: string; type: string; status: string }> = [];
 
     for (const template of templates) {
-      if (this.schemaReferencesAsset(template.schema, assetId, storagePath)) {
+      if (this.schemaReferencesAsset(template.templateData, assetId, storagePath)) {
         matching.push({
           id: template.id,
           name: template.name,
-          type: template.type,
+          type: template.documentType,
           status: template.status,
         });
       }
