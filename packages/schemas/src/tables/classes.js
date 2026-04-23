@@ -20,9 +20,9 @@ class Cell {
     constructor(raw, styles, section) {
         this.styles = styles;
         this.section = section;
-        this.raw = raw;
+        this.raw = raw ?? '';
         const splitRegex = /\r\n|\r|\n/g;
-        this.text = raw.split(splitRegex);
+        this.text = this.raw.split(splitRegex);
     }
     getContentHeight() {
         const lineCount = Array.isArray(this.text) ? this.text.length : 1;

@@ -77,29 +77,28 @@ function cellStyles(sectionName, column, rowIndex, styles, fallbackFontName) {
         alignment: 'left',
         verticalAlignment: 'middle',
         fontSize: 10,
-        cellPadding: 5,
+        cellPadding: { top: 5, right: 5, bottom: 5, left: 5 },
         lineColor: '#000000',
-        lineWidth: 0,
+        lineWidth: { top: 0, right: 0, bottom: 0, left: 0 },
         minCellHeight: 0,
         minCellWidth: 0,
     };
     return Object.assign(defaultStyle, otherStyles, rowStyles, colStyles);
 }
 function mapCellStyle(style) {
-    return {
-        fontName: style.fontName,
-        alignment: style.alignment,
-        verticalAlignment: style.verticalAlignment,
-        fontSize: style.fontSize,
-        lineHeight: style.lineHeight,
-        characterSpacing: style.characterSpacing,
-        backgroundColor: style.backgroundColor,
-        // ---
-        textColor: style.fontColor,
-        lineColor: style.borderColor,
-        lineWidth: style.borderWidth,
-        cellPadding: style.padding,
-    };
+    const result = {};
+    if (style.fontName !== undefined) result.fontName = style.fontName;
+    if (style.alignment !== undefined) result.alignment = style.alignment;
+    if (style.verticalAlignment !== undefined) result.verticalAlignment = style.verticalAlignment;
+    if (style.fontSize !== undefined) result.fontSize = style.fontSize;
+    if (style.lineHeight !== undefined) result.lineHeight = style.lineHeight;
+    if (style.characterSpacing !== undefined) result.characterSpacing = style.characterSpacing;
+    if (style.backgroundColor !== undefined) result.backgroundColor = style.backgroundColor;
+    if (style.fontColor !== undefined) result.textColor = style.fontColor;
+    if (style.borderColor !== undefined) result.lineColor = style.borderColor;
+    if (style.borderWidth !== undefined) result.lineWidth = style.borderWidth;
+    if (style.padding !== undefined) result.cellPadding = style.padding;
+    return result;
 }
 function getTableOptions(schema, body) {
     const columnStylesWidth = schema.headWidthPercentages.reduce((acc, cur, i) => ({ ...acc, [i]: { cellWidth: schema.width * (cur / 100) } }), {});
@@ -119,8 +118,8 @@ function getTableOptions(schema, body) {
         showHead: schema.showHead,
         startY: schema.position.y,
         tableWidth: schema.width,
-        tableLineColor: schema.tableStyles.borderColor,
-        tableLineWidth: schema.tableStyles.borderWidth,
+        tableLineColor: schema.tableStyles?.borderColor ?? '#000000',
+        tableLineWidth: schema.tableStyles?.borderWidth ?? 0,
         headStyles: mapCellStyle(schema.headStyles),
         bodyStyles: mapCellStyle(schema.bodyStyles),
         alternateRowStyles: { backgroundColor: schema.bodyStyles.alternateBackgroundColor },

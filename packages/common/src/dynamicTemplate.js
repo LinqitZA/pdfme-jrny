@@ -42,6 +42,13 @@ function placeRowsOnPages(schema, dynamicHeights, startGlobalY, contentHeight, p
     let currentRowIndex = 0;
     let currentPageIndex = Math.floor(startGlobalY / contentHeight);
     let currentYInPage = startGlobalY % contentHeight;
+    // Guard against NaN/invalid indices from bad input values
+    if (isNaN(currentPageIndex) || !isFinite(currentPageIndex) || currentPageIndex < 0) {
+        currentPageIndex = 0;
+    }
+    if (isNaN(currentYInPage) || !isFinite(currentYInPage)) {
+        currentYInPage = 0;
+    }
     if (currentYInPage < 0)
         currentYInPage = 0;
     let actualGlobalEndY = 0;
