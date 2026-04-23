@@ -92,6 +92,7 @@ export class TemplateService {
       .insert(templates)
       .values({
         id,
+        code: id.slice(0, 50),
         orgId: dto.orgId ?? null,
         documentType: dto.type,
         name: dto.name,
@@ -143,6 +144,7 @@ export class TemplateService {
       .insert(templates)
       .values({
         id,
+        code: id.slice(0, 50),
         orgId,
         documentType: source.documentType,
         name: newName || `${source.name} (Fork)`,
@@ -823,7 +825,7 @@ export class TemplateService {
         version: result.version,
         status: 'published',
         schema: result.templateData,
-        createdBy: result.createdBy,
+        createdBy: result.createdBy ?? '',
       }, 'Published');
     }
 
@@ -834,7 +836,7 @@ export class TemplateService {
         entityType: 'template',
         entityId: result.id,
         action: 'template.published',
-        userId: result.createdBy,
+        userId: result.createdBy ?? '',
         metadata: { name: result.name, version: result.publishedVer },
       });
     }
@@ -865,7 +867,7 @@ export class TemplateService {
         entityType: 'template',
         entityId: result.id,
         action: 'template.archived',
-        userId: userId || result.createdBy,
+        userId: userId || result.createdBy || '',
         metadata: { name: result.name, previousStatus: 'draft' },
       });
     }

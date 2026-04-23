@@ -1165,7 +1165,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     let relevantDocs: { id: string; filePath: string }[] = [];
     if (batchDocIds.length > 0) {
-      relevantDocs = await this.db
+      const rawDocs = await this.db
         .select({ id: generatedDocuments.id, filePath: generatedDocuments.filePath })
         .from(generatedDocuments)
         .where(
@@ -1175,6 +1175,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             inArray(generatedDocuments.id, batchDocIds),
           ),
         );
+      relevantDocs = rawDocs.filter((d): d is { id: string; filePath: string } => d.filePath !== null);
     }
 
     if (relevantDocs.length === 0) {
@@ -2443,6 +2444,26 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 2. Read the PDF file from storage
+    if (!doc.filePath) {
+      return {
+        documentId: doc.id,
+        verified: false,
+        status: 'file_missing',
+        message: 'Document has no associated file path',
+        storedHash: doc.pdfHash,
+      };
+    }
+
+    if (!doc.pdfHash) {
+      return {
+        documentId: doc.id,
+        verified: false,
+        status: 'no_hash',
+        message: 'Document has no stored hash — cannot verify integrity',
+        storedHash: null,
+      };
+    }
+
     let pdfBuffer: Buffer;
     try {
       pdfBuffer = await this.fileStorage.read(doc.filePath);
@@ -2522,7 +2543,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     // 2. Read the cached PDF from disk (no re-render)
     try {
       const buffer = await this.fileStorage.read(doc.filePath);
-      return { buffer, documentId: doc.id, pdfHash: doc.pdfHash, filePath: doc.filePath };
+      return { buffer, documentId: doc.id, pdfHash: doc.pdfHash ?? '', filePath: doc.filePath };
     } catch {
       return { error: 'Document file not found on disk', statusCode: 404 };
     }
@@ -2534,14 +2555,14 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    */
   async listDocumentsByTemplate(templateId: string, orgId: string, status?: string): Promise<Array<{
     id: string;
-    templateId: string;
-    templateVer: number;
-    entityType: string;
-    entityId: string;
-    status: string;
-    outputChannel: string;
+    templateId: string | null;
+    templateVer: number | null;
+    entityType: string | null;
+    entityId: string | null;
+    status: string | null;
+    outputChannel: string | null;
     createdAt: Date;
-    pdfHash: string;
+    pdfHash: string | null;
   }>> {
     const conditions = [
       eq(generatedDocuments.templateId, templateId),
@@ -2618,14 +2639,14 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   async listDocuments(orgId: string, entityType?: string, status?: string, limit?: number): Promise<{
     data: Array<{
       id: string;
-      templateId: string;
-      templateVer: number;
-      entityType: string;
-      entityId: string;
-      status: string;
-      outputChannel: string;
+      templateId: string | null;
+      templateVer: number | null;
+      entityType: string | null;
+      entityId: string | null;
+      status: string | null;
+      outputChannel: string | null;
       createdAt: Date;
-      pdfHash: string;
+      pdfHash: string | null;
     }>;
     pagination: { total: number; limit: number };
   }> {
@@ -2678,14 +2699,14 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{
     data: Array<{
       id: string;
-      templateId: string;
-      templateVer: number;
-      entityType: string;
-      entityId: string;
-      status: string;
-      outputChannel: string;
+      templateId: string | null;
+      templateVer: number | null;
+      entityType: string | null;
+      entityId: string | null;
+      status: string | null;
+      outputChannel: string | null;
       createdAt: Date;
-      pdfHash: string;
+      pdfHash: string | null;
     }>;
     pagination: {
       limit: number;
