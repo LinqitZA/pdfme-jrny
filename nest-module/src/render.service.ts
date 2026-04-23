@@ -359,7 +359,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       return { error: 'Template not found' };
     }
 
-    const templateSchema = template.schema as Record<string, unknown>;
+    const templateSchema = template.templateData as Record<string, unknown>;
     const pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
     const fontResult = await this.resolveFonts(pdfmeTemplate, orgId);
 
@@ -407,7 +407,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Build pdfme template structure from the stored schema
     // Use publishedSchema if available (allows draft edits while published version stays live)
-    const templateSchema = (template.publishedSchema || template.schema) as Record<string, unknown>;
+    const templateSchema = (template.publishedSchema || template.templateData) as Record<string, unknown>;
     let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
 
     // 3. Resolve inputs - use provided inputs or create empty inputs
@@ -419,9 +419,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     // 3-ds. If a DataSource is registered for this template type and no explicit inputs,
     //       resolve data from the DataSource
-    if (this.dataSourceRegistry && this.dataSourceRegistry.has(template.type) && (!dto.inputs || dto.inputs.length === 0)) {
+    if (this.dataSourceRegistry && this.dataSourceRegistry.has(template.documentType) && (!dto.inputs || dto.inputs.length === 0)) {
       try {
-        const dataSource = this.dataSourceRegistry.resolve(template.type);
+        const dataSource = this.dataSourceRegistry.resolve(template.documentType);
         const resolvedData = await dataSource.resolve(dto.entityId, orgId);
         if (Array.isArray(resolvedData) && resolvedData.length > 0) {
           inputs = resolvedData.map((item: unknown) =>
@@ -443,13 +443,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             orgId,
             templateId: dto.templateId,
             templateVer: template.version,
-            entityType: dto.entityType || template.type,
+            documentType: template.documentType,
+            entityType: dto.entityType || template.documentType,
             entityId: dto.entityId,
+            sourceId: dto.entityId,
             filePath: '',
             pdfHash: '',
             status: 'failed',
             outputChannel: dto.channel,
-            triggeredBy: userId,
+            generatedBy: userId,
             inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
             errorMessage: `DataSource error: ${errorMessage}`,
           })
@@ -477,13 +479,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           orgId,
           templateId: dto.templateId,
           templateVer: template.version,
-          entityType: dto.entityType || template.type,
+          documentType: template.documentType,
+          entityType: dto.entityType || template.documentType,
           entityId: dto.entityId,
+          sourceId: dto.entityId,
           filePath: '',
           pdfHash: '',
           status: 'failed',
           outputChannel: dto.channel,
-          triggeredBy: userId,
+          generatedBy: userId,
           inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage,
         })
@@ -622,13 +626,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           orgId,
           templateId: dto.templateId,
           templateVer: template.version,
-          entityType: dto.entityType || template.type,
+          documentType: template.documentType,
+          entityType: dto.entityType || template.documentType,
           entityId: dto.entityId,
+          sourceId: dto.entityId,
           filePath: '',
           pdfHash: '',
           status: 'failed',
           outputChannel: dto.channel,
-          triggeredBy: userId,
+          generatedBy: userId,
           inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage: errorMessage,
         })
@@ -754,13 +760,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           orgId,
           templateId: dto.templateId,
           templateVer: template.version,
-          entityType: dto.entityType || template.type,
+          documentType: template.documentType,
+          entityType: dto.entityType || template.documentType,
           entityId: dto.entityId,
+          sourceId: dto.entityId,
           filePath: nonPdfaFilePath,
           pdfHash,
           status: 'failed',
           outputChannel: dto.channel,
-          triggeredBy: userId,
+          generatedBy: userId,
           inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
           errorMessage: `PDF/A-3b conversion failed: ${pdfaErrorMessage}`,
         })
@@ -780,13 +788,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         orgId,
         templateId: dto.templateId,
         templateVer: template.version,
-        entityType: dto.entityType || template.type,
+        documentType: template.documentType,
+        entityType: dto.entityType || template.documentType,
         entityId: dto.entityId,
+        sourceId: dto.entityId,
         filePath,
         pdfHash,
-        status: 'done',
+        status: 'completed',
         outputChannel: dto.channel,
-        triggeredBy: userId,
+        generatedBy: userId,
         inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
       })
       .returning();
@@ -1161,7 +1171,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         .where(
           and(
             eq(generatedDocuments.orgId, orgId),
-            eq(generatedDocuments.status, 'done'),
+            eq(generatedDocuments.status, 'completed'),
             inArray(generatedDocuments.id, batchDocIds),
           ),
         );
@@ -2152,14 +2162,14 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    * @param sampleRowCount - Number of sample line items (5, 15, or 30)
    */
   async generatePreview(
-    template: { id: string; schema: unknown; type: string; version: number; name: string },
+    template: { id: string; templateData: unknown; documentType: string; version: number; name: string },
     orgId: string,
     userId: string,
     channel: string,
     sampleRowCount: number,
   ) {
     // 1. Build pdfme template from the stored schema
-    const templateSchema = template.schema as Record<string, unknown>;
+    const templateSchema = template.templateData as Record<string, unknown>;
     let pdfmeTemplate = this.buildPdfmeTemplate(templateSchema);
 
     // 2. Generate sample inputs from template field names
