@@ -15,8 +15,9 @@ import { DndContext } from '@dnd-kit/core';
 import RightSidebar from './RightSidebar/index.js';
 import LeftSidebar from './LeftSidebar.js';
 import Canvas from './Canvas/index.js';
-import { RULER_HEIGHT, RIGHT_SIDEBAR_WIDTH, LEFT_SIDEBAR_WIDTH } from '../../constants.js';
+import { RULER_HEIGHT, RIGHT_SIDEBAR_WIDTH, LEFT_SIDEBAR_WIDTH, LEFT_SIDEBAR_WIDTH_EXPANDED } from '../../constants.js';
 import { I18nContext, OptionsContext, PluginsRegistry } from '../../contexts.js';
+import { useFieldPalette } from '../../contexts/FieldPaletteContext.js';
 import {
   schemasList2template,
   uuid,
@@ -64,7 +65,10 @@ const TemplateEditor = ({
   const i18n = useContext(I18nContext);
   const pluginsRegistry = useContext(PluginsRegistry);
   const options = useContext(OptionsContext);
+  const { hasFields } = useFieldPalette();
   const maxZoom = useMaxZoom();
+
+  const leftSidebarWidth = hasFields ? LEFT_SIDEBAR_WIDTH_EXPANDED : LEFT_SIDEBAR_WIDTH;
 
   const [hoveringSchemaId, setHoveringSchemaId] = useState<string | null>(null);
   const [activeElements, setActiveElements] = useState<HTMLElement[]>([]);
@@ -271,7 +275,7 @@ const TemplateEditor = ({
     void updateTemplate(template);
   }
 
-  const canvasWidth = size.width - LEFT_SIDEBAR_WIDTH;
+  const canvasWidth = size.width - leftSidebarWidth;
   const sizeExcSidebars = {
     width: sidebarOpen ? canvasWidth - RIGHT_SIDEBAR_WIDTH : canvasWidth,
     height: size.height,
@@ -319,7 +323,7 @@ const TemplateEditor = ({
           basePdf={template.basePdf}
         />
 
-        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: LEFT_SIDEBAR_WIDTH }}>
+        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: leftSidebarWidth }}>
           <CtlBar
             size={sizeExcSidebars}
             pageCursor={pageCursor}

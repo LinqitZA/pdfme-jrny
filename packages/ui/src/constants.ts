@@ -10,6 +10,9 @@ export const PAGE_GAP = 10;
 
 export const LEFT_SIDEBAR_WIDTH = 45;
 
+/** Width when ERP field groups are available */
+export const LEFT_SIDEBAR_WIDTH_EXPANDED = 220;
+
 export const RIGHT_SIDEBAR_WIDTH = 400;
 
 export const BACKGROUND_COLOR = 'rgb(74, 74, 74)';
