@@ -1,5 +1,4 @@
 import React from 'react';
-import ReactDOM from 'react-dom';
 import {
   cloneDeep,
   Template,
@@ -12,16 +11,27 @@ import { BaseUIClass } from './class.js';
 import { DESTROYED_ERR_MSG } from './constants.js';
 import DesignerComponent from './components/Designer/index.js';
 import AppContextProvider from './components/AppContextProvider.js';
+import type { FieldGroup } from './contexts/FieldPaletteContext.js';
+
+/** Extended DesignerProps that includes optional ERP field groups */
+export type DesignerPropsWithFields = DesignerProps & {
+  /** Optional ERP field groups for the field palette sidebar */
+  fieldGroups?: FieldGroup[];
+};
 
 class Designer extends BaseUIClass {
   private onSaveTemplateCallback?: (template: Template) => void;
   private onChangeTemplateCallback?: (template: Template) => void;
   private onPageChangeCallback?: (pageInfo: { currentPage: number; totalPages: number }) => void;
   private pageCursor: number = 0;
+  private fieldGroups?: FieldGroup[];
 
-  constructor(props: DesignerProps) {
-    super(props);
-    checkDesignerProps(props);
+  constructor(props: DesignerPropsWithFields) {
+    // Extract fieldGroups before passing to super/check (Zod strict mode rejects unknown keys)
+    const { fieldGroups, ...designerProps } = props;
+    super(designerProps);
+    checkDesignerProps(designerProps);
+    this.fieldGroups = fieldGroups;
   }
 
   public saveTemplate() {
@@ -63,13 +73,14 @@ class Designer extends BaseUIClass {
   }
 
   protected render() {
-    if (!this.domContainer) throw Error(DESTROYED_ERR_MSG);
-    ReactDOM.render(
+    if (!this.domContainer || !this.reactRoot) throw Error(DESTROYED_ERR_MSG);
+    this.reactRoot.render(
       <AppContextProvider
         lang={this.getLang()}
         font={this.getFont()}
         plugins={this.getPluginsRegistry()}
         options={this.getOptions()}
+        fieldGroups={this.fieldGroups}
       >
         <DesignerComponent
           template={this.template}
@@ -99,7 +110,6 @@ class Designer extends BaseUIClass {
           size={this.size}
         />
       </AppContextProvider>,
-      this.domContainer,
     );
   }
 }

@@ -7,6 +7,7 @@ import Renderer from '../Renderer.js';
 import { LEFT_SIDEBAR_WIDTH, DESIGNER_CLASSNAME } from '../../constants.js';
 import { setFontNameRecursively } from '../../helper';
 import { OptionsContext, PluginsRegistry } from '../../contexts.js';
+import { useFieldPalette } from '../../contexts/FieldPaletteContext.js';
 import PluginIcon from './PluginIcon.js';
 
 const Draggable = (props: {
@@ -65,7 +66,15 @@ const LeftSidebar = ({
 }) => {
   const { token } = theme.useToken();
   const pluginsRegistry = useContext(PluginsRegistry);
+  const { fieldGroups, hasFields } = useFieldPalette();
   const [isDragging, setIsDragging] = useState(false);
+
+  // Development verification: confirm field groups flow through FieldPaletteContext
+  useEffect(() => {
+    if (hasFields) {
+      console.log('[pdfme:LeftSidebar] FieldPalette context received', fieldGroups.length, 'field groups');
+    }
+  }, [fieldGroups, hasFields]);
 
   useEffect(() => {
     const handleMouseUp = () => {
