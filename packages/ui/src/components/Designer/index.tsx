@@ -353,6 +353,61 @@ const TemplateEditor = ({
     [template, schemasList, onChangeTemplate, updateTemplate, refresh],
   );
 
+  /**
+   * Handles padding changes from the RightSidebar page settings panel.
+   * Updates basePdf padding and repositions elements that fall outside new bounds.
+   */
+  const handlePaddingChange = useCallback(
+    (newPadding: [number, number, number, number]) => {
+      if (!isBlankPdf(template.basePdf)) return;
+
+      const oldBasePdf = template.basePdf;
+      const newBasePdf: BlankPdf = {
+        ...oldBasePdf,
+        padding: newPadding,
+      };
+
+      // Reposition elements that fall outside the new padded boundaries
+      const [pTop, pRight, pBottom, pLeft] = newPadding;
+      const maxX = oldBasePdf.width - pRight;
+      const maxY = oldBasePdf.height - pBottom;
+
+      const adjustedSchemasList = schemasList.map((pageSchemas) =>
+        pageSchemas.map((schema) => {
+          const adjusted = { ...schema };
+          // Ensure element is within left padding
+          if (adjusted.position.x < pLeft) {
+            adjusted.position = { ...adjusted.position, x: pLeft };
+          }
+          // Ensure element is within top padding
+          if (adjusted.position.y < pTop) {
+            adjusted.position = { ...adjusted.position, y: pTop };
+          }
+          // Ensure element doesn't extend past right edge
+          if (adjusted.position.x + adjusted.width > maxX) {
+            adjusted.position = {
+              ...adjusted.position,
+              x: Math.max(pLeft, maxX - adjusted.width),
+            };
+          }
+          // Ensure element doesn't extend past bottom edge
+          if (adjusted.position.y + adjusted.height > maxY) {
+            adjusted.position = {
+              ...adjusted.position,
+              y: Math.max(pTop, maxY - adjusted.height),
+            };
+          }
+          return adjusted;
+        }),
+      );
+
+      const newTemplate = schemasList2template(adjustedSchemasList, newBasePdf);
+      onChangeTemplate(newTemplate);
+      void updateTemplate(newTemplate).then(() => refresh(newTemplate));
+    },
+    [template, schemasList, onChangeTemplate, updateTemplate, refresh],
+  );
+
   // Page size props for CtlBar (only for blank PDFs)
   const pageSizeProps = isBlankPdf(template.basePdf)
     ? {
@@ -399,7 +454,7 @@ const TemplateEditor = ({
           basePdf={template.basePdf}
         />
 
-        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: leftSidebarWidth }}>
+        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: leftSidebarWidth, overflow: 'hidden' }}>
           <CtlBar
             size={sizeExcSidebars}
             pageCursor={pageCursor}
@@ -442,6 +497,8 @@ const TemplateEditor = ({
             deselectSchema={onEditEnd}
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
+            onPageSizeChange={isBlankPdf(template.basePdf) ? handlePageSizeChange : undefined}
+            onPaddingChange={isBlankPdf(template.basePdf) ? handlePaddingChange : undefined}
           />
 
           <Canvas

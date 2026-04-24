@@ -22,7 +22,7 @@ import {
 } from '@pdfme/common';
 import { PluginsRegistry } from '../../../contexts.js';
 import { X } from 'lucide-react';
-import { RULER_HEIGHT, RIGHT_SIDEBAR_WIDTH, DESIGNER_CLASSNAME } from '../../../constants.js';
+import { RULER_HEIGHT, DESIGNER_CLASSNAME } from '../../../constants.js';
 import { usePrevious } from '../../../hooks.js';
 import { round, flatten, uuid } from '../../../helper.js';
 import Paper from '../../Paper.js';
@@ -356,7 +356,6 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       style={{
         position: 'relative',
         overflow: 'auto',
-        marginRight: sidebarOpen ? RIGHT_SIDEBAR_WIDTH : 0,
         ...size,
       }}
       ref={ref}
@@ -479,8 +478,9 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
           </>
         )}
         renderSchema={({ schema, index }) => {
+          const isSelected = activeElements.some((ae) => ae.id === schema.id);
           const mode =
-            editing && activeElements.map((ae) => ae.id).includes(schema.id)
+            editing && isSelected
               ? 'designer'
               : 'viewer';
 
@@ -503,6 +503,17 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
             value = replacePlaceholders({ content, variables, schemas: schemasList });
           }
 
+          // When an element is selected, Moveable renders its own control box
+          // around it. Suppress the element's CSS outline to prevent a double
+          // outline / ghost border effect.
+          const outline = isSelected
+            ? 'none'
+            : `1px ${hoveringSchemaId === schema.id ? 'solid' : 'dashed'} ${
+                schema.readOnly && hoveringSchemaId !== schema.id
+                  ? 'transparent'
+                  : token.colorPrimary
+              }`;
+
           return (
             <Renderer
               key={schema.id}
@@ -524,11 +535,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   : undefined
               }
               stopEditing={() => setEditing(false)}
-              outline={`1px ${hoveringSchemaId === schema.id ? 'solid' : 'dashed'} ${
-                schema.readOnly && hoveringSchemaId !== schema.id
-                  ? 'transparent'
-                  : token.colorPrimary
-              }`}
+              outline={outline}
               scale={scale}
             />
           );
