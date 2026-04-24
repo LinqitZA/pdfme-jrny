@@ -69,36 +69,95 @@ const DEFAULT_COLUMN: ColumnDefinition = {
   format: '',
 };
 
-/** Flatten FieldGroups into Select options */
+/** Field type to display color mapping */
+const FIELD_TYPE_COLORS: Record<string, string> = {
+  string: '#52c41a',
+  number: '#1677ff',
+  currency: '#faad14',
+  date: '#722ed1',
+  boolean: '#eb2f96',
+  image: '#13c2c2',
+  array: '#fa541c',
+};
+
+/** Field type abbreviation for badges */
+const FIELD_TYPE_ABBR: Record<string, string> = {
+  string: 'Abc',
+  number: '#',
+  currency: '$',
+  date: 'Date',
+  boolean: 'T/F',
+  image: 'Img',
+  array: '[]',
+};
+
+interface FieldOptionData {
+  label: React.ReactNode;
+  value: string;
+  searchLabel: string;
+  fieldType?: string;
+  groupPath: string;
+}
+
+/** Flatten FieldGroups into Select options with type badges and group paths */
 const buildFieldOptions = (
   groups: FieldGroup[],
   prefix = '',
-): Array<{ label: string; options: Array<{ label: string; value: string }> }> => {
-  const result: Array<{ label: string; options: Array<{ label: string; value: string }> }> = [];
+  filterLineItemFields = false,
+): Array<{ label: string; options: FieldOptionData[] }> => {
+  const result: Array<{ label: string; options: FieldOptionData[] }> = [];
   for (const group of groups) {
     const groupLabel = prefix ? `${prefix} > ${group.label}` : group.label;
+
+    // If filtering for line-item fields, prioritise groups with "line" in the key
+    if (filterLineItemFields) {
+      const isLineGroup =
+        group.key.toLowerCase().includes('line') ||
+        group.key.toLowerCase().includes('detail') ||
+        group.label.toLowerCase().includes('line');
+      if (!isLineGroup && !prefix) {
+        // Still include non-line groups but at the end
+        // (we'll still process them below)
+      }
+    }
+
     if (group.fields.length > 0) {
       result.push({
         label: groupLabel,
         options: group.fields.map((field) => ({
           label: field.label,
           value: field.key,
+          searchLabel: `${field.label} ${field.key} ${groupLabel}`,
+          fieldType: field.type,
+          groupPath: groupLabel,
         })),
       });
     }
     if (group.children) {
-      result.push(...buildFieldOptions(group.children, groupLabel));
+      result.push(...buildFieldOptions(group.children, groupLabel, filterLineItemFields));
     }
   }
   return result;
 };
 
-/** Flatten all fields for lookup */
-const flattenFields = (groups: FieldGroup[]): FieldEntry[] => {
-  const result: FieldEntry[] = [];
+/** Flatten all fields for lookup with group path */
+interface FieldWithGroup extends FieldEntry {
+  groupPath: string;
+}
+
+const flattenFieldsWithGroups = (
+  groups: FieldGroup[],
+  prefix = '',
+): FieldWithGroup[] => {
+  const result: FieldWithGroup[] = [];
   for (const group of groups) {
-    result.push(...group.fields);
-    if (group.children) result.push(...flattenFields(group.children));
+    const groupLabel = prefix ? `${prefix} > ${group.label}` : group.label;
+    for (const field of group.fields) {
+      result.push({ ...field, groupPath: groupLabel });
+    }
+    if (group.children) {
+      result.push(...flattenFieldsWithGroups(group.children, groupLabel));
+    }
   }
   return result;
 };
@@ -112,8 +171,8 @@ interface SortableColumnCardProps {
   onToggleExpand: () => void;
   onUpdate: (index: number, updated: ColumnDefinition) => void;
   onRemove: (index: number) => void;
-  fieldOptions: Array<{ label: string; options: Array<{ label: string; value: string }> }>;
-  allFields: FieldEntry[];
+  fieldOptions: Array<{ label: string; options: FieldOptionData[] }>;
+  allFields: FieldWithGroup[];
   token: ReturnType<typeof theme.useToken>['token'];
 }
 
@@ -148,7 +207,10 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
   };
 
   const alignIcon = ALIGN_OPTIONS.find((a) => a.value === (column.align || 'left'))?.icon;
-  const fieldLabel = allFields.find((f) => f.key === column.key)?.label;
+  const boundField = allFields.find((f) => f.key === column.key);
+  const fieldLabel = boundField?.label;
+  const fieldType = boundField?.type;
+  const fieldGroupPath = boundField?.groupPath;
 
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
@@ -210,13 +272,27 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
 
         {/* Bound field indicator */}
         {column.key && (
-          <Tooltip title={`Field: ${column.key}`}>
-            <Tag
-              color="blue"
-              style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 3px', maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis' }}
-            >
-              {fieldLabel || column.key}
-            </Tag>
+          <Tooltip title={fieldGroupPath ? `${fieldGroupPath} > ${fieldLabel || column.key}` : column.key}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, maxWidth: 80, overflow: 'hidden' }}>
+              {fieldType && (
+                <span
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 600,
+                    color: FIELD_TYPE_COLORS[fieldType] || token.colorTextSecondary,
+                    flexShrink: 0,
+                  }}
+                >
+                  {FIELD_TYPE_ABBR[fieldType] || fieldType}
+                </span>
+              )}
+              <Tag
+                color="blue"
+                style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 3px', maxWidth: 65, overflow: 'hidden', textOverflow: 'ellipsis' }}
+              >
+                {fieldLabel || column.key}
+              </Tag>
+            </span>
           </Tooltip>
         )}
 
@@ -278,28 +354,91 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
               Data Field
             </Text>
             {fieldOptions.length > 0 ? (
-              <Select
-                showSearch
-                allowClear
-                style={{ width: '100%' }}
-                size="small"
-                placeholder="Select field..."
-                value={column.key || undefined}
-                options={fieldOptions}
-                filterOption={(input, option) => {
-                  const label = String(option?.label ?? '');
-                  const value = String(option?.value ?? '');
-                  const search = input.toLowerCase();
-                  return label.toLowerCase().includes(search) || value.toLowerCase().includes(search);
-                }}
-                onChange={(value) => onUpdate(index, { ...column, key: value || '' })}
-              />
+              <>
+                <Select
+                  showSearch
+                  allowClear
+                  style={{ width: '100%' }}
+                  size="small"
+                  placeholder="Select field to bind..."
+                  value={column.key || undefined}
+                  optionLabelProp="label"
+                  filterOption={(input, option) => {
+                    const searchLabel = (option as unknown as FieldOptionData)?.searchLabel || '';
+                    const value = String(option?.value ?? '');
+                    const search = input.toLowerCase();
+                    return searchLabel.toLowerCase().includes(search) || value.toLowerCase().includes(search);
+                  }}
+                  onChange={(value) => {
+                    const updates: Partial<ColumnDefinition> = { key: value || '' };
+                    // Auto-populate header from field label when header is empty or default
+                    if (value && (!column.header || column.header.startsWith('Column '))) {
+                      const matchedField = allFields.find((f) => f.key === value);
+                      if (matchedField) {
+                        updates.header = matchedField.label;
+                        // Auto-set alignment based on field type
+                        if (matchedField.type === 'number' || matchedField.type === 'currency') {
+                          updates.align = 'right';
+                        }
+                        // Auto-set format for currency fields
+                        if (matchedField.type === 'currency' && !column.format) {
+                          updates.format = '#,##0.00';
+                        }
+                      }
+                    }
+                    onUpdate(index, { ...column, ...updates });
+                  }}
+                  onClear={() => onUpdate(index, { ...column, key: '' })}
+                >
+                  {fieldOptions.map((group) => (
+                    <Select.OptGroup key={group.label} label={group.label}>
+                      {group.options.map((opt) => (
+                        <Select.Option
+                          key={opt.value}
+                          value={opt.value}
+                          label={typeof opt.label === 'string' ? opt.label : opt.value}
+                          searchLabel={opt.searchLabel}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                            {opt.fieldType && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 600,
+                                  color: FIELD_TYPE_COLORS[opt.fieldType] || token.colorTextSecondary,
+                                  minWidth: 22,
+                                  textAlign: 'center',
+                                }}
+                              >
+                                {FIELD_TYPE_ABBR[opt.fieldType] || opt.fieldType}
+                              </span>
+                            )}
+                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {typeof opt.label === 'string' ? opt.label : opt.value}
+                            </span>
+                          </span>
+                        </Select.Option>
+                      ))}
+                    </Select.OptGroup>
+                  ))}
+                </Select>
+                {/* Show bound field group path */}
+                {column.key && fieldGroupPath && (
+                  <Text
+                    type="secondary"
+                    style={{ fontSize: 10, display: 'block', marginTop: 2 }}
+                    title={column.key}
+                  >
+                    {fieldGroupPath} &gt; {fieldLabel || column.key}
+                  </Text>
+                )}
+              </>
             ) : (
               <input
                 type="text"
                 value={column.key}
                 onChange={(e) => onUpdate(index, { ...column, key: e.target.value })}
-                placeholder="e.g. lineItems.description"
+                placeholder="e.g. description"
                 style={{
                   width: '100%',
                   padding: '3px 7px',
