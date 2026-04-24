@@ -472,6 +472,7 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
   const colType = column.columnType || 'field';
   const colTypeInfo = COLUMN_TYPE_OPTIONS.find((t) => t.value === colType);
   const alignIcon = ALIGN_OPTIONS.find((a) => a.value === (column.align || 'left'))?.icon;
+  const valignIcon = VALIGN_OPTIONS.find((a) => a.value === (column.verticalAlign || 'middle'))?.icon;
   const boundField = allFields.find((f) => f.key === column.key);
   const fieldLabel = boundField?.label;
   const fieldType = boundField?.type;
@@ -629,9 +630,10 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
           {column.width}mm
         </Text>
 
-        {/* Align icon */}
-        <span style={{ color: token.colorTextTertiary, display: 'flex', flexShrink: 0 }}>
+        {/* Align icons */}
+        <span style={{ color: token.colorTextTertiary, display: 'flex', flexShrink: 0, gap: 1 }}>
           {alignIcon}
+          {column.verticalAlign && column.verticalAlign !== 'middle' && valignIcon}
         </span>
 
         {/* Expand chevron */}
