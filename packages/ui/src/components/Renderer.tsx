@@ -225,6 +225,24 @@ const Wrapper = ({
           </div>
         );
       })()}
+      {/* Conditional visibility indicator — dashed border when element has condition */}
+      {(() => {
+        const condition = (schema as Record<string, unknown>).condition as Record<string, unknown> | undefined;
+        if (!condition) return null;
+        return (
+          <div
+            title={`Conditional: ${condition.type === 'fieldNonEmpty' ? `if ${condition.field}` : condition.expression || 'expression'}`}
+            style={{
+              position: 'absolute',
+              inset: -1,
+              border: '1.5px dashed #fa541c',
+              borderRadius: 2,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+        );
+      })()}
       {children}
     </div>
   );
