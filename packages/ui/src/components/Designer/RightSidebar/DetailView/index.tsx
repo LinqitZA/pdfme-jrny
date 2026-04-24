@@ -18,6 +18,7 @@ import { theme, Typography, Button, Divider } from 'antd';
 import AlignWidget from './AlignWidget.js';
 import WidgetRenderer from './WidgetRenderer.js';
 import ButtonGroupWidget from './ButtonGroupWidget.js';
+import FieldBindingWidget from './FieldBindingWidget.js';
 import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
 
@@ -450,6 +451,10 @@ const DetailView = (props: DetailViewProps) => {
         </Text>
       </SidebarHeader>
       <SidebarBody>
+        <FieldBindingWidget
+          activeSchema={activeSchema}
+          changeSchemas={changeSchemas}
+        />
         <FormRenderComponent
           form={form}
           schema={propPanelSchema}
