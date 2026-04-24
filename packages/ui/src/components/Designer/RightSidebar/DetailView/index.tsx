@@ -10,7 +10,7 @@ import type {
 } from '@pdfme/common';
 import { isBlankPdf } from '@pdfme/common';
 import type { SidebarProps } from '../../../../types.js';
-import { Menu } from 'lucide-react';
+import { Menu, ArrowUp, ArrowDown, ChevronsUp, ChevronsDown } from 'lucide-react';
 import { I18nContext, PluginsRegistry, OptionsContext } from '../../../../contexts.js';
 import { debounce } from '../../../../helper.js';
 import { DESIGNER_CLASSNAME } from '../../../../constants.js';
@@ -23,6 +23,7 @@ import PageScopeWidget from './PageScopeWidget.js';
 import OutputChannelWidget from './OutputChannelWidget.js';
 import ConditionalVisibilityWidget from './ConditionalVisibilityWidget.js';
 import ExpressionBuilderWidget from './ExpressionBuilderWidget.js';
+import ColumnConfigWidget from './ColumnConfigWidget.js';
 import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
 
@@ -41,6 +42,7 @@ type DetailViewProps = Pick<
   | 'changeSchemas'
   | 'activeElements'
   | 'deselectSchema'
+  | 'onSortEnd'
 > & {
   activeSchema: SchemaForUI;
 };
@@ -48,7 +50,7 @@ type DetailViewProps = Pick<
 const DetailView = (props: DetailViewProps) => {
   const { token } = theme.useToken();
 
-  const { schemasList, changeSchemas, deselectSchema, activeSchema, pageSize, basePdf } = props;
+  const { schemasList, changeSchemas, deselectSchema, activeSchema, pageSize, basePdf, schemas, onSortEnd } = props;
   const form = useForm();
 
   const i18n = useContext(I18nContext);
@@ -459,6 +461,55 @@ const DetailView = (props: DetailViewProps) => {
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />
+        {/* Z-Order Controls */}
+        {(() => {
+          const idx = schemas.findIndex((s) => s.id === activeSchema.id);
+          const isFirst = idx === 0;
+          const isLast = idx === schemas.length - 1;
+          const move = (newIdx: number) => {
+            const reordered = [...schemas];
+            const [item] = reordered.splice(idx, 1);
+            reordered.splice(newIdx, 0, item);
+            onSortEnd(reordered);
+          };
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: `4px ${SIDEBAR_H_PADDING_PX}px`, borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
+              <Text style={{ fontSize: 11, color: token.colorTextSecondary, marginRight: 'auto' }}>Layer</Text>
+              <Button
+                size="small"
+                type="text"
+                disabled={isLast}
+                onClick={() => move(schemas.length - 1)}
+                title="Bring to front"
+                icon={<ChevronsUp size={14} />}
+              />
+              <Button
+                size="small"
+                type="text"
+                disabled={isLast}
+                onClick={() => move(idx + 1)}
+                title="Bring forward"
+                icon={<ArrowUp size={14} />}
+              />
+              <Button
+                size="small"
+                type="text"
+                disabled={isFirst}
+                onClick={() => move(idx - 1)}
+                title="Send backward"
+                icon={<ArrowDown size={14} />}
+              />
+              <Button
+                size="small"
+                type="text"
+                disabled={isFirst}
+                onClick={() => move(0)}
+                title="Send to back"
+                icon={<ChevronsDown size={14} />}
+              />
+            </div>
+          );
+        })()}
         <PageScopeWidget
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
@@ -472,6 +523,10 @@ const DetailView = (props: DetailViewProps) => {
           changeSchemas={changeSchemas}
         />
         <ExpressionBuilderWidget
+          activeSchema={activeSchema}
+          changeSchemas={changeSchemas}
+        />
+        <ColumnConfigWidget
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />

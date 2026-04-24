@@ -19,5 +19,10 @@ module.exports = {
   Grid3x3: () => 'Grid3x3',
   RectangleVertical: () => 'RectangleVertical',
   RectangleHorizontal: () => 'RectangleHorizontal',
+  Columns3: () => 'Columns3',
+  ChevronDown: () => 'ChevronDown',
+  AlignLeft: () => 'AlignLeft',
+  AlignCenter: () => 'AlignCenter',
+  AlignRight: () => 'AlignRight',
   // Add any other icons used in the codebase
 };
