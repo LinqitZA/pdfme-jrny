@@ -223,13 +223,19 @@ async function fitContent(table, getFontKitFontByFontName) {
             if (!cell)
                 continue;
             const fontKitFont = await getFontKitFontByFontName(cell.styles.fontName);
-            cell.text = (0, helper_js_1.splitTextToSize)({
-                value: cell.raw,
-                characterSpacing: cell.styles.characterSpacing,
-                boxWidthInPt: (0, common_1.mm2pt)(cell.width),
-                fontSize: cell.styles.fontSize,
-                fontKitFont,
-            });
+            const overflow = cell.styles.overflow || 'wrap';
+            if (overflow === 'wrap') {
+                cell.text = (0, helper_js_1.splitTextToSize)({
+                    value: cell.raw,
+                    characterSpacing: cell.styles.characterSpacing,
+                    boxWidthInPt: (0, common_1.mm2pt)(cell.width),
+                    fontSize: cell.styles.fontSize,
+                    fontKitFont,
+                });
+            } else {
+                // truncate / clip: keep as single line
+                cell.text = [cell.raw.replace(/\r\n|\r|\n/g, ' ')];
+            }
             cell.contentHeight = cell.getContentHeight();
             let realContentHeight = cell.contentHeight;
             if (rowSpanHeight && rowSpanHeight.count > 0) {

@@ -17,6 +17,8 @@ export interface CellStyle {
   borderColor: string;
   borderWidth: BoxDimensions;
   padding: BoxDimensions;
+  /** Text overflow behaviour per cell/column: 'wrap' (default), 'truncate', or 'clip' */
+  overflow?: 'wrap' | 'truncate' | 'clip';
 }
 
 export type CellSchema = Schema & CellStyle;
@@ -36,6 +38,10 @@ export interface TableSchema extends Schema {
   columnStyles: {
     alignment?: { [colIndex: number]: ALIGNMENT };
   };
+  /** Per-column body cell style overrides (fontName, fontSize, textColor) keyed by column index */
+  bodyColumnStyles?: { [colIndex: number]: Partial<CellStyle> };
+  /** Per-column header cell style overrides (fontName, fontSize, textColor) keyed by column index */
+  headColumnStyles?: { [colIndex: number]: Partial<CellStyle> };
 }
 
 export interface Styles {
@@ -53,6 +59,8 @@ export interface Styles {
   cellWidth: number;
   minCellHeight: number;
   minCellWidth: number;
+  /** Text overflow behaviour: 'wrap' (default), 'truncate', or 'clip' */
+  overflow?: 'wrap' | 'truncate' | 'clip';
 }
 
 export interface TableInput {
@@ -82,6 +90,10 @@ export interface StylesProps {
   bodyStyles: Partial<Styles>;
   alternateRowStyles: Partial<Styles>;
   columnStyles: { [key: string]: Partial<Styles> };
+  /** Per-column body cell style overrides keyed by column index */
+  bodyColumnStyles?: { [key: string]: Partial<Styles> };
+  /** Per-column header cell style overrides keyed by column index */
+  headColumnStyles?: { [key: string]: Partial<Styles> };
 }
 
 export type Section = 'head' | 'body';

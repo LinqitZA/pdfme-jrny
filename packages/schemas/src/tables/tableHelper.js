@@ -64,7 +64,10 @@ function cellStyles(sectionName, column, rowIndex, styles, fallbackFontName) {
         sectionStyles = styles.bodyStyles;
     }
     const otherStyles = Object.assign({}, styles.styles, sectionStyles);
-    const colStyles = styles.columnStyles[column.index] || styles.columnStyles[column.index] || {};
+    const colStyles = styles.columnStyles[column.index] || {};
+    const sectionColStyles = sectionName === 'head'
+        ? (styles.headColumnStyles?.[column.index] || {})
+        : (styles.bodyColumnStyles?.[column.index] || {});
     const rowStyles = sectionName === 'body' && rowIndex % 2 === 0
         ? Object.assign({}, styles.alternateRowStyles)
         : {};
@@ -83,7 +86,7 @@ function cellStyles(sectionName, column, rowIndex, styles, fallbackFontName) {
         minCellHeight: 0,
         minCellWidth: 0,
     };
-    return Object.assign(defaultStyle, otherStyles, rowStyles, colStyles);
+    return Object.assign(defaultStyle, otherStyles, rowStyles, colStyles, sectionColStyles);
 }
 function mapCellStyle(style) {
     const result = {};
@@ -98,6 +101,7 @@ function mapCellStyle(style) {
     if (style.borderColor !== undefined) result.lineColor = style.borderColor;
     if (style.borderWidth !== undefined) result.lineWidth = style.borderWidth;
     if (style.padding !== undefined) result.cellPadding = style.padding;
+    if (style.overflow !== undefined) result.overflow = style.overflow;
     return result;
 }
 function getTableOptions(schema, body) {
@@ -112,6 +116,18 @@ function getTableOptions(schema, body) {
         const alignmentStyle = columnStylesAlignment[key] || {};
         return { ...acc, [key]: { ...widthStyle, ...alignmentStyle } };
     }, {});
+    const bodyColumnStyles = {};
+    const headColumnStyles = {};
+    if (schema.bodyColumnStyles) {
+        for (const [idx, style] of Object.entries(schema.bodyColumnStyles)) {
+            bodyColumnStyles[Number(idx)] = mapCellStyle(style);
+        }
+    }
+    if (schema.headColumnStyles) {
+        for (const [idx, style] of Object.entries(schema.headColumnStyles)) {
+            headColumnStyles[Number(idx)] = mapCellStyle(style);
+        }
+    }
     return {
         head: [schema.head],
         body,
@@ -124,6 +140,8 @@ function getTableOptions(schema, body) {
         bodyStyles: mapCellStyle(schema.bodyStyles),
         alternateRowStyles: { backgroundColor: schema.bodyStyles.alternateBackgroundColor },
         columnStyles,
+        ...(Object.keys(bodyColumnStyles).length > 0 ? { bodyColumnStyles } : {}),
+        ...(Object.keys(headColumnStyles).length > 0 ? { headColumnStyles } : {}),
         margin: { top: 0, right: 0, left: schema.position.x, bottom: 0 },
     };
 }
@@ -145,6 +163,12 @@ function parseStyles(cInput) {
             const styles = allOptions.map((opts) => opts[prop] || {});
             styleOptions[prop] = Object.assign({}, styles[0], styles[1], styles[2]);
         }
+    }
+    if (cInput.bodyColumnStyles) {
+        styleOptions.bodyColumnStyles = Object.assign({}, cInput.bodyColumnStyles);
+    }
+    if (cInput.headColumnStyles) {
+        styleOptions.headColumnStyles = Object.assign({}, cInput.headColumnStyles);
     }
     return styleOptions;
 }

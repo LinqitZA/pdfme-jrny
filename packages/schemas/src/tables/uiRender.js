@@ -37,6 +37,7 @@ const convertToCellStyle = (styles) => ({
     borderColor: styles.lineColor,
     borderWidth: styles.lineWidth,
     padding: styles.cellPadding,
+    overflow: styles.overflow,
 });
 const calcResizedHeadWidthPercentages = (arg) => {
     const { currentHeadWidthPercentages, currentHeadWidths, changedHeadWidth, changedHeadIndex } = arg;

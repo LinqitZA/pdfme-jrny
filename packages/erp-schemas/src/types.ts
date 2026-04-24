@@ -27,6 +27,14 @@ export interface ColumnDefinition {
   columnStyle?: ColumnFontStyle;
   /** Per-column header cell font style overrides (inherits from global headerStyle if not set) */
   headerColumnStyle?: ColumnFontStyle;
+  /** Text overflow behaviour: 'wrap' (default, multi-line), 'truncate' (single-line with ellipsis), 'clip' (single-line, clipped) */
+  overflow?: 'wrap' | 'truncate' | 'clip';
+  /** Vertical alignment for body cells in this column */
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  /** Horizontal alignment override for header cells (inherits from align if not set) */
+  headerAlign?: 'left' | 'center' | 'right';
+  /** Vertical alignment override for header cells */
+  headerVerticalAlign?: 'top' | 'middle' | 'bottom';
 }
 
 export interface RowTemplate {

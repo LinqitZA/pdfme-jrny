@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useContext } from 'react';
-import { theme, Typography, Button, Select, InputNumber, Tag, Tooltip, Popconfirm } from 'antd';
+import { theme, Typography, Button, Select, InputNumber, Tag, Tooltip, Popconfirm, Segmented } from 'antd';
 import {
   Columns3,
   Plus,
@@ -10,6 +10,9 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  AlignVerticalJustifyStart,
+  AlignVerticalJustifyCenter,
+  AlignVerticalJustifyEnd,
   Calculator,
   Type,
   Link2,
@@ -67,6 +70,10 @@ interface ColumnDefinition {
   expression?: string;
   columnStyle?: ColumnFontStyle;
   headerColumnStyle?: ColumnFontStyle;
+  overflow?: 'wrap' | 'truncate' | 'clip';
+  verticalAlign?: 'top' | 'middle' | 'bottom';
+  headerAlign?: 'left' | 'center' | 'right';
+  headerVerticalAlign?: 'top' | 'middle' | 'bottom';
 }
 
 interface ColumnConfigWidgetProps {
@@ -80,6 +87,12 @@ const ALIGN_OPTIONS: Array<{ label: string; value: 'left' | 'center' | 'right'; 
   { label: 'Left', value: 'left', icon: <AlignLeft size={12} /> },
   { label: 'Center', value: 'center', icon: <AlignCenter size={12} /> },
   { label: 'Right', value: 'right', icon: <AlignRight size={12} /> },
+];
+
+const VALIGN_OPTIONS: Array<{ label: string; value: 'top' | 'middle' | 'bottom'; icon: React.ReactNode }> = [
+  { label: 'Top', value: 'top', icon: <AlignVerticalJustifyStart size={12} /> },
+  { label: 'Middle', value: 'middle', icon: <AlignVerticalJustifyCenter size={12} /> },
+  { label: 'Bottom', value: 'bottom', icon: <AlignVerticalJustifyEnd size={12} /> },
 ];
 
 /** Column type options for the type selector */
@@ -417,6 +430,8 @@ interface SortableColumnCardProps {
   allFields: FieldWithGroup[];
   allColumnKeys: string[];
   fontNames: string[];
+  schemaWidth: number;
+  totalColumnWidth: number;
   token: ReturnType<typeof theme.useToken>['token'];
 }
 
@@ -431,6 +446,8 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
   allFields,
   allColumnKeys,
   fontNames,
+  schemaWidth,
+  totalColumnWidth,
   token,
 }) => {
   const {
@@ -924,41 +941,174 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
             </div>
           )}
 
-          {/* Width + Alignment row */}
+          {/* Width */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+              <Text type="secondary" style={{ fontSize: 10 }}>
+                Width (mm)
+              </Text>
+              <Tag
+                color="default"
+                style={{ fontSize: 8, lineHeight: '12px', margin: 0, padding: '0 3px' }}
+              >
+                {totalColumnWidth > 0 ? Math.round((column.width / totalColumnWidth) * 100) : 0}%
+              </Tag>
+            </div>
+            <InputNumber
+              size="small"
+              style={{ width: '100%' }}
+              min={10}
+              max={schemaWidth}
+              step={1}
+              precision={1}
+              value={column.width}
+              onChange={(val) => onUpdate(index, { ...column, width: val ?? 30 })}
+            />
+          </div>
+
+          {/* Body Alignment */}
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
-                Width (mm)
+                Horizontal
               </Text>
-              <InputNumber
+              <Segmented
                 size="small"
-                style={{ width: '100%' }}
-                min={5}
-                max={500}
-                step={5}
-                value={column.width}
-                onChange={(val) => onUpdate(index, { ...column, width: val ?? 30 })}
+                block
+                value={column.align || 'left'}
+                options={ALIGN_OPTIONS.map((a) => ({
+                  label: (
+                    <Tooltip title={a.label}>
+                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {a.icon}
+                      </span>
+                    </Tooltip>
+                  ),
+                  value: a.value,
+                }))}
+                onChange={(val) => onUpdate(index, { ...column, align: val as 'left' | 'center' | 'right' })}
               />
             </div>
             <div style={{ flex: 1 }}>
               <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
-                Alignment
+                Vertical
               </Text>
-              <Select
+              <Segmented
                 size="small"
-                style={{ width: '100%' }}
-                value={column.align || 'left'}
-                options={ALIGN_OPTIONS.map((a) => ({
+                block
+                value={column.verticalAlign || 'middle'}
+                options={VALIGN_OPTIONS.map((a) => ({
                   label: (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      {a.icon} {a.label}
-                    </span>
+                    <Tooltip title={a.label}>
+                      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {a.icon}
+                      </span>
+                    </Tooltip>
                   ),
                   value: a.value,
                 }))}
-                onChange={(val) => onUpdate(index, { ...column, align: val })}
+                onChange={(val) => onUpdate(index, { ...column, verticalAlign: val as 'top' | 'middle' | 'bottom' })}
               />
             </div>
+          </div>
+
+          {/* Header Alignment Override */}
+          <div
+            style={{
+              border: `1px solid ${(column.headerAlign || column.headerVerticalAlign) ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+              borderRadius: token.borderRadiusSM,
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '4px 6px',
+                background: (column.headerAlign || column.headerVerticalAlign) ? token.colorPrimaryBg : 'transparent',
+              }}
+            >
+              <Text style={{ fontSize: 10, flex: 1, color: (column.headerAlign || column.headerVerticalAlign) ? token.colorPrimary : token.colorTextSecondary }}>
+                Header Alignment
+              </Text>
+              {!(column.headerAlign || column.headerVerticalAlign) && (
+                <Text type="secondary" style={{ fontSize: 9 }}>Inherited</Text>
+              )}
+              {(column.headerAlign || column.headerVerticalAlign) && (
+                <Button
+                  size="small"
+                  type="link"
+                  danger
+                  onClick={() => onUpdate(index, { ...column, headerAlign: undefined, headerVerticalAlign: undefined })}
+                  style={{ fontSize: 9, padding: 0, height: 'auto', lineHeight: 1 }}
+                >
+                  Reset
+                </Button>
+              )}
+            </div>
+            <div style={{ padding: '4px 6px 6px', display: 'flex', gap: 8 }}>
+              <div style={{ flex: 1 }}>
+                <Text type="secondary" style={{ fontSize: 9, display: 'block', marginBottom: 1 }}>
+                  H-Align
+                </Text>
+                <Segmented
+                  size="small"
+                  block
+                  value={column.headerAlign || column.align || 'left'}
+                  options={ALIGN_OPTIONS.map((a) => ({
+                    label: (
+                      <Tooltip title={a.label}>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {a.icon}
+                        </span>
+                      </Tooltip>
+                    ),
+                    value: a.value,
+                  }))}
+                  onChange={(val) => onUpdate(index, { ...column, headerAlign: val as 'left' | 'center' | 'right' })}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <Text type="secondary" style={{ fontSize: 9, display: 'block', marginBottom: 1 }}>
+                  V-Align
+                </Text>
+                <Segmented
+                  size="small"
+                  block
+                  value={column.headerVerticalAlign || 'middle'}
+                  options={VALIGN_OPTIONS.map((a) => ({
+                    label: (
+                      <Tooltip title={a.label}>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {a.icon}
+                        </span>
+                      </Tooltip>
+                    ),
+                    value: a.value,
+                  }))}
+                  onChange={(val) => onUpdate(index, { ...column, headerVerticalAlign: val as 'top' | 'middle' | 'bottom' })}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Text Overflow */}
+          <div>
+            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+              Text Overflow
+            </Text>
+            <Segmented
+              size="small"
+              block
+              value={column.overflow || 'wrap'}
+              options={[
+                { label: 'Wrap', value: 'wrap' },
+                { label: 'Truncate', value: 'truncate' },
+                { label: 'Clip', value: 'clip' },
+              ]}
+              onChange={(val) => onUpdate(index, { ...column, overflow: val as 'wrap' | 'truncate' | 'clip' })}
+            />
           </div>
 
           {/* Format (for field and calculated types) */}
@@ -1061,6 +1211,13 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
     [columns],
   );
 
+  // Schema width for column width constraints
+  const schemaWidth = (activeSchema as Record<string, unknown>).width as number || 190;
+  const totalColumnWidth = useMemo(
+    () => columns.reduce((sum, c) => sum + (c.width || 0), 0),
+    [columns],
+  );
+
   // Sortable item IDs
   const sortableIds = useMemo(
     () => columns.map((_, i) => `col-${i}`),
@@ -1093,10 +1250,19 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
     [columns, commitColumns],
   );
 
-  /** Remove a column */
+  /** Remove a column and redistribute its width among remaining columns */
   const handleRemoveColumn = useCallback(
     (index: number) => {
-      const newColumns = columns.filter((_, i) => i !== index);
+      const removedWidth = columns[index]?.width || 0;
+      const remaining = columns.filter((_, i) => i !== index);
+      const remainingTotal = remaining.reduce((s, c) => s + c.width, 0);
+      // Distribute the removed column's width proportionally among remaining
+      const newColumns = remaining.map((c) => ({
+        ...c,
+        width: remainingTotal > 0
+          ? Math.max(10, Math.round((c.width + (c.width / remainingTotal) * removedWidth) * 10) / 10)
+          : schemaWidth / remaining.length,
+      }));
       // Adjust expanded indices
       setExpandedIndices((prev) => {
         const next = new Set<number>();
@@ -1118,10 +1284,28 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
       ...DEFAULT_COLUMN,
       key: `column${newIndex + 1}`,
       header: `Column ${newIndex + 1}`,
+      width: Math.round(schemaWidth / (columns.length + 1)),
     };
-    commitColumns([...columns, newColumn]);
+    // Redistribute existing columns proportionally
+    const oldTotal = totalColumnWidth || schemaWidth;
+    const targetTotal = schemaWidth;
+    const newColWidth = newColumn.width;
+    const remainingWidth = targetTotal - newColWidth;
+    const redistributed = columns.map((c) => ({
+      ...c,
+      width: Math.max(10, Math.round((c.width / oldTotal) * remainingWidth * 10) / 10),
+    }));
+    commitColumns([...redistributed, newColumn]);
     setExpandedIndices((prev) => new Set(prev).add(newIndex));
-  }, [columns, commitColumns]);
+  }, [columns, commitColumns, schemaWidth, totalColumnWidth]);
+
+  /** Distribute all columns to equal width */
+  const handleDistributeEvenly = useCallback(() => {
+    if (columns.length === 0) return;
+    const evenWidth = Math.round((schemaWidth / columns.length) * 10) / 10;
+    const newColumns = columns.map((c) => ({ ...c, width: evenWidth }));
+    commitColumns(newColumns);
+  }, [columns, commitColumns, schemaWidth]);
 
   /** Handle drag-to-reorder */
   const handleDragEnd = useCallback(
@@ -1266,6 +1450,8 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
                     allFields={allFields}
                     allColumnKeys={allColumnKeys}
                     fontNames={fontNames}
+                    schemaWidth={schemaWidth}
+                    totalColumnWidth={totalColumnWidth}
                     token={token}
                   />
                 ))}
@@ -1273,20 +1459,53 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
             </DndContext>
           )}
 
-          {/* Add Column button */}
-          <Button
-            type="dashed"
-            size="small"
-            icon={<Plus size={12} />}
-            onClick={handleAddColumn}
-            style={{
-              width: '100%',
-              fontSize: 11,
-              marginTop: columnCount > 0 ? 4 : 0,
-            }}
-          >
-            Add Column
-          </Button>
+          {/* Action buttons */}
+          <div style={{ display: 'flex', gap: 4, marginTop: columnCount > 0 ? 4 : 0 }}>
+            <Button
+              type="dashed"
+              size="small"
+              icon={<Plus size={12} />}
+              onClick={handleAddColumn}
+              style={{ flex: 1, fontSize: 11 }}
+            >
+              Add Column
+            </Button>
+            {columnCount >= 2 && (
+              <Tooltip title="Set all columns to equal width">
+                <Button
+                  size="small"
+                  icon={<Columns3 size={12} />}
+                  onClick={handleDistributeEvenly}
+                  style={{ fontSize: 11 }}
+                >
+                  Even
+                </Button>
+              </Tooltip>
+            )}
+          </div>
+
+          {/* Width total indicator */}
+          {columnCount > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                marginTop: 4,
+                padding: '2px 4px',
+                fontSize: 9,
+                color: Math.abs(totalColumnWidth - schemaWidth) > 1 ? token.colorWarning : token.colorTextQuaternary,
+              }}
+            >
+              <Text type="secondary" style={{ fontSize: 9 }}>
+                Total: {totalColumnWidth.toFixed(1)}mm / {schemaWidth}mm
+              </Text>
+              {Math.abs(totalColumnWidth - schemaWidth) > 1 && (
+                <Text style={{ fontSize: 9, color: token.colorWarning }}>
+                  {totalColumnWidth > schemaWidth ? 'Over' : 'Under'} by {Math.abs(totalColumnWidth - schemaWidth).toFixed(1)}mm
+                </Text>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

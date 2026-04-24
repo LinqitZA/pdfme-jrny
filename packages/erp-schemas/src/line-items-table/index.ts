@@ -640,17 +640,34 @@ function buildPerColumnStyles(
   const headColumnStyles: Record<number, Record<string, unknown>> = {};
 
   columns.forEach((col, idx) => {
+    // Body column styles: font overrides + overflow + vertical alignment
+    const bodyMapped: Record<string, unknown> = {};
     if (col.columnStyle) {
-      const mapped = fontStyleToCellStyle(col.columnStyle);
-      if (Object.keys(mapped).length > 0) {
-        bodyColumnStyles[idx] = mapped;
-      }
+      Object.assign(bodyMapped, fontStyleToCellStyle(col.columnStyle));
     }
+    if (col.overflow && col.overflow !== 'wrap') {
+      bodyMapped.overflow = col.overflow;
+    }
+    if (col.verticalAlign && col.verticalAlign !== 'middle') {
+      bodyMapped.verticalAlignment = col.verticalAlign;
+    }
+    if (Object.keys(bodyMapped).length > 0) {
+      bodyColumnStyles[idx] = bodyMapped;
+    }
+
+    // Header column styles: font overrides + alignment overrides
+    const headMapped: Record<string, unknown> = {};
     if (col.headerColumnStyle) {
-      const mapped = fontStyleToCellStyle(col.headerColumnStyle);
-      if (Object.keys(mapped).length > 0) {
-        headColumnStyles[idx] = mapped;
-      }
+      Object.assign(headMapped, fontStyleToCellStyle(col.headerColumnStyle));
+    }
+    if (col.headerAlign) {
+      headMapped.alignment = col.headerAlign;
+    }
+    if (col.headerVerticalAlign) {
+      headMapped.verticalAlignment = col.headerVerticalAlign;
+    }
+    if (Object.keys(headMapped).length > 0) {
+      headColumnStyles[idx] = headMapped;
     }
   });
 

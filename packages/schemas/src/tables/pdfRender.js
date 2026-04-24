@@ -29,6 +29,7 @@ async function drawCell(arg, cell) {
             borderColor: cell.styles.lineColor,
             borderWidth: cell.styles.lineWidth,
             padding: cell.styles.cellPadding,
+            ...(cell.styles.overflow ? { overflow: cell.styles.overflow } : {}),
         },
     });
 }

@@ -93,13 +93,18 @@ const cellSchema: Plugin<CellSchema> = {
       // LEFT
       renderLine(arg, schema, { x: position.x, y: position.y }, borderWidth.left, height),
     ]);
-    // TEXT
+    // TEXT — map cell overflow to text textOverflow property
+    const cellOverflow = (schema as Record<string, unknown>).overflow as string | undefined;
+    const textOverflowProp: Record<string, unknown> = {};
+    if (cellOverflow === 'truncate') textOverflowProp.textOverflow = 'truncate';
+    else if (cellOverflow === 'clip') textOverflowProp.textOverflow = 'clip';
     await textPdfRender({
       ...arg,
       schema: {
         ...schema,
         type: 'text',
         backgroundColor: '',
+        ...textOverflowProp,
         position: {
           x: position.x + borderWidth.left + padding.left,
           y: position.y + borderWidth.top + padding.top,
@@ -115,6 +120,16 @@ const cellSchema: Plugin<CellSchema> = {
     rootElement.style.backgroundColor = backgroundColor;
 
     const textDiv = createTextDiv(schema);
+    // Apply overflow CSS for truncate/clip modes
+    const cellOverflow = (schema as Record<string, unknown>).overflow as string | undefined;
+    if (cellOverflow === 'truncate') {
+      textDiv.style.overflow = 'hidden';
+      textDiv.style.whiteSpace = 'nowrap';
+      textDiv.style.textOverflow = 'ellipsis';
+    } else if (cellOverflow === 'clip') {
+      textDiv.style.overflow = 'hidden';
+      textDiv.style.whiteSpace = 'nowrap';
+    }
     await textUiRender({
       ...arg,
       schema: { ...schema, backgroundColor: '' },

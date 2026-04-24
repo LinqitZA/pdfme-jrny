@@ -67,13 +67,18 @@ const cellSchema = {
             // LEFT
             renderLine(arg, schema, { x: position.x, y: position.y }, borderWidth.left, height),
         ]);
-        // TEXT
+        // TEXT — map cell overflow to text textOverflow property
+        const cellOverflow = schema.overflow;
+        const textOverflowProp = {};
+        if (cellOverflow === 'truncate') textOverflowProp.textOverflow = 'truncate';
+        else if (cellOverflow === 'clip') textOverflowProp.textOverflow = 'clip';
         await (0, pdfRender_js_1.pdfRender)({
             ...arg,
             schema: {
                 ...schema,
                 type: 'text',
                 backgroundColor: '',
+                ...textOverflowProp,
                 position: {
                     x: position.x + borderWidth.left + padding.left,
                     y: position.y + borderWidth.top + padding.top,
@@ -88,6 +93,16 @@ const cellSchema = {
         const { borderWidth, width, height, borderColor, backgroundColor } = schema;
         rootElement.style.backgroundColor = backgroundColor;
         const textDiv = createTextDiv(schema);
+        // Apply overflow CSS for truncate/clip modes
+        const cellOverflowUi = schema.overflow;
+        if (cellOverflowUi === 'truncate') {
+            textDiv.style.overflow = 'hidden';
+            textDiv.style.whiteSpace = 'nowrap';
+            textDiv.style.textOverflow = 'ellipsis';
+        } else if (cellOverflowUi === 'clip') {
+            textDiv.style.overflow = 'hidden';
+            textDiv.style.whiteSpace = 'nowrap';
+        }
         await (0, uiRender_js_1.uiRender)({
             ...arg,
             schema: { ...schema, backgroundColor: '' },

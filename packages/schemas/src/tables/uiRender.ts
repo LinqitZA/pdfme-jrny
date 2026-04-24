@@ -50,6 +50,7 @@ const convertToCellStyle = (styles: Styles): CellStyle => ({
   borderColor: styles.lineColor,
   borderWidth: styles.lineWidth,
   padding: styles.cellPadding,
+  overflow: styles.overflow,
 });
 
 const calcResizedHeadWidthPercentages = (arg: {
@@ -77,8 +78,9 @@ const setBorder = (
   borderPosition: 'Top' | 'Left' | 'Right' | 'Bottom',
   arg: UIRenderProps<TableSchema>,
 ) => {
-  div.style[`border${borderPosition}`] = `${String(arg.schema.tableStyles.borderWidth)}mm solid ${
-    arg.schema.tableStyles.borderColor
+  const tableStyles = arg.schema.tableStyles ?? { borderWidth: 0.3, borderColor: '#000000' };
+  div.style[`border${borderPosition}`] = `${String(tableStyles.borderWidth ?? 0.3)}mm solid ${
+    tableStyles.borderColor ?? '#000000'
   }`;
 };
 

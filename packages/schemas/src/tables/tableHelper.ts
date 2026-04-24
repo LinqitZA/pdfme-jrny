@@ -123,7 +123,12 @@ function cellStyles(
   }
   const otherStyles = Object.assign({}, styles.styles, sectionStyles);
 
-  const colStyles = styles.columnStyles[column.index] || styles.columnStyles[column.index] || {};
+  const colStyles = styles.columnStyles[column.index] || {};
+
+  // Per-column section-specific font overrides (body vs head)
+  const sectionColStyles = sectionName === 'head'
+    ? (styles.headColumnStyles?.[column.index] || {})
+    : (styles.bodyColumnStyles?.[column.index] || {});
 
   const rowStyles =
     sectionName === 'body' && rowIndex % 2 === 0
@@ -145,7 +150,7 @@ function cellStyles(
     minCellHeight: 0,
     minCellWidth: 0,
   };
-  return Object.assign(defaultStyle, otherStyles, rowStyles, colStyles) as Styles;
+  return Object.assign(defaultStyle, otherStyles, rowStyles, colStyles, sectionColStyles) as Styles;
 }
 
 function mapCellStyle(style: CellStyle): Partial<Styles> {
@@ -161,6 +166,7 @@ function mapCellStyle(style: CellStyle): Partial<Styles> {
   if (style.borderColor !== undefined) result.lineColor = style.borderColor;
   if (style.borderWidth !== undefined) result.lineWidth = style.borderWidth;
   if (style.padding !== undefined) result.cellPadding = style.padding;
+  if (style.overflow !== undefined) result.overflow = style.overflow;
   return result;
 }
 
@@ -188,6 +194,21 @@ function getTableOptions(schema: TableSchema, body: string[][]): UserOptions {
     {} as Record<number, Partial<Styles>>,
   );
 
+  // Build per-column body and head style overrides (font, size, color)
+  const bodyColumnStyles: Record<number, Partial<Styles>> = {};
+  const headColumnStyles: Record<number, Partial<Styles>> = {};
+
+  if (schema.bodyColumnStyles) {
+    for (const [idx, style] of Object.entries(schema.bodyColumnStyles)) {
+      bodyColumnStyles[Number(idx)] = mapCellStyle(style as CellStyle);
+    }
+  }
+  if (schema.headColumnStyles) {
+    for (const [idx, style] of Object.entries(schema.headColumnStyles)) {
+      headColumnStyles[Number(idx)] = mapCellStyle(style as CellStyle);
+    }
+  }
+
   return {
     head: [schema.head],
     body,
@@ -200,6 +221,8 @@ function getTableOptions(schema: TableSchema, body: string[][]): UserOptions {
     bodyStyles: mapCellStyle(schema.bodyStyles),
     alternateRowStyles: { backgroundColor: schema.bodyStyles.alternateBackgroundColor },
     columnStyles,
+    ...(Object.keys(bodyColumnStyles).length > 0 ? { bodyColumnStyles } : {}),
+    ...(Object.keys(headColumnStyles).length > 0 ? { headColumnStyles } : {}),
     margin: { top: 0, right: 0, left: schema.position.x, bottom: 0 },
   };
 }
@@ -221,6 +244,19 @@ function parseStyles(cInput: UserOptions) {
       const styles = allOptions.map((opts) => opts[prop] || {});
       styleOptions[prop] = Object.assign({}, styles[0], styles[1], styles[2]);
     }
+  }
+  // Pass through per-column section-specific style overrides
+  if ((cInput as unknown as Record<string, unknown>).bodyColumnStyles) {
+    styleOptions.bodyColumnStyles = Object.assign(
+      {},
+      (cInput as unknown as Record<string, unknown>).bodyColumnStyles as Record<string, Partial<Styles>>,
+    );
+  }
+  if ((cInput as unknown as Record<string, unknown>).headColumnStyles) {
+    styleOptions.headColumnStyles = Object.assign(
+      {},
+      (cInput as unknown as Record<string, unknown>).headColumnStyles as Record<string, Partial<Styles>>,
+    );
   }
   return styleOptions;
 }
