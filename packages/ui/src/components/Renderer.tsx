@@ -186,6 +186,45 @@ const Wrapper = ({
           </div>
         );
       })()}
+      {/* Output channel badge — shows when element has non-default output channel */}
+      {(() => {
+        const outputChannel = (schema as Record<string, unknown>).outputChannel as string | undefined;
+        if (!outputChannel || outputChannel === 'both') return null;
+        const channelLabels: Record<string, string> = {
+          email: '✉',
+          print: '⎙',
+        };
+        const channelColors: Record<string, string> = {
+          email: '#722ed1',
+          print: '#d48806',
+        };
+        const label = channelLabels[outputChannel] || outputChannel;
+        const bgColor = channelColors[outputChannel] || '#722ed1';
+        const hasPageScope = !!((schema as Record<string, unknown>).pageScope as string | undefined) &&
+          (schema as Record<string, unknown>).pageScope !== 'all';
+        return (
+          <div
+            title={`Output: ${outputChannel === 'email' ? 'Email Only' : outputChannel === 'print' ? 'Print Only' : outputChannel}`}
+            style={{
+              position: 'absolute',
+              top: -16,
+              right: hasPageScope ? 28 : 0,
+              fontSize: 9,
+              lineHeight: '14px',
+              padding: '0 3px',
+              backgroundColor: bgColor,
+              color: '#fff',
+              borderRadius: '2px 2px 0 0',
+              pointerEvents: 'none',
+              zIndex: 1,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontWeight: 600,
+            }}
+          >
+            {label}
+          </div>
+        );
+      })()}
       {children}
     </div>
   );
