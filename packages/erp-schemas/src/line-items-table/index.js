@@ -197,28 +197,49 @@ function computeFooterRows(lineItems, footerRows, columns) {
 }
 /**
  * Format a number value with optional format string.
- * Supports basic format patterns: #,##0.00
+ *
+ * Supported format patterns:
+ * - Number:     '#,##0', '#,##0.00', '#,##0.000', '0', '0.00'
+ * - Currency:   'R #,##0.00', '$ #,##0.00', '€ #,##0.00' (prefix before number pattern)
+ * - Percentage: '0%', '0.0%', '0.00%' (appends % suffix)
+ * - Date:       'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY' (passthrough for string values)
  */
 function formatNumber(value, format) {
     if (!format) {
         // Default: 2 decimal places
         return value.toFixed(2);
     }
-    // Count decimal places from format
-    const dotIdx = format.indexOf('.');
-    let decimals = 2;
-    if (dotIdx >= 0) {
-        decimals = format.length - dotIdx - 1;
+    // Check for percentage suffix
+    const isPercentage = format.endsWith('%');
+    let numberFormat = isPercentage ? format.slice(0, -1) : format;
+    // Extract prefix (everything before the first '#' or '0')
+    let prefix = '';
+    const firstFormatChar = numberFormat.search(/[#0]/);
+    if (firstFormatChar > 0) {
+        prefix = numberFormat.slice(0, firstFormatChar);
+        numberFormat = numberFormat.slice(firstFormatChar);
+    } else if (firstFormatChar < 0) {
+        // No numeric format characters found — return raw value with 2 decimals
+        return value.toFixed(2);
     }
-    // Check for thousand separator
-    const hasThousandSep = format.includes(',');
-    let result = value.toFixed(decimals);
+    // Count decimal places from the number-pattern portion
+    const dotIdx = numberFormat.indexOf('.');
+    let decimals = 0;
+    if (dotIdx >= 0) {
+        decimals = numberFormat.length - dotIdx - 1;
+    }
+    // Check for thousand separator in number-pattern
+    const hasThousandSep = numberFormat.includes(',');
+    // Handle negative values: format the absolute value, prepend minus to prefix
+    const isNegative = value < 0;
+    let result = Math.abs(value).toFixed(decimals);
     if (hasThousandSep) {
         const parts = result.split('.');
         parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
         result = parts.join('.');
     }
-    return result;
+    const sign = isNegative ? '-' : '';
+    return sign + prefix + result + (isPercentage ? '%' : '');
 }
 /**
  * Convert line items data and schema into pdfme-compatible table body data

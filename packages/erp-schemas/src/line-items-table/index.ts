@@ -14,10 +14,21 @@
 
 import type {
   ColumnDefinition,
+  ColumnFontStyle,
   RowCondition,
   RowStyle,
   MaxRowsPerPage,
 } from '../types';
+import { ExpressionEngine } from '../expression-engine';
+
+/** Lazily-created expression engine singleton (one per process) */
+let _exprEngine: ExpressionEngine | null = null;
+function getExpressionEngine(): ExpressionEngine {
+  if (!_exprEngine) {
+    _exprEngine = new ExpressionEngine({ onError: '#ERROR' });
+  }
+  return _exprEngine;
+}
 
 /** Configuration for a single footer row */
 export interface FooterRowConfig {
@@ -311,7 +322,17 @@ export function computeFooterRows(
 
 /**
  * Format a number value with optional format string.
- * Supports basic format patterns: #,##0.00
+ *
+ * Supported format patterns:
+ * - Number:     '#,##0', '#,##0.00', '#,##0.000', '0', '0.00'
+ * - Currency:   'R #,##0.00', '$ #,##0.00', '€ #,##0.00' (prefix before number pattern)
+ * - Percentage: '0%', '0.0%', '0.00%' (appends % suffix)
+ * - Date:       'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY' (passthrough for string values)
+ *
+ * The format string is parsed as: [prefix][number-pattern][% suffix]
+ * where prefix is any characters before the first '#' or '0',
+ * and number-pattern uses '#' for optional digits, '0' for required digits,
+ * ',' for thousand separator, and '.' for decimal point.
  */
 export function formatNumber(value: number, format?: string): string {
   if (!format) {
@@ -319,17 +340,34 @@ export function formatNumber(value: number, format?: string): string {
     return value.toFixed(2);
   }
 
-  // Count decimal places from format
-  const dotIdx = format.indexOf('.');
-  let decimals = 2;
-  if (dotIdx >= 0) {
-    decimals = format.length - dotIdx - 1;
+  // Check for percentage suffix
+  const isPercentage = format.endsWith('%');
+  let numberFormat = isPercentage ? format.slice(0, -1) : format;
+
+  // Extract prefix (everything before the first '#' or '0')
+  let prefix = '';
+  const firstFormatChar = numberFormat.search(/[#0]/);
+  if (firstFormatChar > 0) {
+    prefix = numberFormat.slice(0, firstFormatChar);
+    numberFormat = numberFormat.slice(firstFormatChar);
+  } else if (firstFormatChar < 0) {
+    // No numeric format characters found — return raw value with 2 decimals
+    return value.toFixed(2);
   }
 
-  // Check for thousand separator
-  const hasThousandSep = format.includes(',');
+  // Count decimal places from the number-pattern portion
+  const dotIdx = numberFormat.indexOf('.');
+  let decimals = 0;
+  if (dotIdx >= 0) {
+    decimals = numberFormat.length - dotIdx - 1;
+  }
 
-  let result = value.toFixed(decimals);
+  // Check for thousand separator in number-pattern
+  const hasThousandSep = numberFormat.includes(',');
+
+  // Handle negative values: format the absolute value, prepend minus to prefix
+  const isNegative = value < 0;
+  let result = Math.abs(value).toFixed(decimals);
 
   if (hasThousandSep) {
     const parts = result.split('.');
@@ -337,7 +375,8 @@ export function formatNumber(value: number, format?: string): string {
     result = parts.join('.');
   }
 
-  return result;
+  const sign = isNegative ? '-' : '';
+  return sign + prefix + result + (isPercentage ? '%' : '');
 }
 
 /**
@@ -365,13 +404,56 @@ export function resolveLineItemsTableData(
     head.push(columns.map((col) => col.header));
   }
 
+  // Detect if any columns are calculated (need expression engine)
+  const hasCalculated = columns.some((col) => col.columnType === 'calculated' && col.expression);
+  const exprEngine = hasCalculated ? getExpressionEngine() : null;
+
   // Build body rows from line items, with conditional sub-rows
   const bodyRows: string[][] = [];
   const subRowConfigs = schema.subRows || [];
 
+  // Enriched items: original data + computed values from calculated columns
+  // This is used for footer sum calculations that reference calculated column keys
+  const enrichedItems: LineItemRecord[] = [];
+
   for (const item of lineItems) {
-    // Primary row
+    // Build context from the raw item data
+    // so that calculated columns can reference other column values
+    const rowContext: Record<string, unknown> = { ...item };
+
+    // Evaluate calculated columns and resolve all cells
     const primaryRow = columns.map((col) => {
+      const colType = col.columnType || 'field';
+
+      if (colType === 'static') {
+        // Static columns show the key value as fixed text in every row
+        return col.key || '';
+      }
+
+      if (colType === 'calculated' && col.expression && exprEngine) {
+        // Evaluate expression with row data as context
+        try {
+          const result = exprEngine.evaluate(col.expression, rowContext);
+          // Store the computed value back into context so subsequent calculated columns can use it
+          const numResult = typeof result === 'number' ? result : parseFloat(String(result));
+          if (col.key) {
+            rowContext[col.key] = isNaN(numResult) ? result : numResult;
+          }
+          // Format result
+          if (typeof result === 'number' && col.format) {
+            return formatNumber(result, col.format);
+          }
+          if (result === null || result === undefined) return '';
+          return String(result);
+        } catch (err) {
+          // Graceful error handling: show ERR in cell, log warning
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[lineItemsTable] Expression error in column "${col.header}" (${col.key}): ${msg}`);
+          return 'ERR';
+        }
+      }
+
+      // Default: field column — read value from item data
       const val = item[col.key];
       if (val === null || val === undefined) return '';
       if (typeof val === 'number' && col.format) {
@@ -380,6 +462,9 @@ export function resolveLineItemsTableData(
       return String(val);
     });
     bodyRows.push(primaryRow);
+
+    // Save enriched item (original + calculated values) for footer computation
+    enrichedItems.push(rowContext as LineItemRecord);
 
     // Conditional sub-rows: evaluate each sub-row config against this item
     for (const subRow of subRowConfigs) {
@@ -390,12 +475,13 @@ export function resolveLineItemsTableData(
     }
   }
 
-  // Compute and append footer rows
+  // Compute and append footer rows (use enriched items so calculated column values are available for sums)
   const footerStartIndex = bodyRows.length;
   const footerRows = schema.footerRows || [];
 
   if (footerRows.length > 0) {
-    const { cells: footerCells } = computeFooterRows(lineItems, footerRows, columns);
+    const footerData = hasCalculated ? enrichedItems : lineItems;
+    const { cells: footerCells } = computeFooterRows(footerData, footerRows, columns);
     bodyRows.push(...footerCells);
   }
 
@@ -418,6 +504,54 @@ export function resolveLineItemsTableData(
  * @param inputs - The input data records
  * @returns Modified template and inputs with lineItemsTable resolved to table
  */
+/**
+ * Convert ColumnFontStyle to partial CellStyle-compatible object for the table renderer.
+ */
+function fontStyleToCellStyle(
+  style: ColumnFontStyle,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  if (style.fontName) result.fontName = style.fontName;
+  if (style.fontSize != null) result.fontSize = style.fontSize;
+  if (style.fontColor) result.fontColor = style.fontColor;
+  return result;
+}
+
+/**
+ * Build per-column body and header style objects from ColumnDefinition[] for the table renderer.
+ * Returns bodyColumnStyles and headColumnStyles keyed by column index.
+ */
+function buildPerColumnStyles(
+  columns: ColumnDefinition[],
+): Record<string, unknown> {
+  const bodyColumnStyles: Record<number, Record<string, unknown>> = {};
+  const headColumnStyles: Record<number, Record<string, unknown>> = {};
+
+  columns.forEach((col, idx) => {
+    if (col.columnStyle) {
+      const mapped = fontStyleToCellStyle(col.columnStyle);
+      if (Object.keys(mapped).length > 0) {
+        bodyColumnStyles[idx] = mapped;
+      }
+    }
+    if (col.headerColumnStyle) {
+      const mapped = fontStyleToCellStyle(col.headerColumnStyle);
+      if (Object.keys(mapped).length > 0) {
+        headColumnStyles[idx] = mapped;
+      }
+    }
+  });
+
+  const result: Record<string, unknown> = {};
+  if (Object.keys(bodyColumnStyles).length > 0) {
+    result.bodyColumnStyles = bodyColumnStyles;
+  }
+  if (Object.keys(headColumnStyles).length > 0) {
+    result.headColumnStyles = headColumnStyles;
+  }
+  return result;
+}
+
 /**
  * Build a pdfme table schema object from a lineItemsTable schema and column definitions.
  */
@@ -481,6 +615,8 @@ function buildTableSchema(
     columnStyles: {
       alignment: columnAlignment,
     },
+    // Per-column body font style overrides
+    ...buildPerColumnStyles(columns),
     __footerStartIndex: footerStartIndex,
     __footerCount: footerRows.length,
   };

@@ -2,6 +2,15 @@
  * Type definitions for ERP schema plugins
  */
 
+// Column font style for per-column font overrides
+export interface ColumnFontStyle {
+  fontName?: string;
+  fontSize?: number;
+  fontColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+}
+
 // Line Items Table types
 export interface ColumnDefinition {
   key: string;
@@ -10,6 +19,14 @@ export interface ColumnDefinition {
   align?: 'left' | 'center' | 'right';
   format?: string;
   colSpan?: number;
+  /** Column type: 'field' (default) binds to data, 'calculated' evaluates an expression, 'static' shows fixed text */
+  columnType?: 'field' | 'calculated' | 'static';
+  /** Expression string for calculated columns (e.g., 'qty * unitPrice'). Evaluated per-row using ExpressionEngine. */
+  expression?: string;
+  /** Per-column body cell font style overrides (inherits from global bodyStyle if not set) */
+  columnStyle?: ColumnFontStyle;
+  /** Per-column header cell font style overrides (inherits from global headerStyle if not set) */
+  headerColumnStyle?: ColumnFontStyle;
 }
 
 export interface RowTemplate {

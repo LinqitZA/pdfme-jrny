@@ -24,5 +24,12 @@ module.exports = {
   AlignLeft: () => 'AlignLeft',
   AlignCenter: () => 'AlignCenter',
   AlignRight: () => 'AlignRight',
+  Calculator: () => 'Calculator',
+  Type: () => 'Type',
+  Link2: () => 'Link2',
+  HelpCircle: () => 'HelpCircle',
+  Bold: () => 'Bold',
+  Italic: () => 'Italic',
+  Paintbrush: () => 'Paintbrush',
   // Add any other icons used in the codebase
 };

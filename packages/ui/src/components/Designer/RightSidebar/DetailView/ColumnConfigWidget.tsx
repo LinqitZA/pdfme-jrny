@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useContext } from 'react';
 import { theme, Typography, Button, Select, InputNumber, Tag, Tooltip, Popconfirm } from 'antd';
 import {
   Columns3,
@@ -10,7 +10,15 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
+  Calculator,
+  Type,
+  Link2,
+  HelpCircle,
+  Bold,
+  Italic,
+  Paintbrush,
 } from 'lucide-react';
+import FormatPickerWidget from './FormatPickerWidget.js';
 import {
   DndContext,
   closestCenter,
@@ -34,10 +42,19 @@ import {
   type FieldEntry,
   type FieldGroup,
 } from '../../../../contexts/FieldPaletteContext.js';
+import { FontContext } from '../../../../contexts.js';
 
 const { Text } = Typography;
 
 // ─── Types ───────────────────────────────────────────────────────────
+
+interface ColumnFontStyle {
+  fontName?: string;
+  fontSize?: number;
+  fontColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+}
 
 interface ColumnDefinition {
   key: string;
@@ -46,6 +63,10 @@ interface ColumnDefinition {
   align?: 'left' | 'center' | 'right';
   format?: string;
   colSpan?: number;
+  columnType?: 'field' | 'calculated' | 'static';
+  expression?: string;
+  columnStyle?: ColumnFontStyle;
+  headerColumnStyle?: ColumnFontStyle;
 }
 
 interface ColumnConfigWidgetProps {
@@ -61,12 +82,26 @@ const ALIGN_OPTIONS: Array<{ label: string; value: 'left' | 'center' | 'right'; 
   { label: 'Right', value: 'right', icon: <AlignRight size={12} /> },
 ];
 
+/** Column type options for the type selector */
+const COLUMN_TYPE_OPTIONS: Array<{
+  label: string;
+  value: 'field' | 'calculated' | 'static';
+  icon: React.ReactNode;
+  description: string;
+  color: string;
+}> = [
+  { label: 'Field', value: 'field', icon: <Link2 size={11} />, description: 'Bind to a data field', color: '#1677ff' },
+  { label: 'Calculated', value: 'calculated', icon: <Calculator size={11} />, description: 'Evaluate an expression', color: '#faad14' },
+  { label: 'Static', value: 'static', icon: <Type size={11} />, description: 'Fixed text content', color: '#52c41a' },
+];
+
 const DEFAULT_COLUMN: ColumnDefinition = {
   key: '',
   header: 'New Column',
   width: 30,
   align: 'left',
   format: '',
+  columnType: 'field',
 };
 
 /** Field type to display color mapping */
@@ -164,6 +199,213 @@ const flattenFieldsWithGroups = (
 
 // ─── SortableColumnCard ──────────────────────────────────────────────
 
+// ─── ColumnFontSettings ─────────────────────────────────────────────
+
+interface ColumnFontSettingsProps {
+  label: string;
+  style: ColumnFontStyle | undefined;
+  onChange: (style: ColumnFontStyle | undefined) => void;
+  fontNames: string[];
+  token: ReturnType<typeof theme.useToken>['token'];
+}
+
+/**
+ * Reusable font settings sub-section for a column.
+ * Shows font family, size, color, bold, italic toggles.
+ * When no overrides are set, shows "Inherited" placeholders.
+ */
+const ColumnFontSettings: React.FC<ColumnFontSettingsProps> = ({
+  label,
+  style,
+  onChange,
+  fontNames,
+  token,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const hasOverrides = style && (
+    style.fontName || style.fontSize != null || style.fontColor || style.bold || style.italic
+  );
+
+  const updateStyle = (patch: Partial<ColumnFontStyle>) => {
+    const next = { ...(style || {}), ...patch };
+    // Remove undefined/null values
+    const cleaned: ColumnFontStyle = {};
+    if (next.fontName) cleaned.fontName = next.fontName;
+    if (next.fontSize != null) cleaned.fontSize = next.fontSize;
+    if (next.fontColor) cleaned.fontColor = next.fontColor;
+    if (next.bold) cleaned.bold = next.bold;
+    if (next.italic) cleaned.italic = next.italic;
+    onChange(Object.keys(cleaned).length > 0 ? cleaned : undefined);
+  };
+
+  const clearAll = () => onChange(undefined);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${hasOverrides ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+        borderRadius: token.borderRadiusSM,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 4,
+          padding: '4px 6px',
+          cursor: 'pointer',
+          background: hasOverrides ? token.colorPrimaryBg : 'transparent',
+          userSelect: 'none',
+        }}
+      >
+        <Paintbrush size={10} color={hasOverrides ? token.colorPrimary : token.colorTextQuaternary} />
+        <Text style={{ fontSize: 10, flex: 1, color: hasOverrides ? token.colorPrimary : token.colorTextSecondary }}>
+          {label}
+        </Text>
+        {hasOverrides && (
+          <Tag
+            color="blue"
+            style={{ fontSize: 8, lineHeight: '12px', margin: 0, padding: '0 3px' }}
+          >
+            Custom
+          </Tag>
+        )}
+        {!hasOverrides && (
+          <Text type="secondary" style={{ fontSize: 9 }}>Inherited</Text>
+        )}
+        <span style={{ color: token.colorTextQuaternary, fontSize: 8, display: 'flex' }}>
+          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        </span>
+      </div>
+
+      {expanded && (
+        <div style={{ padding: '4px 6px 6px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Font Family */}
+          <div>
+            <Text type="secondary" style={{ fontSize: 9, display: 'block', marginBottom: 1 }}>
+              Font Family
+            </Text>
+            <Select
+              size="small"
+              style={{ width: '100%' }}
+              allowClear
+              placeholder="Inherited"
+              value={style?.fontName || undefined}
+              onChange={(val) => updateStyle({ fontName: val || undefined })}
+              options={fontNames.map((name) => ({ label: name, value: name }))}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string || '').toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          </div>
+
+          {/* Font Size + Color row */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ flex: 1 }}>
+              <Text type="secondary" style={{ fontSize: 9, display: 'block', marginBottom: 1 }}>
+                Size
+              </Text>
+              <InputNumber
+                size="small"
+                style={{ width: '100%' }}
+                min={6}
+                max={72}
+                step={0.5}
+                placeholder="Inherited"
+                value={style?.fontSize ?? null}
+                onChange={(val) => updateStyle({ fontSize: val != null ? val : undefined })}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <Text type="secondary" style={{ fontSize: 9, display: 'block', marginBottom: 1 }}>
+                Color
+              </Text>
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <input
+                  type="color"
+                  value={style?.fontColor || '#000000'}
+                  onChange={(e) => updateStyle({ fontColor: e.target.value })}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    padding: 0,
+                    border: `1px solid ${token.colorBorder}`,
+                    borderRadius: token.borderRadiusSM,
+                    cursor: 'pointer',
+                    flexShrink: 0,
+                  }}
+                />
+                <input
+                  type="text"
+                  value={style?.fontColor || ''}
+                  placeholder="Inherited"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (/^#[0-9a-fA-F]{0,6}$/.test(val) || val === '') {
+                      updateStyle({ fontColor: val || undefined });
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '2px 5px',
+                    fontSize: 11,
+                    border: `1px solid ${token.colorBorder}`,
+                    borderRadius: token.borderRadiusSM,
+                    background: token.colorBgContainer,
+                    color: token.colorText,
+                    outline: 'none',
+                    fontFamily: 'monospace',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Bold + Italic toggles */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Button
+              size="small"
+              type={style?.bold ? 'primary' : 'default'}
+              icon={<Bold size={12} />}
+              onClick={() => updateStyle({ bold: !style?.bold })}
+              style={{ flex: 1, fontSize: 11 }}
+            >
+              Bold
+            </Button>
+            <Button
+              size="small"
+              type={style?.italic ? 'primary' : 'default'}
+              icon={<Italic size={12} />}
+              onClick={() => updateStyle({ italic: !style?.italic })}
+              style={{ flex: 1, fontSize: 11 }}
+            >
+              Italic
+            </Button>
+          </div>
+
+          {/* Clear overrides */}
+          {hasOverrides && (
+            <Button
+              size="small"
+              type="link"
+              danger
+              onClick={clearAll}
+              style={{ fontSize: 10, padding: 0, height: 'auto' }}
+            >
+              Reset to inherited
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── SortableColumnCard ──────────────────────────────────────────────
+
 interface SortableColumnCardProps {
   column: ColumnDefinition;
   index: number;
@@ -173,6 +415,8 @@ interface SortableColumnCardProps {
   onRemove: (index: number) => void;
   fieldOptions: Array<{ label: string; options: FieldOptionData[] }>;
   allFields: FieldWithGroup[];
+  allColumnKeys: string[];
+  fontNames: string[];
   token: ReturnType<typeof theme.useToken>['token'];
 }
 
@@ -185,6 +429,8 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
   onRemove,
   fieldOptions,
   allFields,
+  allColumnKeys,
+  fontNames,
   token,
 }) => {
   const {
@@ -206,11 +452,35 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
     background: isDragging ? token.colorBgTextHover : token.colorBgContainer,
   };
 
+  const colType = column.columnType || 'field';
+  const colTypeInfo = COLUMN_TYPE_OPTIONS.find((t) => t.value === colType);
   const alignIcon = ALIGN_OPTIONS.find((a) => a.value === (column.align || 'left'))?.icon;
   const boundField = allFields.find((f) => f.key === column.key);
   const fieldLabel = boundField?.label;
   const fieldType = boundField?.type;
   const fieldGroupPath = boundField?.groupPath;
+
+  /** Build expression help text from available column keys */
+  const expressionHelpText = useMemo(() => {
+    const vars = allColumnKeys.filter((k) => k && k !== column.key);
+    const lines = [
+      'Enter an expression using column keys as variables.',
+      '',
+      'Available variables:',
+      ...vars.map((k) => `  • ${k}`),
+      '',
+      'Examples:',
+      '  qty * unitPrice',
+      '  amount * 0.15',
+      '  IF(taxable, amount * taxRate, 0)',
+      '  ROUND(qty * unitPrice, 2)',
+      '',
+      'Functions: IF, AND, OR, NOT, ROUND, ABS,',
+      '  FLOOR, CEIL, MIN, MAX, SUM, CONCAT,',
+      '  UPPER, LOWER, LEFT, RIGHT, FORMAT',
+    ];
+    return lines.join('\n');
+  }, [allColumnKeys, column.key]);
 
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
@@ -255,6 +525,22 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
           {index + 1}
         </Tag>
 
+        {/* Column type icon (only show for non-default types) */}
+        {colType !== 'field' && colTypeInfo && (
+          <Tooltip title={`${colTypeInfo.label} column`}>
+            <span
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                color: colTypeInfo.color,
+                flexShrink: 0,
+              }}
+            >
+              {colTypeInfo.icon}
+            </span>
+          </Tooltip>
+        )}
+
         {/* Header name */}
         <Text
           style={{
@@ -270,8 +556,30 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
           {column.header || '(untitled)'}
         </Text>
 
-        {/* Bound field indicator */}
-        {column.key && (
+        {/* Column type indicator for calculated/static */}
+        {colType === 'calculated' && column.expression && (
+          <Tooltip title={`Expression: ${column.expression}`}>
+            <Tag
+              color="gold"
+              style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 3px', maxWidth: 65, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              fx
+            </Tag>
+          </Tooltip>
+        )}
+        {colType === 'static' && column.key && (
+          <Tooltip title={`Static: ${column.key}`}>
+            <Tag
+              color="green"
+              style={{ fontSize: 9, lineHeight: '14px', margin: 0, padding: '0 3px', maxWidth: 65, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            >
+              {column.key}
+            </Tag>
+          </Tooltip>
+        )}
+
+        {/* Bound field indicator (only for 'field' type) */}
+        {colType === 'field' && column.key && (
           <Tooltip title={fieldGroupPath ? `${fieldGroupPath} > ${fieldLabel || column.key}` : column.key}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 2, maxWidth: 80, overflow: 'hidden' }}>
               {fieldType && (
@@ -326,6 +634,42 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
             gap: 6,
           }}
         >
+          {/* Column Type Selector */}
+          <div>
+            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+              Column Type
+            </Text>
+            <Select
+              size="small"
+              style={{ width: '100%' }}
+              value={colType}
+              onChange={(val) => {
+                const updates: Partial<ColumnDefinition> = { columnType: val };
+                // Clear type-specific fields when switching
+                if (val === 'field') {
+                  updates.expression = undefined;
+                } else if (val === 'calculated') {
+                  updates.key = column.key || `calc_${index + 1}`;
+                  updates.expression = column.expression || '';
+                } else if (val === 'static') {
+                  updates.expression = undefined;
+                  if (!column.key) updates.key = '';
+                }
+                onUpdate(index, { ...column, ...updates });
+              }}
+              options={COLUMN_TYPE_OPTIONS.map((opt) => ({
+                label: (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <span style={{ color: opt.color, display: 'flex' }}>{opt.icon}</span>
+                    <span>{opt.label}</span>
+                    <Text type="secondary" style={{ fontSize: 10, marginLeft: 'auto' }}>{opt.description}</Text>
+                  </span>
+                ),
+                value: opt.value,
+              }))}
+            />
+          </div>
+
           {/* Header name */}
           <div>
             <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
@@ -348,97 +692,221 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
             />
           </div>
 
-          {/* Field key binding */}
-          <div>
-            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
-              Data Field
-            </Text>
-            {fieldOptions.length > 0 ? (
-              <>
-                <Select
-                  showSearch
-                  allowClear
-                  style={{ width: '100%' }}
-                  size="small"
-                  placeholder="Select field to bind..."
-                  value={column.key || undefined}
-                  optionLabelProp="label"
-                  filterOption={(input, option) => {
-                    const searchLabel = (option as unknown as FieldOptionData)?.searchLabel || '';
-                    const value = String(option?.value ?? '');
-                    const search = input.toLowerCase();
-                    return searchLabel.toLowerCase().includes(search) || value.toLowerCase().includes(search);
-                  }}
-                  onChange={(value) => {
-                    const updates: Partial<ColumnDefinition> = { key: value || '' };
-                    // Auto-populate header from field label when header is empty or default
-                    if (value && (!column.header || column.header.startsWith('Column '))) {
-                      const matchedField = allFields.find((f) => f.key === value);
-                      if (matchedField) {
-                        updates.header = matchedField.label;
-                        // Auto-set alignment based on field type
-                        if (matchedField.type === 'number' || matchedField.type === 'currency') {
-                          updates.align = 'right';
-                        }
-                        // Auto-set format for currency fields
-                        if (matchedField.type === 'currency' && !column.format) {
-                          updates.format = '#,##0.00';
+          {/* === FIELD TYPE: Data Field binding === */}
+          {colType === 'field' && (
+            <div>
+              <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+                Data Field
+              </Text>
+              {fieldOptions.length > 0 ? (
+                <>
+                  <Select
+                    showSearch
+                    allowClear
+                    style={{ width: '100%' }}
+                    size="small"
+                    placeholder="Select field to bind..."
+                    value={column.key || undefined}
+                    optionLabelProp="label"
+                    filterOption={(input, option) => {
+                      const searchLabel = (option as unknown as FieldOptionData)?.searchLabel || '';
+                      const value = String(option?.value ?? '');
+                      const search = input.toLowerCase();
+                      return searchLabel.toLowerCase().includes(search) || value.toLowerCase().includes(search);
+                    }}
+                    onChange={(value) => {
+                      const updates: Partial<ColumnDefinition> = { key: value || '' };
+                      // Auto-populate header from field label when header is empty or default
+                      if (value && (!column.header || column.header.startsWith('Column '))) {
+                        const matchedField = allFields.find((f) => f.key === value);
+                        if (matchedField) {
+                          updates.header = matchedField.label;
+                          // Auto-set alignment based on field type
+                          if (matchedField.type === 'number' || matchedField.type === 'currency') {
+                            updates.align = 'right';
+                          }
+                          // Auto-set format for currency fields
+                          if (matchedField.type === 'currency' && !column.format) {
+                            updates.format = '#,##0.00';
+                          }
                         }
                       }
-                    }
-                    onUpdate(index, { ...column, ...updates });
-                  }}
-                  onClear={() => onUpdate(index, { ...column, key: '' })}
-                >
-                  {fieldOptions.map((group) => (
-                    <Select.OptGroup key={group.label} label={group.label}>
-                      {group.options.map((opt) => (
-                        <Select.Option
-                          key={opt.value}
-                          value={opt.value}
-                          label={typeof opt.label === 'string' ? opt.label : opt.value}
-                          searchLabel={opt.searchLabel}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                            {opt.fieldType && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  fontWeight: 600,
-                                  color: FIELD_TYPE_COLORS[opt.fieldType] || token.colorTextSecondary,
-                                  minWidth: 22,
-                                  textAlign: 'center',
-                                }}
-                              >
-                                {FIELD_TYPE_ABBR[opt.fieldType] || opt.fieldType}
-                              </span>
-                            )}
-                            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {typeof opt.label === 'string' ? opt.label : opt.value}
-                            </span>
-                          </span>
-                        </Select.Option>
-                      ))}
-                    </Select.OptGroup>
-                  ))}
-                </Select>
-                {/* Show bound field group path */}
-                {column.key && fieldGroupPath && (
-                  <Text
-                    type="secondary"
-                    style={{ fontSize: 10, display: 'block', marginTop: 2 }}
-                    title={column.key}
+                      onUpdate(index, { ...column, ...updates });
+                    }}
+                    onClear={() => onUpdate(index, { ...column, key: '' })}
                   >
-                    {fieldGroupPath} &gt; {fieldLabel || column.key}
+                    {fieldOptions.map((group) => (
+                      <Select.OptGroup key={group.label} label={group.label}>
+                        {group.options.map((opt) => (
+                          <Select.Option
+                            key={opt.value}
+                            value={opt.value}
+                            label={typeof opt.label === 'string' ? opt.label : opt.value}
+                            searchLabel={opt.searchLabel}
+                          >
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                              {opt.fieldType && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    fontWeight: 600,
+                                    color: FIELD_TYPE_COLORS[opt.fieldType] || token.colorTextSecondary,
+                                    minWidth: 22,
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  {FIELD_TYPE_ABBR[opt.fieldType] || opt.fieldType}
+                                </span>
+                              )}
+                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {typeof opt.label === 'string' ? opt.label : opt.value}
+                              </span>
+                            </span>
+                          </Select.Option>
+                        ))}
+                      </Select.OptGroup>
+                    ))}
+                  </Select>
+                  {/* Show bound field group path */}
+                  {column.key && fieldGroupPath && (
+                    <Text
+                      type="secondary"
+                      style={{ fontSize: 10, display: 'block', marginTop: 2 }}
+                      title={column.key}
+                    >
+                      {fieldGroupPath} &gt; {fieldLabel || column.key}
+                    </Text>
+                  )}
+                </>
+              ) : (
+                <input
+                  type="text"
+                  value={column.key}
+                  onChange={(e) => onUpdate(index, { ...column, key: e.target.value })}
+                  placeholder="e.g. description"
+                  style={{
+                    width: '100%',
+                    padding: '3px 7px',
+                    fontSize: 12,
+                    border: `1px solid ${token.colorBorder}`,
+                    borderRadius: token.borderRadiusSM,
+                    background: token.colorBgContainer,
+                    color: token.colorText,
+                    outline: 'none',
+                  }}
+                />
+              )}
+            </div>
+          )}
+
+          {/* === CALCULATED TYPE: Expression input === */}
+          {colType === 'calculated' && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  Expression
+                </Text>
+                <Tooltip
+                  title={<pre style={{ margin: 0, fontSize: 10, whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{expressionHelpText}</pre>}
+                  placement="left"
+                  overlayStyle={{ maxWidth: 320 }}
+                >
+                  <HelpCircle size={11} style={{ color: token.colorTextTertiary, cursor: 'help' }} />
+                </Tooltip>
+              </div>
+              <textarea
+                value={column.expression || ''}
+                onChange={(e) => onUpdate(index, { ...column, expression: e.target.value })}
+                placeholder="e.g. qty * unitPrice"
+                rows={2}
+                style={{
+                  width: '100%',
+                  padding: '4px 7px',
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  border: `1px solid ${token.colorBorder}`,
+                  borderRadius: token.borderRadiusSM,
+                  background: token.colorBgContainer,
+                  color: token.colorText,
+                  outline: 'none',
+                  resize: 'vertical',
+                  minHeight: 40,
+                }}
+              />
+              {/* Column key (auto-generated, editable) */}
+              <div style={{ marginTop: 4 }}>
+                <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+                  Column Key
+                </Text>
+                <input
+                  type="text"
+                  value={column.key}
+                  onChange={(e) => onUpdate(index, { ...column, key: e.target.value })}
+                  placeholder={`calc_${index + 1}`}
+                  style={{
+                    width: '100%',
+                    padding: '3px 7px',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                    border: `1px solid ${token.colorBorder}`,
+                    borderRadius: token.borderRadiusSM,
+                    background: token.colorBgContainer,
+                    color: token.colorText,
+                    outline: 'none',
+                  }}
+                />
+                <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 1 }}>
+                  Other columns can reference this value via its key
+                </Text>
+              </div>
+              {/* Available variables quick reference */}
+              {allColumnKeys.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+                    Available Variables
                   </Text>
-                )}
-              </>
-            ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                    {allColumnKeys
+                      .filter((k) => k && k !== column.key)
+                      .map((k) => (
+                        <Tag
+                          key={k}
+                          style={{
+                            fontSize: 9,
+                            lineHeight: '14px',
+                            margin: 0,
+                            padding: '0 4px',
+                            fontFamily: 'monospace',
+                            cursor: 'pointer',
+                          }}
+                          color="default"
+                          onClick={() => {
+                            // Insert variable at end of expression
+                            const expr = column.expression || '';
+                            const newExpr = expr ? `${expr} ${k}` : k;
+                            onUpdate(index, { ...column, expression: newExpr });
+                          }}
+                        >
+                          {k}
+                        </Tag>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* === STATIC TYPE: Fixed text content === */}
+          {colType === 'static' && (
+            <div>
+              <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
+                Static Content
+              </Text>
               <input
                 type="text"
                 value={column.key}
                 onChange={(e) => onUpdate(index, { ...column, key: e.target.value })}
-                placeholder="e.g. description"
+                placeholder="e.g. ✓ or fixed text"
                 style={{
                   width: '100%',
                   padding: '3px 7px',
@@ -450,8 +918,11 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
                   outline: 'none',
                 }}
               />
-            )}
-          </div>
+              <Text type="secondary" style={{ fontSize: 9, display: 'block', marginTop: 1 }}>
+                This text will appear in every row of this column
+              </Text>
+            </div>
+          )}
 
           {/* Width + Alignment row */}
           <div style={{ display: 'flex', gap: 8 }}>
@@ -490,27 +961,31 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
             </div>
           </div>
 
-          {/* Format */}
-          <div>
-            <Text type="secondary" style={{ fontSize: 10, display: 'block', marginBottom: 2 }}>
-              Number Format
-            </Text>
-            <Select
-              size="small"
-              style={{ width: '100%' }}
-              allowClear
-              placeholder="None"
-              value={column.format || undefined}
-              options={[
-                { label: '#,##0', value: '#,##0' },
-                { label: '#,##0.00', value: '#,##0.00' },
-                { label: '#,##0.0000', value: '#,##0.0000' },
-                { label: '0.00', value: '0.00' },
-                { label: '0', value: '0' },
-              ]}
-              onChange={(val) => onUpdate(index, { ...column, format: val || '' })}
+          {/* Format (for field and calculated types) */}
+          {colType !== 'static' && (
+            <FormatPickerWidget
+              value={column.format}
+              onChange={(fmt) => onUpdate(index, { ...column, format: fmt })}
             />
-          </div>
+          )}
+
+          {/* Body Font Settings */}
+          <ColumnFontSettings
+            label="Body Font"
+            style={column.columnStyle}
+            onChange={(s) => onUpdate(index, { ...column, columnStyle: s })}
+            fontNames={fontNames}
+            token={token}
+          />
+
+          {/* Header Font Settings */}
+          <ColumnFontSettings
+            label="Header Font"
+            style={column.headerColumnStyle}
+            onChange={(s) => onUpdate(index, { ...column, headerColumnStyle: s })}
+            fontNames={fontNames}
+            token={token}
+          />
 
           {/* Remove button */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
@@ -545,7 +1020,8 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
  * definitions for lineItemsTable schema elements. Each column card shows
  * a summary row (header, field, width, align) that expands to show full
  * editing controls. Columns can be added, removed, and reordered via
- * drag-and-drop.
+ * drag-and-drop. Supports three column types: Field (data binding),
+ * Calculated (expression evaluation), and Static (fixed text).
  *
  * Only renders when activeSchema.type === 'lineItemsTable'.
  */
@@ -555,8 +1031,12 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
 }) => {
   const { token } = theme.useToken();
   const { fieldGroups, hasFields } = useFieldPalette();
+  const font = useContext(FontContext);
   const [collapsed, setCollapsed] = useState(false);
   const [expandedIndices, setExpandedIndices] = useState<Set<number>>(new Set());
+
+  // Extract font names from the designer's font context
+  const fontNames = useMemo(() => Object.keys(font).sort(), [font]);
 
   // Read columns from schema (always called — hooks must be unconditional)
   const columnsRaw = (activeSchema as Record<string, unknown>).columns;
@@ -571,8 +1051,14 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
     [fieldGroups, hasFields],
   );
   const allFields = useMemo(
-    () => (hasFields ? flattenFields(fieldGroups) : []),
+    () => (hasFields ? flattenFieldsWithGroups(fieldGroups) : []),
     [fieldGroups, hasFields],
+  );
+
+  // All column keys — used for expression variable hints
+  const allColumnKeys = useMemo(
+    () => columns.map((c) => c.key).filter(Boolean),
+    [columns],
   );
 
   // Sortable item IDs
@@ -778,6 +1264,8 @@ const ColumnConfigWidget: React.FC<ColumnConfigWidgetProps> = ({
                     onRemove={handleRemoveColumn}
                     fieldOptions={fieldOptions}
                     allFields={allFields}
+                    allColumnKeys={allColumnKeys}
+                    fontNames={fontNames}
                     token={token}
                   />
                 ))}
