@@ -8,6 +8,8 @@ import {
   ChangeSchemas,
   DesignerProps,
   Size,
+  BasePdf,
+  BlankPdf,
   isBlankPdf,
   px2mm,
 } from '@pdfme/common';
@@ -18,6 +20,8 @@ import Canvas from './Canvas/index.js';
 import { RULER_HEIGHT, RIGHT_SIDEBAR_WIDTH, LEFT_SIDEBAR_WIDTH, LEFT_SIDEBAR_WIDTH_EXPANDED } from '../../constants.js';
 import { I18nContext, OptionsContext, PluginsRegistry } from '../../contexts.js';
 import { useFieldPalette } from '../../contexts/FieldPaletteContext.js';
+import { GridContext, DEFAULT_GRID_SIZE_MM } from '../../contexts/GridContext.js';
+import type { GridSizeMm } from '../../contexts/GridContext.js';
 import {
   schemasList2template,
   uuid,
@@ -75,6 +79,7 @@ const TemplateEditor = ({
   const [schemasList, setSchemasList] = useState<SchemaForUI[][]>([[]] as SchemaForUI[][]);
   const [pageCursor, setPageCursor] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(options.zoomLevel ?? 1);
+  const [gridSizeMm, setGridSizeMm] = useState<GridSizeMm>(DEFAULT_GRID_SIZE_MM);
   const [sidebarOpen, setSidebarOpen] = useState(options.sidebarOpen ?? true);
   const [prevTemplate, setPrevTemplate] = useState<Template | null>(null);
 
@@ -289,8 +294,69 @@ const TemplateEditor = ({
     ? { addPageAfter: handleAddPageAfter, removePage: handleRemovePage }
     : {};
 
+  /**
+   * Handles page size changes from the CtlBar page size selector.
+   * Updates basePdf width/height, repositions elements that fall outside new bounds,
+   * and re-renders the template.
+   */
+  const handlePageSizeChange = useCallback(
+    (newWidth: number, newHeight: number) => {
+      if (!isBlankPdf(template.basePdf)) return;
+
+      const oldBasePdf = template.basePdf;
+      const newBasePdf: BlankPdf = {
+        ...oldBasePdf,
+        width: newWidth,
+        height: newHeight,
+      };
+
+      // Reposition elements that fall outside the new page boundaries
+      const [paddingTop, paddingRight, paddingBottom, paddingLeft] = newBasePdf.padding;
+      const maxX = newWidth - paddingRight;
+      const maxY = newHeight - paddingBottom;
+
+      const adjustedSchemasList = schemasList.map((pageSchemas) =>
+        pageSchemas.map((schema) => {
+          const adjusted = { ...schema };
+          // Ensure element doesn't extend past right edge
+          if (adjusted.position.x + adjusted.width > maxX) {
+            adjusted.position = {
+              ...adjusted.position,
+              x: Math.max(paddingLeft, maxX - adjusted.width),
+            };
+          }
+          // Ensure element doesn't extend past bottom edge
+          if (adjusted.position.y + adjusted.height > maxY) {
+            adjusted.position = {
+              ...adjusted.position,
+              y: Math.max(paddingTop, maxY - adjusted.height),
+            };
+          }
+          return adjusted;
+        }),
+      );
+
+      const newTemplate = schemasList2template(adjustedSchemasList, newBasePdf);
+      onChangeTemplate(newTemplate);
+      void updateTemplate(newTemplate).then(() => refresh(newTemplate));
+    },
+    [template, schemasList, onChangeTemplate, updateTemplate, refresh],
+  );
+
+  // Page size props for CtlBar (only for blank PDFs)
+  const pageSizeProps = isBlankPdf(template.basePdf)
+    ? {
+        currentPageWidth: template.basePdf.width,
+        currentPageHeight: template.basePdf.height,
+        onPageSizeChange: handlePageSizeChange,
+      }
+    : {};
+
+  const gridContextValue = { gridSizeMm };
+
   return (
     <Root size={size} scale={scale}>
+      <GridContext.Provider value={gridContextValue}>
       <DndContext
         onDragEnd={(event) => {
           // Triggered after a schema is dragged & dropped from the left sidebar.
@@ -338,7 +404,10 @@ const TemplateEditor = ({
             }}
             zoomLevel={zoomLevel}
             setZoomLevel={setZoomLevel}
+            gridSizeMm={gridSizeMm}
+            setGridSizeMm={setGridSizeMm}
             {...pageManipulation}
+            {...pageSizeProps}
           />
 
           <RightSidebar
@@ -386,6 +455,7 @@ const TemplateEditor = ({
           />
         </div>
       </DndContext>
+      </GridContext.Provider>
     </Root>
   );
 };
