@@ -295,19 +295,29 @@ const TemplateEditor = ({
     : {};
 
   /**
-   * Handles page size changes from the CtlBar page size selector.
-   * Updates basePdf width/height, repositions elements that fall outside new bounds,
-   * and re-renders the template.
+   * Handles page size changes from the CtlBar page size selector or orientation toggle.
+   * Updates basePdf width/height, swaps padding if orientation changes,
+   * repositions elements that fall outside new bounds, and re-renders the template.
    */
   const handlePageSizeChange = useCallback(
     (newWidth: number, newHeight: number) => {
       if (!isBlankPdf(template.basePdf)) return;
 
       const oldBasePdf = template.basePdf;
+      const oldIsPortrait = oldBasePdf.height > oldBasePdf.width;
+      const newIsPortrait = newHeight > newWidth;
+      const orientationChanged = oldIsPortrait !== newIsPortrait;
+
+      // Swap padding when orientation changes: [top, right, bottom, left] → rotated
+      const newPadding: [number, number, number, number] = orientationChanged
+        ? [oldBasePdf.padding[3], oldBasePdf.padding[0], oldBasePdf.padding[1], oldBasePdf.padding[2]]
+        : oldBasePdf.padding;
+
       const newBasePdf: BlankPdf = {
         ...oldBasePdf,
         width: newWidth,
         height: newHeight,
+        padding: newPadding,
       };
 
       // Reposition elements that fall outside the new page boundaries

@@ -1,6 +1,7 @@
 import React, { MutableRefObject, ReactNode, useContext, forwardRef, Ref } from 'react';
 import { ZOOM, SchemaForUI, Size, getFallbackFontName } from '@pdfme/common';
 import { FontContext } from '../contexts.js';
+import { useGridSize } from '../contexts/GridContext.js';
 import { RULER_HEIGHT, PAGE_GAP } from '../constants.js';
 
 interface PaperProps {
@@ -28,7 +29,12 @@ const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
     hasRulers,
   } = props;
   const font = useContext(FontContext);
+  const { gridSizeMm } = useGridSize();
   const rulerHeight = hasRulers ? RULER_HEIGHT : 0;
+
+  /** Grid spacing in px — computed from context gridSizeMm. 0 means no grid. */
+  const gridSpacingPx = gridSizeMm > 0 ? Math.round(gridSizeMm * ZOOM) : 0;
+  const showGrid = hasRulers && gridSpacingPx > 0;
 
   if (pageSizes.length !== backgrounds.length || pageSizes.length !== schemasList.length) {
     return null;
@@ -91,8 +97,13 @@ const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
               top: `${pageTop}px`,
               left: leftCenteringIndent,
               position: 'relative',
-              backgroundImage: `url(${background})`,
-              backgroundSize: `${paperSize.width}px ${paperSize.height}px`,
+              backgroundImage: showGrid
+                ? `url(${background}), radial-gradient(circle, rgba(148,163,184,0.25) 0.8px, transparent 0.8px)`
+                : `url(${background})`,
+              backgroundSize: showGrid
+                ? `${paperSize.width}px ${paperSize.height}px, ${gridSpacingPx}px ${gridSpacingPx}px`
+                : `${paperSize.width}px ${paperSize.height}px`,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
               ...paperSize,
             }}
           >

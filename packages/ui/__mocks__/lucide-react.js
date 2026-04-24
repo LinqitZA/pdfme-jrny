@@ -15,5 +15,9 @@ module.exports = {
   ArrowLeft: () => 'ArrowLeft',
   ArrowRight: () => 'ArrowRight',
   LoaderCircle: () => 'LoaderCircle',
+  FileType: () => 'FileType',
+  Grid3x3: () => 'Grid3x3',
+  RectangleVertical: () => 'RectangleVertical',
+  RectangleHorizontal: () => 'RectangleHorizontal',
   // Add any other icons used in the codebase
 };

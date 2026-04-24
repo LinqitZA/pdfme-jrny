@@ -2,7 +2,7 @@ import React, { useContext, useState, useMemo } from 'react';
 import { Size } from '@pdfme/common';
 // Import icons from lucide-react
 // Note: In tests, these will be mocked by the mock file in __mocks__/lucide-react.js
-import { Plus, Minus, ChevronLeft, ChevronRight, Ellipsis, FileType, Grid3x3 } from 'lucide-react';
+import { Plus, Minus, ChevronLeft, ChevronRight, Ellipsis, FileType, Grid3x3, RectangleVertical, RectangleHorizontal } from 'lucide-react';
 
 import type { MenuProps } from 'antd';
 import { theme, Typography, Button, Dropdown, Select, InputNumber, Popover } from 'antd';
@@ -91,14 +91,22 @@ const ContextMenu = ({ items, style }: ContextMenuProps) => (
   </Dropdown>
 );
 
-/** Finds the matching predefined page size, or returns null for custom */
+/** Finds the matching predefined page size (portrait or landscape), or returns 'Custom' */
 function detectPageSize(width: number, height: number): string {
   const tolerance = 0.5; // mm
-  const match = PAGE_SIZES.find(
+  // Check portrait match
+  const portraitMatch = PAGE_SIZES.find(
     (ps) =>
       Math.abs(ps.width - width) < tolerance && Math.abs(ps.height - height) < tolerance,
   );
-  return match ? match.name : 'Custom';
+  if (portraitMatch) return portraitMatch.name;
+  // Check landscape match (swapped width/height)
+  const landscapeMatch = PAGE_SIZES.find(
+    (ps) =>
+      Math.abs(ps.width - height) < tolerance && Math.abs(ps.height - width) < tolerance,
+  );
+  if (landscapeMatch) return landscapeMatch.name;
+  return 'Custom';
 }
 
 type PageSizeSelectorProps = {
@@ -241,6 +249,43 @@ const PageSizeSelector = ({
   );
 };
 
+type OrientationToggleProps = {
+  currentWidth: number;
+  currentHeight: number;
+  onPageSizeChange: (width: number, height: number) => void;
+  style: { textStyle: TextStyle };
+};
+
+const OrientationToggle = ({
+  currentWidth,
+  currentHeight,
+  onPageSizeChange,
+  style,
+}: OrientationToggleProps) => {
+  const isPortrait = currentHeight > currentWidth;
+
+  const handleToggle = () => {
+    // Swap width and height to toggle orientation
+    onPageSizeChange(currentHeight, currentWidth);
+  };
+
+  return (
+    <Button
+      className={UI_CLASSNAME + 'orientation-toggle'}
+      type="text"
+      onClick={handleToggle}
+      title={isPortrait ? 'Switch to landscape' : 'Switch to portrait'}
+      style={{ display: 'flex', alignItems: 'center', padding: '0 4px' }}
+    >
+      {isPortrait ? (
+        <RectangleVertical size={16} color={style.textStyle.color} />
+      ) : (
+        <RectangleHorizontal size={16} color={style.textStyle.color} />
+      )}
+    </Button>
+  );
+};
+
 /** Grid size options: None, 2.5mm, 5mm (default), 10mm */
 const GRID_SIZE_OPTIONS: { label: string; value: GridSizeMm }[] = [
   { label: 'None', value: 0 },
@@ -338,9 +383,10 @@ const CtlBar = (props: CtlBarProps) => {
   const hasGrid = gridSizeMm !== undefined && setGridSizeMm !== undefined;
   const barWidth = 300;
   const pageSizeWidth = hasPageSize ? 160 : 0;
+  const orientationWidth = hasPageSize ? 36 : 0;
   const gridSelectorWidth = hasGrid ? 100 : 0;
   const contextMenuWidth = contextMenuItems.length > 0 ? 50 : 0;
-  const width = (pageNum > 1 ? barWidth : barWidth / 2) + contextMenuWidth + pageSizeWidth + gridSelectorWidth;
+  const width = (pageNum > 1 ? barWidth : barWidth / 2) + contextMenuWidth + pageSizeWidth + orientationWidth + gridSelectorWidth;
 
   const textStyle = {
     color: token.colorWhite,
@@ -369,6 +415,14 @@ const CtlBar = (props: CtlBarProps) => {
       >
         {hasPageSize && (
           <PageSizeSelector
+            currentWidth={currentPageWidth}
+            currentHeight={currentPageHeight}
+            onPageSizeChange={onPageSizeChange}
+            style={{ textStyle }}
+          />
+        )}
+        {hasPageSize && (
+          <OrientationToggle
             currentWidth={currentPageWidth}
             currentHeight={currentPageHeight}
             onPageSizeChange={onPageSizeChange}
