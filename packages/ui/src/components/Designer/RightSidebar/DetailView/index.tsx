@@ -22,6 +22,7 @@ import FieldBindingWidget from './FieldBindingWidget.js';
 import PageScopeWidget from './PageScopeWidget.js';
 import OutputChannelWidget from './OutputChannelWidget.js';
 import ConditionalVisibilityWidget from './ConditionalVisibilityWidget.js';
+import ExpressionBuilderWidget from './ExpressionBuilderWidget.js';
 import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
 
@@ -467,6 +468,10 @@ const DetailView = (props: DetailViewProps) => {
           changeSchemas={changeSchemas}
         />
         <ConditionalVisibilityWidget
+          activeSchema={activeSchema}
+          changeSchemas={changeSchemas}
+        />
+        <ExpressionBuilderWidget
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />
