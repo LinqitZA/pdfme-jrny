@@ -11,7 +11,7 @@ interface PaperProps {
   schemasList: SchemaForUI[][];
   pageSizes: Size[];
   backgrounds: string[];
-  renderPaper: (arg: { index: number; paperSize: Size }) => ReactNode;
+  renderPaper: (arg: { index: number; paperSize: Size; rulerSpan?: { hWidth: number; hLeft: number; vHeight: number } }) => ReactNode;
   renderSchema: (arg: { index: number; schema: SchemaForUI }) => ReactNode;
   hasRulers?: boolean;
 }
@@ -107,7 +107,26 @@ const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
               ...paperSize,
             }}
           >
-            {renderPaper({ paperSize, index: paperIndex })}
+            {renderPaper({
+              paperSize,
+              index: paperIndex,
+              rulerSpan: hasRulers ? (() => {
+                // Calculate ruler dimensions in the paper's coordinate space.
+                // The paper is inside a transform:scale(scale) div, so we convert
+                // the canvas viewport back to paper coords: canvasWidth = size.width / scale.
+                const canvasWidthInPaper = size.width / scale;
+                const canvasHeightInPaper = size.height / scale;
+                // leftCenteringIndent is the paper's left offset from the Paper scale div edge
+                const indent = paperSize.width * scale + rulerHeight < size.width
+                  ? (size.width / scale - paperSize.width) / 2
+                  : rulerHeight;
+                return {
+                  hWidth: Math.max(canvasWidthInPaper, paperSize.width),
+                  hLeft: -indent,
+                  vHeight: Math.max(canvasHeightInPaper, paperSize.height),
+                };
+              })() : undefined,
+            })}
             {schemasList[paperIndex].map((schema, schemaIndex) => {
               return (
                 <div key={schema.id}>

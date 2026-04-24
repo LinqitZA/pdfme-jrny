@@ -421,7 +421,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
         pageSizes={pageSizes}
         backgrounds={backgrounds}
         hasRulers={true}
-        renderPaper={({ index, paperSize }) => (
+        renderPaper={({ index, paperSize, rulerSpan }) => (
           <>
             {!editing && activeElements.length > 0 && pageCursor === index && (
               <DeleteButton activeElements={activeElements} />
@@ -438,6 +438,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
             />
             <Guides
               paperSize={paperSize}
+              rulerSpan={rulerSpan}
               horizontalRef={(e) => {
                 if (e) horizontalGuides.current[index] = e;
               }}
