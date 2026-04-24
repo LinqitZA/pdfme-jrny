@@ -19,6 +19,7 @@ import AlignWidget from './AlignWidget.js';
 import WidgetRenderer from './WidgetRenderer.js';
 import ButtonGroupWidget from './ButtonGroupWidget.js';
 import FieldBindingWidget from './FieldBindingWidget.js';
+import PageScopeWidget from './PageScopeWidget.js';
 import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
 
@@ -452,6 +453,10 @@ const DetailView = (props: DetailViewProps) => {
       </SidebarHeader>
       <SidebarBody>
         <FieldBindingWidget
+          activeSchema={activeSchema}
+          changeSchemas={changeSchemas}
+        />
+        <PageScopeWidget
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />

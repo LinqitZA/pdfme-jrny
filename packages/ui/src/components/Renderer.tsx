@@ -60,43 +60,136 @@ const Wrapper = ({
   outline,
   onChangeHoveringSchemaId,
   schema,
+  mode,
   selectable = true,
-}: RendererProps & { children: ReactNode }) => (
-  <div
-    title={schema.name}
-    onMouseEnter={() => onChangeHoveringSchemaId && onChangeHoveringSchemaId(schema.id)}
-    onMouseLeave={() => onChangeHoveringSchemaId && onChangeHoveringSchemaId(null)}
-    className={selectable ? SELECTABLE_CLASSNAME : ''}
-    id={schema.id}
-    style={{
-      position: 'absolute',
-      cursor: schema.readOnly ? 'initial' : 'pointer',
-      height: schema.height * ZOOM,
-      width: schema.width * ZOOM,
-      top: schema.position.y * ZOOM,
-      left: schema.position.x * ZOOM,
-      transform: `rotate(${schema.rotate ?? 0}deg)`,
-      opacity: schema.opacity ?? 1,
-      outline,
-    }}
-  >
-    {schema.required && (
-      <span
-        style={{
-          color: 'red',
-          position: 'absolute',
-          top: -12,
-          left: -12,
-          fontSize: 18,
-          fontWeight: 700,
-        }}
-      >
-        *
-      </span>
-    )}
-    {children}
-  </div>
-);
+}: RendererProps & { children: ReactNode }) => {
+  const { token } = antdTheme.useToken();
+  const isEditing = mode === 'designer';
+  const hasContent = !!(schema as any).content;
+
+  return (
+    <div
+      title={schema.name}
+      onMouseEnter={() => onChangeHoveringSchemaId && onChangeHoveringSchemaId(schema.id)}
+      onMouseLeave={() => onChangeHoveringSchemaId && onChangeHoveringSchemaId(null)}
+      className={selectable ? SELECTABLE_CLASSNAME : ''}
+      id={schema.id}
+      style={{
+        position: 'absolute',
+        cursor: schema.readOnly ? 'initial' : 'pointer',
+        height: schema.height * ZOOM,
+        width: schema.width * ZOOM,
+        top: schema.position.y * ZOOM,
+        left: schema.position.x * ZOOM,
+        transform: `rotate(${schema.rotate ?? 0}deg)`,
+        opacity: schema.opacity ?? 1,
+        outline,
+      }}
+    >
+      {/* Schema name label — shows field name tag above each element */}
+      {schema.name && !isEditing && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -16,
+            left: 0,
+            fontSize: 9,
+            lineHeight: '14px',
+            padding: '0 4px',
+            backgroundColor: hasContent ? token.colorPrimary : '#94a3b8',
+            color: '#fff',
+            borderRadius: '2px 2px 0 0',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: schema.width * ZOOM,
+            pointerEvents: 'none',
+            zIndex: 1,
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            letterSpacing: '0.01em',
+          }}
+        >
+          {schema.name}
+        </div>
+      )}
+      {/* Empty content placeholder — shows type hint when element has no content */}
+      {!hasContent && !isEditing && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#94a3b8',
+            fontSize: 10,
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            pointerEvents: 'none',
+            backgroundColor: 'rgba(241, 245, 249, 0.5)',
+            zIndex: 0,
+          }}
+        >
+          {schema.type}
+        </div>
+      )}
+      {schema.required && (
+        <span
+          style={{
+            color: 'red',
+            position: 'absolute',
+            top: -12,
+            left: -12,
+            fontSize: 18,
+            fontWeight: 700,
+          }}
+        >
+          *
+        </span>
+      )}
+      {/* Page scope badge — shows when element has non-default page visibility */}
+      {(() => {
+        const pageScope = (schema as Record<string, unknown>).pageScope as string | undefined;
+        if (!pageScope || pageScope === 'all') return null;
+        const scopeLabels: Record<string, string> = {
+          first: 'P1',
+          last: 'Pn',
+          notFirst: 'P2+',
+        };
+        const scopeColors: Record<string, string> = {
+          first: '#1677ff',
+          last: '#fa8c16',
+          notFirst: '#52c41a',
+        };
+        const label = scopeLabels[pageScope] || pageScope;
+        const bgColor = scopeColors[pageScope] || '#1677ff';
+        return (
+          <div
+            title={`Page: ${pageScope === 'first' ? 'First Only' : pageScope === 'last' ? 'Last Only' : pageScope === 'notFirst' ? 'Not First' : pageScope}`}
+            style={{
+              position: 'absolute',
+              top: -16,
+              right: 0,
+              fontSize: 8,
+              lineHeight: '14px',
+              padding: '0 3px',
+              backgroundColor: bgColor,
+              color: '#fff',
+              borderRadius: '2px 2px 0 0',
+              pointerEvents: 'none',
+              zIndex: 1,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              fontWeight: 600,
+              letterSpacing: '0.02em',
+            }}
+          >
+            {label}
+          </div>
+        );
+      })()}
+      {children}
+    </div>
+  );
+};
 
 const Renderer = (props: RendererProps) => {
   const { schema, basePdf, value, mode, onChange, stopEditing, tabIndex, placeholder, scale } =
