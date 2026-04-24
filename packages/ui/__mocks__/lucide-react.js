@@ -31,5 +31,6 @@ module.exports = {
   Bold: () => 'Bold',
   Italic: () => 'Italic',
   Paintbrush: () => 'Paintbrush',
+  ScanBarcode: () => 'ScanBarcode',
   // Add any other icons used in the codebase
 };

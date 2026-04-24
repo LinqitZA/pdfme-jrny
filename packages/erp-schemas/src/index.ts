@@ -38,4 +38,7 @@ export type {
   FieldDefinition,
   LocaleConfig,
   ElementCondition,
+  SerialDetail,
+  LotDetail,
+  TrackingDetailStyle,
 } from './types';

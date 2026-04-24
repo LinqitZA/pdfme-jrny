@@ -24,6 +24,7 @@ import OutputChannelWidget from './OutputChannelWidget.js';
 import ConditionalVisibilityWidget from './ConditionalVisibilityWidget.js';
 import ExpressionBuilderWidget from './ExpressionBuilderWidget.js';
 import ColumnConfigWidget from './ColumnConfigWidget.js';
+import TrackingDetailWidget from './TrackingDetailWidget.js';
 import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
 
@@ -527,6 +528,10 @@ const DetailView = (props: DetailViewProps) => {
           changeSchemas={changeSchemas}
         />
         <ColumnConfigWidget
+          activeSchema={activeSchema}
+          changeSchemas={changeSchemas}
+        />
+        <TrackingDetailWidget
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />

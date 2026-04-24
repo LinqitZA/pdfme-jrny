@@ -105,6 +105,31 @@ export type PageScope = 'all' | 'first' | 'last' | 'notFirst';
 // Output channel
 export type OutputChannel = 'both' | 'email' | 'print';
 
+// Serial/Lot tracking detail types
+export interface SerialDetail {
+  serialNo: string;
+  status?: string;
+  [key: string]: unknown;
+}
+
+export interface LotDetail {
+  lotNo: string;
+  qty: number;
+  expiryDate?: string;
+  [key: string]: unknown;
+}
+
+export interface TrackingDetailStyle {
+  /** Font size for detail sub-rows (typically smaller than body) */
+  fontSize?: number;
+  /** Background color for detail sub-rows */
+  backgroundColor?: string;
+  /** Left indent in characters for detail text */
+  indent?: number;
+  /** Font color for detail sub-rows */
+  fontColor?: string;
+}
+
 // Text overflow strategy
 export type TextOverflowStrategy = 'clip' | 'truncate' | 'shrinkToFit';
 

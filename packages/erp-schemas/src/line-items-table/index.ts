@@ -18,6 +18,9 @@ import type {
   RowCondition,
   RowStyle,
   MaxRowsPerPage,
+  SerialDetail,
+  LotDetail,
+  TrackingDetailStyle,
 } from '../types';
 import { ExpressionEngine } from '../expression-engine';
 
@@ -110,6 +113,14 @@ export interface LineItemsTableSchema {
   headerStyle?: RowStyle;
   /** Body row style */
   bodyStyle?: RowStyle;
+  /** Whether to show serial/lot tracking detail sub-rows */
+  showTrackingDetails?: boolean;
+  /** Which serial detail fields to display (default: ['serialNo', 'status']) */
+  trackingSerialFields?: string[];
+  /** Which lot detail fields to display (default: ['lotNo', 'qty', 'expiryDate']) */
+  trackingLotFields?: string[];
+  /** Styling for tracking detail sub-rows */
+  trackingDetailStyle?: TrackingDetailStyle;
   /** Additional schema properties */
   [key: string]: unknown;
 }
@@ -380,6 +391,92 @@ export function formatNumber(value: number, format?: string): string {
 }
 
 /**
+ * Convert a camelCase field name into a human-readable label.
+ * e.g., 'serialNo' → 'Serial No', 'expiryDate' → 'Expiry Date'
+ */
+function humanizeFieldName(field: string): string {
+  return field
+    .replace(/([A-Z])/g, ' $1')
+    .replace(/^./, (s) => s.toUpperCase())
+    .trim();
+}
+
+/**
+ * Default serial detail fields to display when none are configured.
+ */
+const DEFAULT_SERIAL_FIELDS = ['serialNo', 'status'];
+
+/**
+ * Default lot detail fields to display when none are configured.
+ */
+const DEFAULT_LOT_FIELDS = ['lotNo', 'qty', 'expiryDate'];
+
+/**
+ * Build tracking detail sub-rows for serial and/or lot data attached to a line item.
+ *
+ * Generates one sub-row per serial entry and one per lot entry, formatted as
+ * indented text in the first column (other columns empty). Only generates rows
+ * when the corresponding arrays are non-empty.
+ *
+ * @param item - The line item data record (may contain serials[] or lots[] arrays)
+ * @param columns - The column definitions (used to determine row width)
+ * @param serialFields - Which serial fields to display
+ * @param lotFields - Which lot fields to display
+ * @param indent - Number of leading spaces for indentation (default: 4)
+ * @returns Array of sub-row string arrays
+ */
+export function buildTrackingSubRows(
+  item: Record<string, unknown>,
+  columns: ColumnDefinition[],
+  serialFields: string[],
+  lotFields: string[],
+  indent = 4,
+): string[][] {
+  const rows: string[][] = [];
+  const indentStr = ' '.repeat(indent) + '↳ ';
+
+  // Serial detail sub-rows
+  const serials = item.serials;
+  if (Array.isArray(serials) && serials.length > 0) {
+    for (const serial of serials as SerialDetail[]) {
+      const parts: string[] = [];
+      for (const field of serialFields) {
+        const val = serial[field];
+        if (val != null && val !== '') {
+          parts.push(`${humanizeFieldName(field)}: ${String(val)}`);
+        }
+      }
+      if (parts.length > 0) {
+        const text = `${indentStr}S/N: ${parts.join(' | ')}`;
+        const subRow = columns.map((_, i) => (i === 0 ? text : ''));
+        rows.push(subRow);
+      }
+    }
+  }
+
+  // Lot detail sub-rows
+  const lots = item.lots;
+  if (Array.isArray(lots) && lots.length > 0) {
+    for (const lot of lots as LotDetail[]) {
+      const parts: string[] = [];
+      for (const field of lotFields) {
+        const val = lot[field];
+        if (val != null && val !== '') {
+          parts.push(`${humanizeFieldName(field)}: ${String(val)}`);
+        }
+      }
+      if (parts.length > 0) {
+        const text = `${indentStr}Lot: ${parts.join(' | ')}`;
+        const subRow = columns.map((_, i) => (i === 0 ? text : ''));
+        rows.push(subRow);
+      }
+    }
+  }
+
+  return rows;
+}
+
+/**
  * Convert line items data and schema into pdfme-compatible table body data
  * with footer rows appended.
  *
@@ -472,6 +569,21 @@ export function resolveLineItemsTableData(
         const subRowCells = buildSubRowCells(item, subRow, columns);
         bodyRows.push(subRowCells);
       }
+    }
+
+    // Tracking detail sub-rows: auto-generated from serials[] and lots[] arrays
+    if (schema.showTrackingDetails) {
+      const serialFields = schema.trackingSerialFields || DEFAULT_SERIAL_FIELDS;
+      const lotFields = schema.trackingLotFields || DEFAULT_LOT_FIELDS;
+      const indent = schema.trackingDetailStyle?.indent ?? 4;
+      const trackingRows = buildTrackingSubRows(
+        item as Record<string, unknown>,
+        columns,
+        serialFields,
+        lotFields,
+        indent,
+      );
+      bodyRows.push(...trackingRows);
     }
   }
 
