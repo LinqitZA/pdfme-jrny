@@ -1,8 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ConfigProvider as ThemeConfigProvider } from 'antd';
 import { I18nContext, FontContext, PluginsRegistry, OptionsContext } from '../contexts.js';
 import { i18n, getDict } from '../i18n.js';
 import { defaultTheme } from '../theme.js';
+import {
+  FieldPaletteContext,
+  type FieldGroup,
+  type FieldPaletteContextValue,
+} from '../contexts/FieldPaletteContext.js';
 import type { Dict, Font, Lang, UIOptions, PluginRegistry } from '@pdfme/common';
 
 type Props = {
@@ -11,6 +16,8 @@ type Props = {
   font: Font;
   plugins: PluginRegistry;
   options: UIOptions;
+  /** Optional ERP field groups for the field palette sidebar */
+  fieldGroups?: FieldGroup[];
 };
 
 const isObject = (item: unknown): item is Record<string, unknown> =>
@@ -45,7 +52,7 @@ const deepMerge = <T extends Record<string, unknown>, U extends Record<string, u
   return output;
 };
 
-const AppContextProvider = ({ children, lang, font, plugins, options }: Props) => {
+const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroups }: Props) => {
   let theme = defaultTheme;
   if (options.theme) {
     theme = deepMerge(
@@ -62,12 +69,24 @@ const AppContextProvider = ({ children, lang, font, plugins, options }: Props) =
     ) as typeof dict;
   }
 
+  const fieldPaletteValue = useMemo<FieldPaletteContextValue>(
+    () => ({
+      fieldGroups: fieldGroups ?? [],
+      hasFields: (fieldGroups ?? []).length > 0,
+    }),
+    [fieldGroups],
+  );
+
   return (
     <ThemeConfigProvider theme={theme}>
       <I18nContext.Provider value={(key: keyof Dict) => i18n(key, dict)}>
         <FontContext.Provider value={font}>
           <PluginsRegistry.Provider value={plugins}>
-            <OptionsContext.Provider value={options}>{children}</OptionsContext.Provider>
+            <OptionsContext.Provider value={options}>
+              <FieldPaletteContext.Provider value={fieldPaletteValue}>
+                {children}
+              </FieldPaletteContext.Provider>
+            </OptionsContext.Provider>
           </PluginsRegistry.Provider>
         </FontContext.Provider>
       </I18nContext.Provider>
