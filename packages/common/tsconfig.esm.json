@@ -9,5 +9,5 @@
     "declarationDir": "dist/types",
     "skipLibCheck": true
   },
-  "exclude": ["__tests__", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": ["dist", "__tests__", "**/*.test.ts", "**/*.spec.ts"]
 }

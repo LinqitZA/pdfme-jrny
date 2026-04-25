@@ -55,6 +55,13 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Defence-in-depth: explicitly re-run the per-package verify scripts so a
+      # missing or shape-broken dist fails the publish pipeline rather than
+      # silently shipping partial output (the historical class of bug that
+      # required manual file copies during the JRNY integration).
+      - name: Verify dist
+        run: npm run verify-dist
+
       - name: Test
         run: npm run test
         env:

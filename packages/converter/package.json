@@ -21,8 +21,8 @@
   "bugs": {
     "url": "https://github.com/pdfme/pdfme/issues"
   },
-  "main": "dist/cjs/src/index.js",
-  "module": "dist/esm/src/index.js",
+  "main": "dist/cjs/src/index.node.js",
+  "module": "dist/esm/src/index.browser.js",
   "types": "dist/types/src/index.node.d.ts",
   "exports": {
     ".": {
@@ -34,9 +34,12 @@
   },
   "scripts": {
     "dev": "tsc -p tsconfig.esm.json -w",
-    "build": "run-p build:cjs build:esm",
+    "prebuild": "npm run clean",
+    "build": "npm run build:cjs && npm run build:esm",
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:esm": "tsc -p tsconfig.esm.json",
+    "postbuild": "npm run verify",
+    "verify": "node ../../scripts/verify-dist.cjs",
     "clean": "rimraf dist",
     "lint": "eslint --ext .ts src --config eslint.config.mjs",
     "test": "jest",

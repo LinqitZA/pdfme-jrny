@@ -18,6 +18,11 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: npm install
       - run: npm run build
+      # Explicit dist verification — this is a defence-in-depth check on top
+      # of the per-package `postbuild` hook, so that even if a future change
+      # accidentally drops `postbuild` from one package, CI still catches a
+      # partial / shape-broken dist before publish.
+      - run: npm run verify-dist
       - run: npm run lint
       - run: npm run test
         env:
