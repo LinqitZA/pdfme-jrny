@@ -5,17 +5,13 @@ import { ZOOM, Size } from '@pdfme/common';
 import { RULER_HEIGHT } from '../../../constants.js';
 
 /**
- * Ruler background colour — complements the JRNY slate palette.
+ * Ruler background colour — light grey strip with visible markings.
  *
- * The canvas background is slate-200 (#e2e8f0) and the page surface is white.
- * A medium-dark slate provides visual contrast without the jarring #333333
- * that was used previously. Sits between colorTextSecondary (slate-500)
- * and colorText (slate-900) in the theme scale.
- *
- * Falls back to this colour when antd token.colorTextSecondary is unavailable
- * or too transparent for an opaque ruler strip.
+ * The canvas background is slate-200 (#e2e8f0). The ruler should be lighter
+ * than the canvas (almost white) so markings (rendered by @scena/react-guides
+ * in a darker colour) remain clearly legible.
  */
-const RULER_BG_FALLBACK = '#475569'; // slate-600
+const RULER_BG = '#f1f5f9'; // slate-100 — light grey ruler strip
 
 const guideStyle = (
   top: number,
@@ -47,14 +43,7 @@ const _Guides = ({
 }) => {
   const { token } = theme.useToken();
 
-  // Prefer a theme-derived ruler colour when the token is opaque.
-  // The JRNY theme sets colorTextSecondary to slate-500 (#64748b) which is
-  // slightly lighter than ideal for a ruler strip, so we shift one stop darker.
-  // In dark-mode themes this will auto-adapt via the token system.
-  const rulerBg =
-    token.colorTextSecondary && !token.colorTextSecondary.startsWith('rgba')
-      ? token.colorTextSecondary
-      : RULER_BG_FALLBACK;
+  const rulerBg = RULER_BG;
 
   // When rulerSpan is provided, extend rulers to fill the canvas area.
   // Otherwise fall back to paper-only dimensions (backwards compatible).
@@ -72,6 +61,10 @@ const _Guides = ({
       {/* Horizontal ruler — spans full canvas width */}
       <GuidesComponent
         zoom={ZOOM}
+        unit={5}
+        segment={5}
+        textColor="#334155"
+        lineColor="#94a3b8"
         style={guideStyle(-RULER_HEIGHT, hLeft, RULER_HEIGHT, hWidth, rulerBg)}
         type="horizontal"
         ref={horizontalRef}
@@ -79,6 +72,10 @@ const _Guides = ({
       {/* Vertical ruler — spans full canvas height */}
       <GuidesComponent
         zoom={ZOOM}
+        unit={5}
+        segment={5}
+        textColor="#334155"
+        lineColor="#94a3b8"
         style={guideStyle(0, -RULER_HEIGHT, vHeight, RULER_HEIGHT, rulerBg)}
         type="vertical"
         ref={verticalRef}

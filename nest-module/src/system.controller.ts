@@ -22,7 +22,7 @@ export class SystemController {
    */
   @Post('system/seed')
   @HttpCode(200)
-  @RequirePermissions('system:seed')
+  @RequirePermissions('pdfme.admin')
   async seedSystemTemplates() {
     await this.seedService.seedSystemTemplates();
     return {
@@ -38,7 +38,7 @@ export class SystemController {
    */
   @Post('admin/seed')
   @HttpCode(200)
-  @RequirePermissions('admin')
+  @RequirePermissions('pdfme.admin')
   async seedErpData() {
     const result = await this.seedService.seedSampleData();
     return {
@@ -53,7 +53,7 @@ export class SystemController {
    * Get all raw seed datasets for inspection.
    */
   @Get('admin/seed/data')
-  @RequirePermissions('admin')
+  @RequirePermissions('pdfme.admin')
   getAllSeedData() {
     return {
       success: true,

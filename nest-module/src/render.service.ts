@@ -1353,10 +1353,62 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Resolve field bindings with fallbackValue support.
-   * For each schema element, if the corresponding input value is missing or empty
-   * and the element has a fallbackValue property, use the fallback value.
-   * Without a fallbackValue, missing/empty bindings remain as empty string.
+   * Types whose `content` should NOT be treated as a {{placeholder}} text template.
+   * Images carry base64 data, calculatedField has its own pipeline, table/lineItemsTable
+   * use a separate `dataSource` mechanism, signature/qrcode have specialised resolvers.
+   */
+  private static readonly CONTENT_PLACEHOLDER_SKIP_TYPES = new Set([
+    'image',
+    'drawnSignature',
+    'erpImage',
+    'calculatedField',
+    'table',
+    'lineItemsTable',
+    'qrcode',
+    'qrBarcode',
+    'signatureBlock',
+    'richText',
+    'currencyField',
+    'rectangle',
+    'ellipse',
+    'line',
+    'svg',
+  ]);
+
+  /** Pattern matching a single `{{key.path}}` placeholder. Captures the key. */
+  private static readonly CONTENT_PLACEHOLDER_PATTERN = /\{\{\s*([^}]+?)\s*\}\}/g;
+
+  /**
+   * Substitute `{{key}}` placeholders in `template` using values from `dataRecord`.
+   * Missing keys substitute to empty string (matching pdfme's empty-input behaviour).
+   */
+  private substituteContentPlaceholders(
+    template: string,
+    dataRecord: Record<string, string>,
+  ): string {
+    return template.replace(
+      RenderService.CONTENT_PLACEHOLDER_PATTERN,
+      (_match: string, rawKey: string) => {
+        const key = String(rawKey).trim();
+        const value = dataRecord[key];
+        return value !== undefined && value !== null ? String(value) : '';
+      },
+    );
+  }
+
+  /**
+   * Resolve field bindings with fallbackValue support and `{{key}}` content
+   * placeholder substitution.
+   *
+   * Priority for the value of each text-like element:
+   *   1. Data-source key matching element.name      (e.g. data["paymentTerms"])
+   *   2. `{{key}}` placeholders in element.content  (e.g. content="{{customer.name}}")
+   *   3. element.fallbackValue                      (designer-set fallback)
+   *   4. Empty string
+   *
+   * The designer (FieldBindingWidget) writes user-selected bindings as `{{key}}`
+   * into the element's `content` property. Without step 2, those bindings would
+   * never resolve at render time and the PDF would show empty fields.
    */
   private resolveFieldBindings(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
@@ -1364,6 +1416,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   ): void {
     // Build a map of field name -> fallbackValue from schema elements
     const fallbackMap = new Map<string, string>();
+    // Build a map of field name -> { type, content } so the placeholder pass
+    // can decide whether to substitute and what the template string is.
+    const elementMeta = new Map<string, { type: string; content: string }>();
     for (const page of pdfmeTemplate.schemas) {
       if (!Array.isArray(page)) continue;
       for (const element of page) {
@@ -1374,12 +1429,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         if (name && fallbackValue !== undefined && fallbackValue !== null) {
           fallbackMap.set(name, String(fallbackValue));
         }
+        if (name) {
+          const type = typeof el.type === 'string' ? (el.type as string) : '';
+          const content = typeof el.content === 'string' ? (el.content as string) : '';
+          elementMeta.set(name, { type, content });
+        }
       }
     }
 
-    // Apply fallback values to each input record
     for (const inputRecord of inputs) {
-      // Ensure all schema fields exist in inputs; apply fallback for missing/empty values
       for (const page of pdfmeTemplate.schemas) {
         if (!Array.isArray(page)) continue;
         for (const element of page) {
@@ -1388,11 +1446,41 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           const name = el.name as string | undefined;
           if (!name) continue;
 
-          // If input is missing or empty, apply fallback or empty string
-          if (!(name in inputRecord) || inputRecord[name] === '' || inputRecord[name] === undefined || inputRecord[name] === null) {
-            const fallback = fallbackMap.get(name);
-            inputRecord[name] = fallback !== undefined ? fallback : '';
+          const existing = inputRecord[name];
+          const isEmpty =
+            !(name in inputRecord) ||
+            existing === '' ||
+            existing === undefined ||
+            existing === null;
+          if (!isEmpty) continue; // data source provided a value; respect it.
+
+          const meta = elementMeta.get(name);
+          const elType = meta?.type ?? '';
+          const content = meta?.content ?? '';
+
+          // Step 2: substitute {{key}} placeholders in content for text-like elements.
+          if (
+            content &&
+            !RenderService.CONTENT_PLACEHOLDER_SKIP_TYPES.has(elType) &&
+            RenderService.CONTENT_PLACEHOLDER_PATTERN.test(content)
+          ) {
+            // Reset lastIndex because the regex above is /g and stateful.
+            RenderService.CONTENT_PLACEHOLDER_PATTERN.lastIndex = 0;
+            const substituted = this.substituteContentPlaceholders(content, inputRecord);
+            // If at least one placeholder resolved to a non-empty value, use the
+            // substituted string. If everything substituted to empty (i.e. the
+            // data didn't have any of the referenced keys), fall through to the
+            // fallbackValue / empty default — this preserves the designer's
+            // intent that "binding to a missing key shows the fallback".
+            if (substituted.replace(/\s+/g, '') !== '') {
+              inputRecord[name] = substituted;
+              continue;
+            }
           }
+
+          // Step 3+4: fallbackValue, then empty string.
+          const fallback = fallbackMap.get(name);
+          inputRecord[name] = fallback !== undefined ? fallback : '';
         }
       }
     }
@@ -1417,12 +1505,15 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Resolve expressions in all text-containing schema element values.
-   * Runs AFTER resolveFieldBindings() so {{field}} placeholders are already substituted.
-   * For each input value, if it contains expression syntax (function calls like CONCAT(),
-   * IF(), arithmetic operators, etc.), evaluate via ExpressionEngine with the full data context.
+   * Runs AFTER resolveFieldBindings(), which is responsible for substituting
+   * `{{key}}` content placeholders against the data record. By the time this
+   * runs, those placeholders have already become plain text.
+   *
+   * For each input value, if it contains expression syntax (function calls like
+   * CONCAT(), IF(), arithmetic operators, etc.), evaluate via ExpressionEngine
+   * with the full data context.
    *
    * Skips calculatedField schemas (they have their own evaluation in resolveCalculatedFields).
-   * Simple {{field}} placeholder values (already resolved to plain text) pass through unchanged.
    */
   private resolveExpressions(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },

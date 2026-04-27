@@ -42,12 +42,15 @@ const getPaddingStyle = (i: number, p: number, color: string): CSS.Properties =>
   return style;
 };
 
+/** Soft blue-purple tint for margin/padding overlay — non-alarming, professional */
+const PADDING_OVERLAY_COLOR = '#818cf8'; // indigo-400
+
 const Padding = ({ basePdf }: { basePdf: BasePdf }) => {
   return (
     <>
       {isBlankPdf(basePdf) &&
         basePdf.padding.map((p, i) => (
-          <div key={String(i)} style={getPaddingStyle(i, p, theme.useToken().token.colorError)} />
+          <div key={String(i)} style={getPaddingStyle(i, p, PADDING_OVERLAY_COLOR)} />
         ))}
     </>
   );

@@ -58,6 +58,7 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       rotatable={props.rotatable}
       resizable
       edge={true}
+      origin={false}
       zoom={1 / props.scale}
       container={props.container || undefined}
       throttleDrag={1}

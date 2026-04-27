@@ -17,7 +17,7 @@ const crypto = tslib_1.__importStar(require("crypto"));
 exports.IS_PUBLIC_KEY = 'isPublic';
 const Public = () => (0, common_1.SetMetadata)(exports.IS_PUBLIC_KEY, true);
 exports.Public = Public;
-exports.PERMISSIONS_KEY = 'requiredPermissions';
+exports.PERMISSIONS_KEY = 'permissions';
 const RequirePermissions = (...permissions) => (0, common_1.SetMetadata)(exports.PERMISSIONS_KEY, permissions);
 exports.RequirePermissions = RequirePermissions;
 /** Default dev secret - production MUST override via JWT_SECRET env var */

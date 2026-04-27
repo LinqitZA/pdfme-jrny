@@ -58,7 +58,7 @@ export class PrinterController {
   // ─── Printers ────────────────────────────────────────────────────
 
   @Get('printers')
-  @RequirePermissions('printer:read')
+  @RequirePermissions('pdfme.admin')
   async listPrinters(@Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {
@@ -70,7 +70,7 @@ export class PrinterController {
 
   @Post('printers')
   @HttpCode(201)
-  @RequirePermissions('printer:write')
+  @RequirePermissions('pdfme.admin')
   async createPrinter(@Body() body: CreatePrinterDto, @Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {
@@ -107,7 +107,7 @@ export class PrinterController {
   }
 
   @Delete('printers/:id')
-  @RequirePermissions('printer:write')
+  @RequirePermissions('pdfme.admin')
   async deletePrinter(@Param('id') id: string, @Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {
@@ -125,7 +125,7 @@ export class PrinterController {
 
   @Post('print')
   @HttpCode(201)
-  @RequirePermissions('render:trigger')
+  @RequirePermissions('pdfme.documents.render')
   async print(
     @Body() body: { templateId: string; inputs?: Record<string, string>[]; printerId: string },
     @Req() req: any,
@@ -230,7 +230,7 @@ export class PrinterController {
   // ─── Print Jobs ──────────────────────────────────────────────────
 
   @Get('print-jobs')
-  @RequirePermissions('printer:read')
+  @RequirePermissions('pdfme.admin')
   async listPrintJobs(
     @Req() req: any,
     @Query('status') status?: string,
@@ -256,7 +256,7 @@ export class PrinterController {
 
   @Post('print-jobs/cleanup')
   @HttpCode(200)
-  @RequirePermissions('admin')
+  @RequirePermissions('pdfme.admin')
   async triggerCleanup(@Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {
@@ -268,7 +268,7 @@ export class PrinterController {
   }
 
   @Get('print-jobs/:id')
-  @RequirePermissions('printer:read')
+  @RequirePermissions('pdfme.admin')
   async getPrintJob(@Param('id') id: string, @Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {
@@ -284,7 +284,7 @@ export class PrinterController {
 
   @Post('print-jobs/:id/reprint')
   @HttpCode(200)
-  @RequirePermissions('render:trigger')
+  @RequirePermissions('pdfme.documents.render')
   async reprintJob(
     @Param('id') id: string,
     @Body() body: { fromPage?: number; toPage?: number },
@@ -338,7 +338,7 @@ export class PrinterController {
   }
 
   @Delete('print-jobs/:id')
-  @RequirePermissions('printer:write')
+  @RequirePermissions('pdfme.admin')
   async deletePrintJob(@Param('id') id: string, @Req() req: any) {
     const user = decodeJwt(req.headers.authorization);
     if (!user) {

@@ -61,7 +61,7 @@ const dictEn: { [key in keyof Dict]: string } = {
   'schemas.text.fit': 'Fit',
   'schemas.text.dynamicFontSize': 'Dynamic Font Size',
   'schemas.text.format': 'Format',
-  'schemas.radius': 'Radius',
+  'schemas.radius': 'Corner Radius (mm)',
   'schemas.mvt.typingInstructions':
     'Add variables by typing words surrounded by curly brackets, e.g.',
   'schemas.mvt.sampleField': 'name',

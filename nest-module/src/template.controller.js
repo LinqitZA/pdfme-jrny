@@ -953,6 +953,7 @@ tslib_1.__decorate([
 ], TemplateController.prototype, "publish", null);
 tslib_1.__decorate([
     (0, common_1.Post)(':id/preview'),
+    (0, auth_guard_1.RequirePermissions)('pdfme.templates.view'),
     tslib_1.__param(0, (0, common_1.Param)('id')),
     tslib_1.__param(1, (0, common_1.Body)()),
     tslib_1.__param(2, (0, common_1.Headers)('authorization')),

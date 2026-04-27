@@ -40,7 +40,7 @@ export class RenderController {
   ) {}
 
   @Post('now')
-  @RequirePermissions('render:trigger')
+  @RequirePermissions('pdfme.documents.render')
   async renderNow(
     @Body() body: RenderNowDto,
     @Req() req: any,
@@ -232,7 +232,7 @@ export class RenderController {
 
   @Post('bulk')
   @HttpCode(202)
-  @RequirePermissions('render:bulk')
+  @RequirePermissions('pdfme.documents.render.bulk')
   async renderBulk(
     @Body() body: RenderBulkDto,
     @Req() req: any,

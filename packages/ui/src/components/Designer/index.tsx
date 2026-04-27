@@ -13,7 +13,7 @@ import {
   isBlankPdf,
   px2mm,
 } from '@pdfme/common';
-import { DndContext } from '@dnd-kit/core';
+import { DndContext, DragOverlay } from '@dnd-kit/core';
 import RightSidebar from './RightSidebar/index.js';
 import LeftSidebar from './LeftSidebar.js';
 import Canvas from './Canvas/index.js';
@@ -32,6 +32,7 @@ import {
   useMaxZoom,
 } from '../../helper.js';
 import { useUIPreProcessor, useScrollPageCursor, useInitEvents } from '../../hooks.js';
+import { theme } from 'antd';
 import Root from '../Root.js';
 import ErrorScreen from '../ErrorScreen.js';
 import CtlBar from '../CtlBar.js';
@@ -70,6 +71,7 @@ const TemplateEditor = ({
   const pluginsRegistry = useContext(PluginsRegistry);
   const options = useContext(OptionsContext);
   const { hasFields } = useFieldPalette();
+  const { token } = theme.useToken();
   const maxZoom = useMaxZoom();
 
   const leftSidebarWidth = hasFields ? LEFT_SIDEBAR_WIDTH_EXPANDED : LEFT_SIDEBAR_WIDTH;
@@ -82,6 +84,8 @@ const TemplateEditor = ({
   const [gridSizeMm, setGridSizeMm] = useState<GridSizeMm>(DEFAULT_GRID_SIZE_MM);
   const [sidebarOpen, setSidebarOpen] = useState(options.sidebarOpen ?? true);
   const [prevTemplate, setPrevTemplate] = useState<Template | null>(null);
+  const [activeDragData, setActiveDragData] = useState<Record<string, unknown> | null>(null);
+  const [currentBasePdf, setCurrentBasePdf] = useState<BasePdf>(template.basePdf);
 
   const { backgrounds, pageSizes, scale, error, refresh } = useUIPreProcessor({
     template,
@@ -131,9 +135,9 @@ const TemplateEditor = ({
       const _schemasList = cloneDeep(schemasList);
       _schemasList[pageCursor] = newSchemas;
       setSchemasList(_schemasList);
-      onChangeTemplate(schemasList2template(_schemasList, template.basePdf));
+      onChangeTemplate(schemasList2template(_schemasList, currentBasePdf));
     },
-    [template, schemasList, pageCursor, onChangeTemplate],
+    [currentBasePdf, schemasList, pageCursor, onChangeTemplate],
   );
 
   const removeSchemas = useCallback(
@@ -149,13 +153,13 @@ const TemplateEditor = ({
       _changeSchemas({
         objs,
         schemas: schemasList[pageCursor],
-        basePdf: template.basePdf,
+        basePdf: currentBasePdf,
         pluginsRegistry,
         pageSize: pageSizes[pageCursor],
         commitSchemas,
       });
     },
-    [commitSchemas, pageCursor, schemasList, pluginsRegistry, pageSizes, template.basePdf],
+    [commitSchemas, pageCursor, schemasList, pluginsRegistry, pageSizes, currentBasePdf],
   );
 
   useInitEvents({
@@ -186,8 +190,8 @@ const TemplateEditor = ({
   }, []);
 
   const addSchema = (defaultSchema: Schema) => {
-    const [paddingTop, paddingRight, paddingBottom, paddingLeft] = isBlankPdf(template.basePdf)
-      ? template.basePdf.padding
+    const [paddingTop, paddingRight, paddingBottom, paddingLeft] = isBlankPdf(currentBasePdf)
+      ? currentBasePdf.padding
       : [0, 0, 0, 0];
     const pageSize = pageSizes[pageCursor];
 
@@ -244,7 +248,7 @@ const TemplateEditor = ({
 
   const updatePage = async (sl: SchemaForUI[][], newPageCursor: number) => {
     setPageCursor(newPageCursor);
-    const newTemplate = schemasList2template(sl, template.basePdf);
+    const newTemplate = schemasList2template(sl, currentBasePdf);
     onChangeTemplate(newTemplate);
     await updateTemplate(newTemplate);
     void refresh(newTemplate);
@@ -277,6 +281,7 @@ const TemplateEditor = ({
 
   if (prevTemplate !== template) {
     setPrevTemplate(template);
+    setCurrentBasePdf(template.basePdf);
     void updateTemplate(template);
   }
 
@@ -290,7 +295,7 @@ const TemplateEditor = ({
     // Pass the error directly to ErrorScreen
     return <ErrorScreen size={size} error={error} />;
   }
-  const pageManipulation = isBlankPdf(template.basePdf)
+  const pageManipulation = isBlankPdf(currentBasePdf)
     ? { addPageAfter: handleAddPageAfter, removePage: handleRemovePage }
     : {};
 
@@ -301,9 +306,9 @@ const TemplateEditor = ({
    */
   const handlePageSizeChange = useCallback(
     (newWidth: number, newHeight: number) => {
-      if (!isBlankPdf(template.basePdf)) return;
+      if (!isBlankPdf(currentBasePdf)) return;
 
-      const oldBasePdf = template.basePdf;
+      const oldBasePdf = currentBasePdf;
       const oldIsPortrait = oldBasePdf.height > oldBasePdf.width;
       const newIsPortrait = newHeight > newWidth;
       const orientationChanged = oldIsPortrait !== newIsPortrait;
@@ -319,6 +324,9 @@ const TemplateEditor = ({
         height: newHeight,
         padding: newPadding,
       };
+
+      // Update local basePdf state so the UI reflects the change immediately
+      setCurrentBasePdf(newBasePdf);
 
       // Reposition elements that fall outside the new page boundaries
       const [paddingTop, paddingRight, paddingBottom, paddingLeft] = newBasePdf.padding;
@@ -350,7 +358,7 @@ const TemplateEditor = ({
       onChangeTemplate(newTemplate);
       void updateTemplate(newTemplate).then(() => refresh(newTemplate));
     },
-    [template, schemasList, onChangeTemplate, updateTemplate, refresh],
+    [currentBasePdf, schemasList, onChangeTemplate, updateTemplate, refresh],
   );
 
   /**
@@ -359,13 +367,16 @@ const TemplateEditor = ({
    */
   const handlePaddingChange = useCallback(
     (newPadding: [number, number, number, number]) => {
-      if (!isBlankPdf(template.basePdf)) return;
+      if (!isBlankPdf(currentBasePdf)) return;
 
-      const oldBasePdf = template.basePdf;
+      const oldBasePdf = currentBasePdf;
       const newBasePdf: BlankPdf = {
         ...oldBasePdf,
         padding: newPadding,
       };
+
+      // Update local basePdf state so the UI reflects the change immediately
+      setCurrentBasePdf(newBasePdf);
 
       // Reposition elements that fall outside the new padded boundaries
       const [pTop, pRight, pBottom, pLeft] = newPadding;
@@ -403,16 +414,20 @@ const TemplateEditor = ({
 
       const newTemplate = schemasList2template(adjustedSchemasList, newBasePdf);
       onChangeTemplate(newTemplate);
-      void updateTemplate(newTemplate).then(() => refresh(newTemplate));
+      // Update schemas list from new template without resetting page cursor
+      void template2SchemasList(newTemplate).then((sl) => {
+        setSchemasList(sl);
+        refresh(newTemplate);
+      });
     },
-    [template, schemasList, onChangeTemplate, updateTemplate, refresh],
+    [currentBasePdf, schemasList, onChangeTemplate, refresh],
   );
 
   // Page size props for CtlBar (only for blank PDFs)
-  const pageSizeProps = isBlankPdf(template.basePdf)
+  const pageSizeProps = isBlankPdf(currentBasePdf)
     ? {
-        currentPageWidth: template.basePdf.width,
-        currentPageHeight: template.basePdf.height,
+        currentPageWidth: currentBasePdf.width,
+        currentPageHeight: currentBasePdf.height,
         onPageSizeChange: handlePageSizeChange,
       }
     : {};
@@ -424,6 +439,7 @@ const TemplateEditor = ({
       <GridContext.Provider value={gridContextValue}>
       <DndContext
         onDragEnd={(event) => {
+          setActiveDragData(null);
           // Triggered after a schema is dragged & dropped from the left sidebar.
           if (!event.active) return;
           const active = event.active;
@@ -446,15 +462,19 @@ const TemplateEditor = ({
 
           addSchema({ ...(active.data.current as Schema), position });
         }}
-        onDragStart={onEditEnd}
+        onDragStart={(event) => {
+          onEditEnd();
+          setActiveDragData((event.active.data.current ?? null) as Record<string, unknown> | null);
+        }}
+        onDragCancel={() => setActiveDragData(null)}
       >
         <LeftSidebar
           height={canvasRef.current ? canvasRef.current.clientHeight : 0}
           scale={scale}
-          basePdf={template.basePdf}
+          basePdf={currentBasePdf}
         />
 
-        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: leftSidebarWidth, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', width: canvasWidth, marginLeft: leftSidebarWidth }}>
           <CtlBar
             size={sizeExcSidebars}
             pageCursor={pageCursor}
@@ -481,7 +501,7 @@ const TemplateEditor = ({
             height={canvasRef.current ? canvasRef.current.clientHeight : 0}
             size={size}
             pageSize={pageSizes[pageCursor] ?? []}
-            basePdf={template.basePdf}
+            basePdf={currentBasePdf}
             activeElements={activeElements}
             schemasList={schemasList}
             schemas={schemasList[pageCursor] ?? []}
@@ -497,14 +517,14 @@ const TemplateEditor = ({
             deselectSchema={onEditEnd}
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
-            onPageSizeChange={isBlankPdf(template.basePdf) ? handlePageSizeChange : undefined}
-            onPaddingChange={isBlankPdf(template.basePdf) ? handlePaddingChange : undefined}
+            onPageSizeChange={isBlankPdf(currentBasePdf) ? handlePageSizeChange : undefined}
+            onPaddingChange={isBlankPdf(currentBasePdf) ? handlePaddingChange : undefined}
           />
 
           <Canvas
             ref={canvasRef}
             paperRefs={paperRefs}
-            basePdf={template.basePdf}
+            basePdf={currentBasePdf}
             hoveringSchemaId={hoveringSchemaId}
             onChangeHoveringSchemaId={onChangeHoveringSchemaId}
             height={size.height - RULER_HEIGHT * ZOOM}
@@ -521,6 +541,32 @@ const TemplateEditor = ({
             onEdit={onEdit}
           />
         </div>
+        <DragOverlay dropAnimation={null}>
+          {activeDragData && (
+            <div
+              style={{
+                padding: '6px 10px',
+                background: token.colorBgElevated,
+                border: `1.5px solid ${token.colorPrimary}`,
+                borderRadius: token.borderRadius,
+                fontSize: 12,
+                color: token.colorText,
+                boxShadow: token.boxShadowSecondary,
+                whiteSpace: 'nowrap',
+                pointerEvents: 'none',
+                opacity: 0.9,
+                maxWidth: 200,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {(activeDragData as any).fieldMeta?.label ||
+                (activeDragData as any).content ||
+                (activeDragData as any).type ||
+                'Schema'}
+            </div>
+          )}
+        </DragOverlay>
       </DndContext>
       </GridContext.Provider>
     </Root>

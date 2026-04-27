@@ -4,6 +4,7 @@ import { DESIGNER_CLASSNAME } from '../../../../constants.js';
 import { I18nContext } from '../../../../contexts.js';
 import { Input, Typography, Button } from 'antd';
 import SelectableSortableContainer from './SelectableSortableContainer.js';
+import PageSettingsSection from './PageSettingsSection.js';
 import { SidebarBody, SidebarFooter, SidebarFrame, SidebarHeader } from '../layout.js';
 
 const { Text } = Typography;
@@ -18,9 +19,12 @@ const ListView = (
     | 'hoveringSchemaId'
     | 'onChangeHoveringSchemaId'
     | 'changeSchemas'
+    | 'basePdf'
+    | 'onPageSizeChange'
+    | 'onPaddingChange'
   >,
 ) => {
-  const { schemas, onSortEnd, onEdit, hoveringSchemaId, onChangeHoveringSchemaId, changeSchemas } =
+  const { schemas, onSortEnd, onEdit, hoveringSchemaId, onChangeHoveringSchemaId, changeSchemas, basePdf, onPageSizeChange, onPaddingChange } =
     props;
   const i18n = useContext(I18nContext);
   const [isBulkUpdateFieldNamesMode, setIsBulkUpdateFieldNamesMode] = useState(false);
@@ -55,6 +59,11 @@ const ListView = (
         </Text>
       </SidebarHeader>
       <SidebarBody>
+        <PageSettingsSection
+          basePdf={basePdf}
+          onPageSizeChange={onPageSizeChange}
+          onPaddingChange={onPaddingChange}
+        />
         {isBulkUpdateFieldNamesMode ? (
           <TextArea
             wrap="off"

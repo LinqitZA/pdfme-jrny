@@ -151,7 +151,7 @@ export class TemplateController {
   }
 
   @Get()
-  @RequirePermissions('template:view')
+  @RequirePermissions('pdfme.templates.view')
   async list(
     @Query('orgId') queryOrgId?: string,
     @Query('limit') queryLimit?: string,
@@ -181,7 +181,7 @@ export class TemplateController {
   }
 
   @Get('types')
-  @RequirePermissions('template:view')
+  @RequirePermissions('pdfme.templates.view')
   async getDistinctTypes(
     @Query('orgId') queryOrgId?: string,
     @Headers('authorization') authHeader?: string,
@@ -272,7 +272,7 @@ export class TemplateController {
   }
 
   @Post('import')
-  @RequirePermissions('template:import')
+  @RequirePermissions('pdfme.templates.edit')
   @HttpCode(HttpStatus.CREATED)
   async importTemplate(
     @Body() body: any,
@@ -615,7 +615,7 @@ export class TemplateController {
   }
 
   @Get(':id/versions')
-  @RequirePermissions('template:view')
+  @RequirePermissions('pdfme.templates.view')
   async getVersionHistory(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,
@@ -655,7 +655,7 @@ export class TemplateController {
   }
 
   @Post(':id/restore')
-  @RequirePermissions('template:edit')
+  @RequirePermissions('pdfme.templates.edit')
   async restoreVersion(
     @Param('id') id: string,
     @Body() body: { version: number },
@@ -825,7 +825,7 @@ export class TemplateController {
   }
 
   @Get(':id')
-  @RequirePermissions('template:view')
+  @RequirePermissions('pdfme.templates.view')
   async getById(
     @Param('id') id: string,
     @Query('orgId') queryOrgId?: string,
@@ -845,7 +845,7 @@ export class TemplateController {
   }
 
   @Put(':id/draft')
-  @RequirePermissions('template:edit')
+  @RequirePermissions('pdfme.templates.edit')
   async saveDraft(
     @Param('id') id: string,
     @Body() body: SaveDraftDto,
@@ -955,7 +955,7 @@ export class TemplateController {
   }
 
   @Post(':id/publish')
-  @RequirePermissions('template:publish')
+  @RequirePermissions('pdfme.templates.publish')
   async publish(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,
@@ -990,6 +990,7 @@ export class TemplateController {
     return result;
   }
 
+  @RequirePermissions('pdfme.templates.view')
   @Post(':id/preview')
   async generatePreview(
     @Param('id') id: string,
@@ -1042,7 +1043,7 @@ export class TemplateController {
   }
 
   @Post(':id/fork')
-  @RequirePermissions('template:edit')
+  @RequirePermissions('pdfme.templates.edit')
   async forkTemplate(
     @Param('id') id: string,
     @Body() body: { name?: string },
@@ -1105,7 +1106,7 @@ export class TemplateController {
   }
 
   @Delete(':id')
-  @RequirePermissions('template:delete')
+  @RequirePermissions('pdfme.templates.delete')
   async delete(
     @Param('id') id: string,
     @Headers('authorization') authHeader?: string,

@@ -235,8 +235,8 @@ const PageSizeSelector = ({
           minWidth: 80,
           maxWidth: 140,
         }}
-        dropdownStyle={{
-          minWidth: 220,
+        styles={{
+          popup: { root: { minWidth: 220 } },
         }}
         variant="borderless"
         labelRender={({ label, value }) => (
@@ -312,7 +312,7 @@ const GridSizeSelector = ({ gridSizeMm, setGridSizeMm, style }: GridSizeSelector
         options={GRID_SIZE_OPTIONS}
         popupMatchSelectWidth={false}
         style={{ minWidth: 60, maxWidth: 100 }}
-        dropdownStyle={{ minWidth: 100 }}
+        styles={{ popup: { root: { minWidth: 100 } } }}
         variant="borderless"
         labelRender={({ label }) => (
           <Text strong style={{ ...style.textStyle, margin: 0, fontSize: 12, whiteSpace: 'nowrap' }}>

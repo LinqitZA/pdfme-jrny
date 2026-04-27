@@ -129,6 +129,32 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const [isPressShiftKey, setIsPressShiftKey] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  // ---- Crosshair cursor tracking ----
+  const [crosshairPos, setCrosshairPos] = useState<{
+    x: number;
+    y: number;
+    scrollW: number;
+    scrollH: number;
+  } | null>(null);
+
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const rect = container.getBoundingClientRect();
+    // Position relative to the scrollable canvas content
+    const x = e.clientX - rect.left + container.scrollLeft;
+    const y = e.clientY - rect.top + container.scrollTop;
+    setCrosshairPos({
+      x,
+      y,
+      scrollW: container.scrollWidth,
+      scrollH: container.scrollHeight,
+    });
+  }, []);
+
+  const handleCanvasMouseLeave = useCallback(() => {
+    setCrosshairPos(null);
+  }, []);
+
   const prevSchemas = usePrevious(schemasList[pageCursor]);
 
   const onKeydown = (e: KeyboardEvent) => {
@@ -359,7 +385,40 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
         ...size,
       }}
       ref={ref}
+      onMouseMove={handleCanvasMouseMove}
+      onMouseLeave={handleCanvasMouseLeave}
     >
+      {/* Crosshair tracking lines */}
+      {crosshairPos && (
+        <>
+          {/* Vertical line */}
+          <div
+            style={{
+              position: 'absolute',
+              left: crosshairPos.x,
+              top: 0,
+              width: 0,
+              height: crosshairPos.scrollH,
+              borderLeft: '1px dashed rgba(59, 130, 246, 0.4)',
+              pointerEvents: 'none',
+              zIndex: 9999,
+            }}
+          />
+          {/* Horizontal line */}
+          <div
+            style={{
+              position: 'absolute',
+              top: crosshairPos.y,
+              left: 0,
+              height: 0,
+              width: crosshairPos.scrollW,
+              borderTop: '1px dashed rgba(59, 130, 246, 0.4)',
+              pointerEvents: 'none',
+              zIndex: 9999,
+            }}
+          />
+        </>
+      )}
       <Selecto
         container={paperRefs.current[pageCursor]}
         continueSelect={isPressShiftKey}
@@ -456,7 +515,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                 <Moveable
                   ref={moveable}
                   target={activeElements}
-                  container={paperScaleRef.current}
+                  container={paperRefs.current[index]}
                   bounds={{ left: 0, top: 0, bottom: paperSize.height, right: paperSize.width }}
                   horizontalGuidelines={getGuideLines(horizontalGuides.current, index)}
                   verticalGuidelines={getGuideLines(verticalGuides.current, index)}

@@ -64,7 +64,7 @@ const Draggable = (props: {
 
 // ---- ERP Field Draggable ----
 
-const FieldDraggable = ({ field }: { field: FieldEntry }) => {
+const FieldDraggable = ({ field, onDragStart }: { field: FieldEntry; onDragStart?: () => void }) => {
   const { token } = theme.useToken();
   const draggable = useDraggable({
     id: `erp-field-${field.key}`,
@@ -94,6 +94,7 @@ const FieldDraggable = ({ field }: { field: FieldEntry }) => {
     border: `1px solid ${isDragging ? token.colorPrimary : 'transparent'}`,
     transition: 'background 0.15s, border-color 0.15s',
     userSelect: 'none',
+    touchAction: 'none',
   };
 
   return (
@@ -103,6 +104,7 @@ const FieldDraggable = ({ field }: { field: FieldEntry }) => {
       {...listeners}
       {...attributes}
       title={field.example ? `Example: ${field.example}` : field.key}
+      onMouseDown={() => onDragStart?.()}
       onMouseEnter={(e) => {
         (e.currentTarget as HTMLDivElement).style.background = token.colorBgTextHover;
       }}
@@ -143,9 +145,11 @@ const FieldDraggable = ({ field }: { field: FieldEntry }) => {
 const FieldGroupPanel = ({
   group,
   depth = 0,
+  onFieldDragStart,
 }: {
   group: FieldGroup;
   depth?: number;
+  onFieldDragStart?: () => void;
 }) => {
   const { token } = theme.useToken();
   const [expanded, setExpanded] = useState(depth === 0);
@@ -198,10 +202,10 @@ const FieldGroupPanel = ({
       {expanded && (
         <div style={{ paddingLeft: depth * 8 }}>
           {group.fields.map((field) => (
-            <FieldDraggable key={field.key} field={field} />
+            <FieldDraggable key={field.key} field={field} onDragStart={onFieldDragStart} />
           ))}
           {group.children?.map((child) => (
-            <FieldGroupPanel key={child.key} group={child} depth={depth + 1} />
+            <FieldGroupPanel key={child.key} group={child} depth={depth + 1} onFieldDragStart={onFieldDragStart} />
           ))}
         </div>
       )}
@@ -354,12 +358,12 @@ const LeftSidebar = ({
       <div
         style={{
           flex: 1,
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          overflowY: isDragging ? 'visible' : 'auto',
+          overflowX: isDragging ? 'visible' : 'hidden',
         }}
       >
         {fieldGroups.map((group) => (
-          <FieldGroupPanel key={group.key} group={group} />
+          <FieldGroupPanel key={group.key} group={group} onFieldDragStart={() => setIsDragging(true)} />
         ))}
       </div>
     </div>

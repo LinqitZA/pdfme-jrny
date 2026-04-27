@@ -17,4 +17,8 @@ export type SidebarProps = {
   deselectSchema: () => void;
   sidebarOpen: boolean;
   setSidebarOpen: (sidebarOpen: boolean) => void;
+  /** Callback when page size changes (only for blank PDF templates) */
+  onPageSizeChange?: (width: number, height: number) => void;
+  /** Callback when page padding changes (only for blank PDF templates) */
+  onPaddingChange?: (padding: [number, number, number, number]) => void;
 };

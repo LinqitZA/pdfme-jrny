@@ -98,10 +98,10 @@ const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
               left: leftCenteringIndent,
               position: 'relative',
               backgroundImage: showGrid
-                ? `url(${background}), radial-gradient(circle, rgba(148,163,184,0.25) 0.8px, transparent 0.8px)`
+                ? `linear-gradient(to right, rgba(148,163,184,0.3) 0.5px, transparent 0.5px), linear-gradient(to bottom, rgba(148,163,184,0.3) 0.5px, transparent 0.5px), url(${background})`
                 : `url(${background})`,
               backgroundSize: showGrid
-                ? `${paperSize.width}px ${paperSize.height}px, ${gridSpacingPx}px ${gridSpacingPx}px`
+                ? `${gridSpacingPx}px ${gridSpacingPx}px, ${gridSpacingPx}px ${gridSpacingPx}px, ${paperSize.width}px ${paperSize.height}px`
                 : `${paperSize.width}px ${paperSize.height}px`,
               boxShadow: '0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04)',
               ...paperSize,
