@@ -3,9 +3,10 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "node",
-    "rootDir": ".",
+    "rootDir": "./src",
     "outDir": "./dist/cjs",
     "skipLibCheck": true
   },
+  "include": ["src"],
   "exclude": ["dist", "__tests__", "**/*.test.ts", "**/*.spec.ts"]
 }

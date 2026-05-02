@@ -11,10 +11,12 @@
  *
  * What it checks (per package):
  *   1. Every output target tsc was supposed to emit (cjs, esm, node) has a
- *      top-level `dist/<target>/src/index.js` (and `utils.js` for schemas).
- *   2. `dist/types/src/index.d.ts` exists.
+ *      top-level entry index.js — either `dist/<target>/src/index.js` (when
+ *      rootDir is ".") or `dist/<target>/index.js` (when rootDir is "./src").
+ *      The subpath is auto-detected from package.json#main.
+ *   2. Corresponding `.d.ts` files exist when declarations are emitted.
  *   3. Every directory that exists under `src/` (e.g. `barcodes/`, `checkbox/`,
- *      `radioGroup/`, `select/`) also exists under each target's `dist/<t>/src/`.
+ *      `radioGroup/`, `select/`) also exists under the target's output dir.
  *   4. CJS (`dist/cjs/`) and Node (`dist/node/`, when there is no
  *      `"type": "module"` in package.json) outputs are CJS-shape — i.e. they
  *      contain `exports.` / `module.exports` / `require(` and DO NOT contain
@@ -97,10 +99,37 @@ if (targets.length === 0) {
 const distDir = path.join(pkgDir, 'dist');
 const srcDir = path.join(pkgDir, 'src');
 
-// 1. Every target has at least one top-level entry .js under dist/<t>/src/.
+// Derive the output subpath from package.json#main.
+// With rootDir "." (most packages): main = "dist/cjs/src/index.js" -> distSubpath = "src"
+// With rootDir "./src" (e.g. pdf-lib): main = "dist/cjs/index.js" -> distSubpath = null
+function getDistSubpath() {
+  const mainPath = pkg.main;
+  if (!mainPath) return 'src'; // default for legacy packages
+  const parts = mainPath.split('/');
+  // Expected: "dist/<target>/<subpath>/index.js" (4+ parts) or "dist/<target>/index.js" (3 parts)
+  if (parts.length >= 4 && parts[0] === 'dist') {
+    return parts.slice(2, -1).join('/'); // e.g. "src"
+  }
+  return null; // no subpath — output is directly under dist/<target>/
+}
+const distSubpath = getDistSubpath();
+const distSubLabel = distSubpath || '';
+
+// Resolve the output directory for a given target — handles both structures.
+function getTargetOutputDir(target) {
+  if (distSubpath) return path.join(distDir, target, distSubpath);
+  return path.join(distDir, target);
+}
+
+function getTargetOutputLabel(target) {
+  if (distSubpath) return `dist/${target}/${distSubpath}`;
+  return `dist/${target}`;
+}
+
+// 1. Every target has at least one top-level entry .js under the output dir.
 // Most packages compile `src/index.ts` -> `dist/<t>/src/index.js`, but some
-// (e.g. @pdfme/converter) emit `index.node.js` / `index.browser.js` instead.
-// We treat any `dist/<t>/src/*.js` file at depth 1 (excluding .map / .d.ts) as
+// use rootDir "./src" to compile `src/index.ts` -> `dist/<t>/index.js`.
+// We treat any `*.js` file at depth 1 (excluding .map / .d.ts) as
 // a valid entry, and additionally cross-check every `src/*.ts` top-level file.
 function listTopLevelTsEntries() {
   if (!fs.existsSync(srcDir)) return [];
@@ -122,29 +151,32 @@ const expectsTypes =
   });
 
 for (const t of targets) {
-  const tSrcDir = path.join(distDir, t, 'src');
+  const tOutDir = getTargetOutputDir(t);
+  const tOutLabel = getTargetOutputLabel(t);
   assert(
-    fs.existsSync(tSrcDir) && fs.statSync(tSrcDir).isDirectory(),
-    `dist/${t}/src/ exists`,
+    fs.existsSync(tOutDir) && fs.statSync(tOutDir).isDirectory(),
+    `${tOutLabel}/ exists`,
   );
-  if (!fs.existsSync(tSrcDir)) continue;
+  if (!fs.existsSync(tOutDir)) continue;
 
   // Each top-level src/*.ts must have a compiled .js sibling in this target.
   for (const entry of topLevelEntries) {
-    const expected = path.join(tSrcDir, `${entry}.js`);
+    const expected = path.join(tOutDir, `${entry}.js`);
     assert(
       fs.existsSync(expected),
-      `dist/${t}/src/${entry}.js exists (compiled from src/${entry}.ts)`,
+      `${tOutLabel}/${entry}.js exists (compiled from src/${entry}.ts)`,
     );
   }
 }
 
-// Each top-level src/*.ts must also have a corresponding .d.ts in dist/types/src/
+// Each top-level src/*.ts must also have a corresponding .d.ts in the types output dir
 // when declarations are emitted by at least one target build.
 if (expectsTypes) {
+  const typesOutDir = distSubpath ? path.join(distDir, 'types', distSubpath) : path.join(distDir, 'types');
+  const typesLabel = distSubpath ? `dist/types/${distSubpath}` : 'dist/types';
   for (const entry of topLevelEntries) {
-    const dts = path.join(distDir, 'types', 'src', `${entry}.d.ts`);
-    assert(fs.existsSync(dts), `dist/types/src/${entry}.d.ts exists`);
+    const dts = path.join(typesOutDir, `${entry}.d.ts`);
+    assert(fs.existsSync(dts), `${typesLabel}/${entry}.d.ts exists`);
   }
 }
 
@@ -160,15 +192,17 @@ function listSrcSubdirs() {
 }
 const srcSubdirs = listSrcSubdirs();
 for (const t of targets) {
+  const tOutDir = getTargetOutputDir(t);
+  const tOutLabel = getTargetOutputLabel(t);
   for (const sub of srcSubdirs) {
-    const expected = path.join(distDir, t, 'src', sub);
+    const expected = path.join(tOutDir, sub);
     // only require the subdirectory if it has at least one .ts file
     const srcSub = path.join(srcDir, sub);
     const hasTs = fs.existsSync(srcSub) && walkHasTs(srcSub);
     if (!hasTs) continue;
     assert(
       fs.existsSync(expected) && fs.statSync(expected).isDirectory(),
-      `dist/${t}/src/${sub}/ exists`,
+      `${tOutLabel}/${sub}/ exists`,
     );
   }
 }
