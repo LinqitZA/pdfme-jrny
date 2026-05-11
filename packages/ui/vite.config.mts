@@ -13,6 +13,16 @@ export default defineConfig(({ mode }) => {
         name: '@pdfme/ui',
         fileName: (format) => `index.${format}.js`,
       },
+      rollupOptions: {
+        // form-render imports rc-picker internals which may not be hoisted by pnpm.
+        // Treat as warning instead of error to avoid build failures from phantom deps.
+        onwarn(warning, warn) {
+          if (warning.code === 'UNRESOLVED_IMPORT' && warning.exporter?.includes('rc-picker')) {
+            return; // suppress rc-picker phantom dependency warning from form-render
+          }
+          warn(warning);
+        },
+      },
     },
     optimizeDeps: {
       include: ['react', 'react-dom', 'pdfjs-dist', 'antd'],
