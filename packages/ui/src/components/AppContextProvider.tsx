@@ -78,7 +78,13 @@ const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroup
   );
 
   return (
-    <ThemeConfigProvider theme={theme}>
+    <ThemeConfigProvider
+      theme={theme}
+      // antd v6: Modal/Drawer mask has blur enabled by default — disable it
+      // to prevent the backdrop filter from interfering with the WYSIWYG canvas
+      modal={{ mask: { blur: false } }}
+      drawer={{ mask: { blur: false } }}
+    >
       <I18nContext.Provider value={(key: keyof Dict) => i18n(key, dict)}>
         <FontContext.Provider value={font}>
           <PluginsRegistry.Provider value={plugins}>

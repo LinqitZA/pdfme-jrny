@@ -264,7 +264,7 @@ const PageSettingsSection = ({
         size="small"
         defaultActiveKey={['page-settings']}
         items={collapseItems}
-        bordered={false}
+        variant="borderless"
         style={{ background: 'transparent' }}
       />
     </div>
