@@ -375,8 +375,9 @@ export const getPlugin = ({ type, icon }: { type: PickerType; icon: string }) =>
           (button) => button.key === Formatter.ALIGNMENT,
         );
 
-        const validateDateTimeFormat = (_rule: unknown, formatString: string): boolean => {
+        const validateDateTimeFormat = (_rule: unknown, value: unknown): boolean => {
           try {
+            const formatString = String(value ?? '');
             format('Thu Jan 01 1970 00:00:00 GMT+0000', formatString, {
               locale: locale.formatLocale,
             });
