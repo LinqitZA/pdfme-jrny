@@ -273,15 +273,10 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       { key: 'width', value: fmt(width), schemaId: id },
       { key: 'height', value: fmt(height), schemaId: id },
     ]);
-
-    const targetSchema = schemasList[pageCursor].find((schema) => schema.id === id);
-
-    if (!targetSchema) return;
-
-    targetSchema.position.x = fmt(left);
-    targetSchema.position.y = fmt(top);
-    targetSchema.width = fmt(width);
-    targetSchema.height = fmt(height);
+    // Note: Do NOT directly mutate targetSchema here. The changeSchemas() call
+    // above handles state updates through React's state management. Direct mutation
+    // creates race conditions where Moveable's stale DOM references conflict with
+    // React's re-render cycle, causing resize interactions to freeze.
   };
 
   const onResizeEnds = ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => {

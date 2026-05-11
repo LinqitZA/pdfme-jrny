@@ -50,7 +50,14 @@ const useRerenderDependencies = (arg: ReRenderCheckProps) => {
     if (plugin?.uninterruptedEditMode && mode === 'designer') {
       return [mode];
     } else {
-      return [value, mode, scale, JSON.stringify(schema), optionStr];
+      // Exclude geometry fields (width, height, position) from schema comparison.
+      // During resize/move, Moveable applies visual changes directly via DOM style.
+      // The Wrapper component handles final dimensions via React props (schema.width/height).
+      // Preventing uiRender from firing on geometry-only changes avoids a DOM destruction
+      // race condition: innerHTML='' would destroy the element Moveable is actively
+      // interacting with, causing the resize interaction to freeze.
+      const { width, height, position, ...nonGeometrySchema } = schema;
+      return [value, mode, scale, JSON.stringify(nonGeometrySchema), optionStr];
     }
   }, [value, mode, scale, schema, optionStr, plugin]);
 };

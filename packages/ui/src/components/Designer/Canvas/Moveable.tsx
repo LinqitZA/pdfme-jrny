@@ -63,7 +63,7 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       container={props.container || undefined}
       throttleDrag={1}
       throttleRotate={1}
-      throttleResize={1}
+      throttleResize={16}
       ref={ref}
       target={props.target}
       bounds={props.bounds}
