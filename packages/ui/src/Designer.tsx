@@ -51,6 +51,17 @@ class Designer extends BaseUIClass {
     this.render();
   }
 
+  /**
+   * Update the field groups used by the field binding palette.
+   * This avoids destroying and re-creating the entire Designer instance
+   * when field groups change (e.g. after async loading or SSE updates).
+   */
+  public updateFieldGroups(fieldGroups?: FieldGroup[]) {
+    if (!this.domContainer) throw Error(DESTROYED_ERR_MSG);
+    this.fieldGroups = fieldGroups;
+    this.render();
+  }
+
   public onSaveTemplate(cb: (template: Template) => void) {
     this.onSaveTemplateCallback = cb;
   }

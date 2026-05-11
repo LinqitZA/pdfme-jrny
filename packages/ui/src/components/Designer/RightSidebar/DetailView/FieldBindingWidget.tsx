@@ -144,8 +144,25 @@ const FieldBindingWidget: React.FC<FieldBindingWidgetProps> = ({
     [allFields],
   );
 
-  // Don't render if no field groups are available
-  if (!hasFields) return null;
+  // Show info message when field groups haven't loaded yet
+  if (!hasFields) {
+    return (
+      <div
+        style={{
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          marginBottom: 4,
+          padding: '8px 12px',
+        }}
+      >
+        <Text
+          type="secondary"
+          style={{ fontSize: 12 }}
+        >
+          Field bindings unavailable — no field schema loaded for this document type.
+        </Text>
+      </div>
+    );
+  }
 
   return (
     <div
