@@ -753,39 +753,39 @@ const SortableColumnCard: React.FC<SortableColumnCardProps> = ({
                       onUpdate(index, { ...column, ...updates });
                     }}
                     onClear={() => onUpdate(index, { ...column, key: '' })}
-                  >
-                    {fieldOptions.map((group) => (
-                      <Select.OptGroup key={group.label} label={group.label}>
-                        {group.options.map((opt) => (
-                          <Select.Option
-                            key={opt.value}
-                            value={opt.value}
-                            label={typeof opt.label === 'string' ? opt.label : opt.value}
-                            searchLabel={opt.searchLabel}
-                          >
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                              {opt.fieldType && (
-                                <span
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 600,
-                                    color: FIELD_TYPE_COLORS[opt.fieldType] || token.colorTextSecondary,
-                                    minWidth: 22,
-                                    textAlign: 'center',
-                                  }}
-                                >
-                                  {FIELD_TYPE_ABBR[opt.fieldType] || opt.fieldType}
-                                </span>
-                              )}
-                              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {typeof opt.label === 'string' ? opt.label : opt.value}
-                              </span>
+                    options={fieldOptions.map((group) => ({
+                      label: group.label,
+                      options: group.options.map((opt) => ({
+                        value: opt.value,
+                        label: typeof opt.label === 'string' ? opt.label : opt.value,
+                        searchLabel: opt.searchLabel,
+                        fieldType: opt.fieldType,
+                      })),
+                    }))}
+                    optionRender={(option) => {
+                      const data = option.data as { fieldType?: string; searchLabel?: string };
+                      return (
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                          {data.fieldType && (
+                            <span
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 600,
+                                color: FIELD_TYPE_COLORS[data.fieldType] || token.colorTextSecondary,
+                                minWidth: 22,
+                                textAlign: 'center',
+                              }}
+                            >
+                              {FIELD_TYPE_ABBR[data.fieldType] || data.fieldType}
                             </span>
-                          </Select.Option>
-                        ))}
-                      </Select.OptGroup>
-                    ))}
-                  </Select>
+                          )}
+                          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {option.label}
+                          </span>
+                        </span>
+                      );
+                    }}
+                  />
                   {/* Show bound field group path */}
                   {column.key && fieldGroupPath && (
                     <Text
