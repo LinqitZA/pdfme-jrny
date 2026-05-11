@@ -58,8 +58,8 @@ const ButtonGroupWidget = (props: PropPanelWidgetProps) => {
           const active = isActive(btn);
           return (
             <Button
-              type={active ? 'primary' : undefined}
-              ghost={active}
+              type={active ? 'primary' : 'default'}
+              variant={active ? 'outlined' : 'outlined'}
               onClick={() => apply(btn)}
               style={{
                 padding: 7,
