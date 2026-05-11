@@ -1,11 +1,23 @@
 'use client';
 
 import { useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { Suspense, useState, useEffect, useCallback } from 'react';
-import ErpDesigner from '@/components/ErpDesigner';
 import type { FieldSchemaEntry, BrandConfig } from '@/components/ErpDesigner';
 import { generateDevToken } from '@/lib/dev-token';
 import { getApiBase } from '@/lib/api-base';
+
+// Dynamic import with SSR disabled to prevent Node.js 25 localStorage errors.
+// The designer uses browser-only APIs (Canvas, DnD, font rendering) that cannot
+// run during server-side pre-rendering.
+const ErpDesigner = dynamic(() => import('@/components/ErpDesigner'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui' }}>
+      Loading designer…
+    </div>
+  ),
+});
 
 function DesignerContent() {
   const searchParams = useSearchParams();
