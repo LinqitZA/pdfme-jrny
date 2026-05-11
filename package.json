@@ -89,10 +89,7 @@
       "esbuild": "0.25.12"
     },
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "form-render": {
-      "antd": "^6.3.7"
-    }
+    "react-dom": "^19.0.0"
   },
   "dependencies": {
     "@nestjs/platform-express": "^11.1.17",

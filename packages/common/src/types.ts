@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { PDFPage, PDFDocument } from '@pdfme/pdf-lib';
 import type { ThemeConfig, GlobalToken } from 'antd';
-import type { WidgetProps as _PropPanelWidgetProps, Schema as _PropPanelSchema } from 'form-render';
 import {
   Lang,
   Dict,
@@ -26,7 +25,43 @@ import {
   SchemaPageArray,
 } from './schema.js';
 
-export type PropPanelSchema = _PropPanelSchema;
+/**
+ * Schema definition for form fields in the property panel.
+ * Compatible with form-render's Schema type — used by plugins to define their property panels.
+ */
+export interface PropPanelSchema {
+  type?: 'string' | 'number' | 'boolean' | 'object' | 'void' | 'array' | 'date' | 'datetime' | 'block' | (string & Record<never, never>);
+  title?: string;
+  description?: string;
+  default?: unknown;
+  required?: boolean | string;
+  placeholder?: string;
+  min?: number | string;
+  max?: number | string;
+  disabled?: boolean | string;
+  readOnly?: boolean | string;
+  hidden?: boolean | string;
+  column?: number;
+  widget?: string;
+  properties?: Record<string, PropPanelSchema>;
+  items?: PropPanelSchema;
+  enum?: Array<string | number> | string;
+  enumNames?: Array<string | number> | string;
+  rules?: Array<{
+    validator?: (rule: unknown, value: unknown) => boolean | Promise<boolean>;
+    pattern?: string | RegExp;
+    message?: string;
+  }> | {
+    validator?: (rule: unknown, value: unknown) => boolean | Promise<boolean>;
+    pattern?: string | RegExp;
+    message?: string;
+  };
+  props?: Record<string, unknown>;
+  span?: number;
+  format?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
 export type ChangeSchemaItem = {
   key: string;
   value: unknown;
@@ -118,7 +153,20 @@ type PropPanelProps = {
   i18n: (key: string) => string;
 };
 
-export type PropPanelWidgetProps = _PropPanelWidgetProps & PropPanelProps;
+export type PropPanelWidgetProps = {
+  /** The field's current value */
+  value?: unknown;
+  /** Callback to update the field's value */
+  onChange?: (value: unknown) => void;
+  /** The field schema definition from the property panel */
+  schema: PropPanelSchema;
+  /** Whether the field is disabled */
+  disabled?: boolean;
+  /** Whether the field is read-only */
+  readOnly?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+} & PropPanelProps;
 
 /**
  * Used for customizing the property panel.

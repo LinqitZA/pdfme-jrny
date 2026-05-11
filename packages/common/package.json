@@ -57,8 +57,7 @@
     "zod": "^4.3.6"
   },
   "peerDependencies": {
-    "antd": "^6.0.0",
-    "form-render": "^2.2.20"
+    "antd": "^6.0.0"
   },
   "jest": {
     "resolver": "ts-jest-resolver",

@@ -43,8 +43,8 @@
     "@scena/react-guides": "^0.28.2",
     "antd": "^6.3.7",
     "dompurify": "^3.3.3",
-    "form-render": "^2.5.5",
     "globrex": "^0.1.2",
+    "react-hook-form": "^7.72.0",
     "hotkeys-js": "^4.0.2",
     "lucide-react": "^0.577.0",
     "react-moveable": "^0.56.0",
@@ -95,7 +95,6 @@
       "^@pdfme/converter$": "<rootDir>/../converter/src/index.node.ts",
       "^@pdfme/schemas/utils$": "<rootDir>/../schemas/src/utils.ts",
       "^antd/es/": "antd/lib/",
-      "^form-render/es/": "form-render/lib/",
       "^rc-picker/es/": "rc-picker/lib/",
       "^lodash-es$": "lodash",
       "\\^lucide-react$": "<rootDir>/__mocks__/lucide-react.js"

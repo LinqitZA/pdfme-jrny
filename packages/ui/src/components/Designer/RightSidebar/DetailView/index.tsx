@@ -1,4 +1,3 @@
-import { useForm } from 'form-render';
 import React, { useRef, useContext, useState, useEffect, useCallback } from 'react';
 import type {
   Dict,
@@ -25,11 +24,8 @@ import ConditionalVisibilityWidget from './ConditionalVisibilityWidget.js';
 import ExpressionBuilderWidget from './ExpressionBuilderWidget.js';
 import ColumnConfigWidget from './ColumnConfigWidget.js';
 import TrackingDetailWidget from './TrackingDetailWidget.js';
-import { InternalNamePath, ValidateErrorEntity } from 'rc-field-form/es/interface.js';
 import { SidebarBody, SidebarFrame, SidebarHeader, SIDEBAR_H_PADDING_PX } from '../layout.js';
-
-// Import FormRender as a default import
-import FormRenderComponent from 'form-render';
+import PropertyPanelForm, { usePropertyPanelForm } from './PropertyPanelForm.js';
 
 const { Text } = Typography;
 
@@ -52,7 +48,7 @@ const DetailView = (props: DetailViewProps) => {
   const { token } = theme.useToken();
 
   const { schemasList, changeSchemas, deselectSchema, activeSchema, pageSize, basePdf, schemas, onSortEnd } = props;
-  const form = useForm();
+  const form = usePropertyPanelForm();
 
   const i18n = useContext(I18nContext);
   const pluginsRegistry = useContext(PluginsRegistry);
@@ -201,11 +197,11 @@ const DetailView = (props: DetailViewProps) => {
       form
         .validateFields()
         .then(() => changeSchemas(changes))
-        .catch((reason: ValidateErrorEntity) => {
-          if (reason.errorFields.length) {
+        .catch((reason: { errorFields: Array<{ name: string[]; errors: string[] }> }) => {
+          if (reason.errorFields?.length) {
             changes = changes.filter(
               (change: ChangeSchemaItem) =>
-                !reason.errorFields.find((field: { name: InternalNamePath; errors: string[] }) =>
+                !reason.errorFields.find((field: { name: string[]; errors: string[] }) =>
                   field.name.includes(change.key),
                 ),
             );
@@ -535,12 +531,11 @@ const DetailView = (props: DetailViewProps) => {
           activeSchema={activeSchema}
           changeSchemas={changeSchemas}
         />
-        <FormRenderComponent
+        <PropertyPanelForm
           form={form}
           schema={propPanelSchema}
           widgets={widgets}
           watch={{ '#': handleWatch }}
-          locale="en-US"
         />
       </SidebarBody>
     </SidebarFrame>
