@@ -3,6 +3,7 @@ import { ConfigProvider as ThemeConfigProvider } from 'antd';
 import { I18nContext, FontContext, PluginsRegistry, OptionsContext } from '../contexts.js';
 import { i18n, getDict } from '../i18n.js';
 import { defaultTheme } from '../theme.js';
+import { DESIGNER_CLASSNAME } from '../constants.js';
 import {
   FieldPaletteContext,
   type FieldGroup,
@@ -18,6 +19,10 @@ type Props = {
   options: UIOptions;
   /** Optional ERP field groups for the field palette sidebar */
   fieldGroups?: FieldGroup[];
+  /** Error message when field schema fetch failed */
+  fieldSchemaError?: string | null;
+  /** Callback to retry fetching the field schema */
+  onRetryFieldSchema?: () => void;
 };
 
 const isObject = (item: unknown): item is Record<string, unknown> =>
@@ -52,7 +57,7 @@ const deepMerge = <T extends Record<string, unknown>, U extends Record<string, u
   return output;
 };
 
-const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroups }: Props) => {
+const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroups, fieldSchemaError, onRetryFieldSchema }: Props) => {
   let theme = defaultTheme;
   if (options.theme) {
     theme = deepMerge(
@@ -73,8 +78,10 @@ const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroup
     () => ({
       fieldGroups: fieldGroups ?? [],
       hasFields: (fieldGroups ?? []).length > 0,
+      fieldSchemaError: fieldSchemaError ?? null,
+      onRetryFieldSchema,
     }),
-    [fieldGroups],
+    [fieldGroups, fieldSchemaError, onRetryFieldSchema],
   );
 
   return (
@@ -84,6 +91,13 @@ const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroup
       // to prevent the backdrop filter from interfering with the WYSIWYG canvas
       modal={{ mask: { blur: false } }}
       drawer={{ mask: { blur: false } }}
+      // Route all antd popup portals (Select dropdowns, Tooltips, Popconfirms,
+      // ColorPickers) into the Designer's DOM tree so they inherit its stacking
+      // context and aren't hidden behind canvas elements with high zIndex.
+      getPopupContainer={(triggerNode) => {
+        const designerRoot = triggerNode?.closest(`.${DESIGNER_CLASSNAME}root`) as HTMLElement | null;
+        return designerRoot || document.body;
+      }}
     >
       <I18nContext.Provider value={(key: keyof Dict) => i18n(key, dict)}>
         <FontContext.Provider value={font}>
