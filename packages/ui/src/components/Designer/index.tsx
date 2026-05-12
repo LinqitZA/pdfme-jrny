@@ -83,9 +83,17 @@ const TemplateEditor = ({
   const [zoomLevel, setZoomLevel] = useState(options.zoomLevel ?? 1);
   const [gridSizeMm, setGridSizeMm] = useState<GridSizeMm>(DEFAULT_GRID_SIZE_MM);
   const [sidebarOpen, setSidebarOpen] = useState(options.sidebarOpen ?? true);
-  const [prevTemplate, setPrevTemplate] = useState<Template | null>(null);
   const [activeDragData, setActiveDragData] = useState<Record<string, unknown> | null>(null);
   const [currentBasePdf, setCurrentBasePdf] = useState<BasePdf>(template.basePdf);
+
+  // Track whether a template change originated from within the Designer
+  // (e.g., delete, move, resize). When true, the useEffect that watches the
+  // template prop will skip calling updateTemplate, preventing deleted fields
+  // from reappearing due to an async re-parse race condition.
+  const internalChangeRef = useRef(false);
+  // Content-based tracking to detect actual external template changes
+  const prevSchemasContentRef = useRef<string>('');
+  const prevBasePdfContentRef = useRef<string>('');
 
   const { backgrounds, pageSizes, scale, error, refresh } = useUIPreProcessor({
     template,
@@ -135,6 +143,7 @@ const TemplateEditor = ({
       const _schemasList = cloneDeep(schemasList);
       _schemasList[pageCursor] = newSchemas;
       setSchemasList(_schemasList);
+      internalChangeRef.current = true;
       onChangeTemplate(schemasList2template(_schemasList, currentBasePdf));
     },
     [currentBasePdf, schemasList, pageCursor, onChangeTemplate],
@@ -179,13 +188,15 @@ const TemplateEditor = ({
     onEditEnd,
   });
 
-  const updateTemplate = useCallback(async (newTemplate: Template) => {
+  const updateTemplate = useCallback(async (newTemplate: Template, resetCursor = false) => {
     const sl = await template2SchemasList(newTemplate);
     setSchemasList(sl);
     onEditEnd();
-    setPageCursor(0);
-    if (canvasRef.current?.scroll) {
-      canvasRef.current.scroll({ top: 0, behavior: 'smooth' });
+    if (resetCursor) {
+      setPageCursor(0);
+      if (canvasRef.current?.scroll) {
+        canvasRef.current.scroll({ top: 0, behavior: 'smooth' });
+      }
     }
   }, []);
 
@@ -249,6 +260,7 @@ const TemplateEditor = ({
   const updatePage = async (sl: SchemaForUI[][], newPageCursor: number) => {
     setPageCursor(newPageCursor);
     const newTemplate = schemasList2template(sl, currentBasePdf);
+    internalChangeRef.current = true;
     onChangeTemplate(newTemplate);
     await updateTemplate(newTemplate);
     void refresh(newTemplate);
@@ -279,11 +291,30 @@ const TemplateEditor = ({
     void updatePage(_schemasList, pageCursor + 1);
   };
 
-  if (prevTemplate !== template) {
-    setPrevTemplate(template);
-    setCurrentBasePdf(template.basePdf);
-    void updateTemplate(template);
-  }
+  // Detect external template changes (e.g., parent loading a new template) using
+  // content-based comparison. Internal changes (delete, move, resize) set
+  // internalChangeRef to skip re-processing when the template prop bounces back.
+  useEffect(() => {
+    const schemasContent = JSON.stringify(template.schemas);
+    const basePdfContent = JSON.stringify(template.basePdf);
+
+    // If this change originated from within the Designer, just update tracking
+    // refs and skip updateTemplate to prevent deleted fields from reappearing.
+    if (internalChangeRef.current) {
+      internalChangeRef.current = false;
+      prevSchemasContentRef.current = schemasContent;
+      prevBasePdfContentRef.current = basePdfContent;
+      return;
+    }
+
+    // Only process if template content actually changed (external change)
+    if (schemasContent !== prevSchemasContentRef.current || basePdfContent !== prevBasePdfContentRef.current) {
+      prevSchemasContentRef.current = schemasContent;
+      prevBasePdfContentRef.current = basePdfContent;
+      setCurrentBasePdf(template.basePdf);
+      void updateTemplate(template, true);
+    }
+  }, [template, updateTemplate]);
 
   const canvasWidth = size.width - leftSidebarWidth;
   const sizeExcSidebars = {
@@ -355,6 +386,7 @@ const TemplateEditor = ({
       );
 
       const newTemplate = schemasList2template(adjustedSchemasList, newBasePdf);
+      internalChangeRef.current = true;
       onChangeTemplate(newTemplate);
       void updateTemplate(newTemplate).then(() => refresh(newTemplate));
     },
@@ -413,6 +445,7 @@ const TemplateEditor = ({
       );
 
       const newTemplate = schemasList2template(adjustedSchemasList, newBasePdf);
+      internalChangeRef.current = true;
       onChangeTemplate(newTemplate);
       // Update schemas list from new template without resetting page cursor
       void template2SchemasList(newTemplate).then((sl) => {
