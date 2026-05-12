@@ -36,11 +36,17 @@ export interface FieldGroup {
 export interface FieldPaletteContextValue {
   fieldGroups: FieldGroup[];
   hasFields: boolean;
+  /** Error message when field schema fetch failed */
+  fieldSchemaError?: string | null;
+  /** Callback to retry fetching the field schema */
+  onRetryFieldSchema?: () => void;
 }
 
 const defaultValue: FieldPaletteContextValue = {
   fieldGroups: [],
   hasFields: false,
+  fieldSchemaError: null,
+  onRetryFieldSchema: undefined,
 };
 
 /**

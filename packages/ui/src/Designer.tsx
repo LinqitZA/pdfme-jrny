@@ -17,6 +17,10 @@ import type { FieldGroup } from './contexts/FieldPaletteContext.js';
 export type DesignerPropsWithFields = DesignerProps & {
   /** Optional ERP field groups for the field palette sidebar */
   fieldGroups?: FieldGroup[];
+  /** Error message when field schema fetch failed */
+  fieldSchemaError?: string | null;
+  /** Callback to retry fetching the field schema */
+  onRetryFieldSchema?: () => void;
 };
 
 class Designer extends BaseUIClass {
@@ -25,13 +29,17 @@ class Designer extends BaseUIClass {
   private onPageChangeCallback?: (pageInfo: { currentPage: number; totalPages: number }) => void;
   private pageCursor: number = 0;
   private fieldGroups?: FieldGroup[];
+  private fieldSchemaError?: string | null;
+  private onRetryFieldSchema?: () => void;
 
   constructor(props: DesignerPropsWithFields) {
-    // Extract fieldGroups before passing to super/check (Zod strict mode rejects unknown keys)
-    const { fieldGroups, ...designerProps } = props;
+    // Extract fieldGroups/error before passing to super/check (Zod strict mode rejects unknown keys)
+    const { fieldGroups, fieldSchemaError, onRetryFieldSchema, ...designerProps } = props;
     super(designerProps);
     checkDesignerProps(designerProps);
     this.fieldGroups = fieldGroups;
+    this.fieldSchemaError = fieldSchemaError;
+    this.onRetryFieldSchema = onRetryFieldSchema;
   }
 
   public saveTemplate() {
@@ -59,6 +67,18 @@ class Designer extends BaseUIClass {
   public updateFieldGroups(fieldGroups?: FieldGroup[]) {
     if (!this.domContainer) throw Error(DESTROYED_ERR_MSG);
     this.fieldGroups = fieldGroups;
+    this.render();
+  }
+
+  /**
+   * Update the field schema error state and retry callback.
+   * Used to propagate fetch error info into the FieldBindingWidget
+   * so users get actionable feedback instead of a generic "no fields" message.
+   */
+  public updateFieldSchemaError(error: string | null, onRetry?: () => void) {
+    if (!this.domContainer) throw Error(DESTROYED_ERR_MSG);
+    this.fieldSchemaError = error;
+    this.onRetryFieldSchema = onRetry;
     this.render();
   }
 
@@ -92,6 +112,8 @@ class Designer extends BaseUIClass {
         plugins={this.getPluginsRegistry()}
         options={this.getOptions()}
         fieldGroups={this.fieldGroups}
+        fieldSchemaError={this.fieldSchemaError}
+        onRetryFieldSchema={this.onRetryFieldSchema}
       >
         <DesignerComponent
           template={this.template}

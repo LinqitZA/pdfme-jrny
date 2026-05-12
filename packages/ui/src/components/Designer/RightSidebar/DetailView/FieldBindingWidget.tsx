@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { theme, Typography, Button, Select, Tag, Tooltip } from 'antd';
-import { Link2, Link2Off, Plus } from 'lucide-react';
+import { Link2, Link2Off, Plus, RefreshCw, AlertTriangle } from 'lucide-react';
 import {
   useFieldPalette,
   type FieldEntry,
@@ -89,9 +89,10 @@ const FieldBindingWidget: React.FC<FieldBindingWidgetProps> = ({
   changeSchemas,
 }) => {
   const { token } = theme.useToken();
-  const { fieldGroups, hasFields } = useFieldPalette();
+  const { fieldGroups, hasFields, fieldSchemaError, onRetryFieldSchema } = useFieldPalette();
   const [collapsed, setCollapsed] = useState(false);
   const [insertMode, setInsertMode] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const content = String((activeSchema as Record<string, unknown>).content ?? '');
   const bindings = useMemo(() => extractBindings(content), [content]);
@@ -144,7 +145,72 @@ const FieldBindingWidget: React.FC<FieldBindingWidgetProps> = ({
     [allFields],
   );
 
-  // Show info message when field groups haven't loaded yet
+  // Handle retry click with loading state
+  const handleRetry = useCallback(async () => {
+    if (!onRetryFieldSchema || retrying) return;
+    setRetrying(true);
+    try {
+      await onRetryFieldSchema();
+    } finally {
+      setRetrying(false);
+    }
+  }, [onRetryFieldSchema, retrying]);
+
+  // Show error + retry when field schema fetch failed
+  if (!hasFields && fieldSchemaError) {
+    return (
+      <div
+        style={{
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          marginBottom: 4,
+          padding: '8px 12px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 6,
+            marginBottom: 6,
+          }}
+        >
+          <AlertTriangle
+            size={14}
+            color={token.colorWarning}
+            style={{ marginTop: 1, flexShrink: 0 }}
+          />
+          <div>
+            <Text
+              type="warning"
+              style={{ fontSize: 12, display: 'block', fontWeight: 500 }}
+            >
+              Field bindings failed to load
+            </Text>
+            <Text
+              type="secondary"
+              style={{ fontSize: 11, display: 'block', marginTop: 2 }}
+            >
+              {fieldSchemaError}
+            </Text>
+          </div>
+        </div>
+        {onRetryFieldSchema && (
+          <Button
+            size="small"
+            type="default"
+            icon={<RefreshCw size={12} />}
+            onClick={handleRetry}
+            loading={retrying}
+            style={{ fontSize: 11 }}
+          >
+            {retrying ? 'Retrying...' : 'Retry'}
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  // Show info message when field groups haven't loaded yet (no error)
   if (!hasFields) {
     return (
       <div
