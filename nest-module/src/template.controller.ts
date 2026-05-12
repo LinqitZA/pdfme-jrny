@@ -20,7 +20,6 @@ import {
   Body,
   Param,
   Query,
-  Headers,
   HttpException,
   HttpStatus,
   HttpCode,
@@ -31,31 +30,20 @@ import { TemplateService, CreateTemplateDto, UpdateTemplateDto, SaveDraftDto, Te
 import { RenderService } from './render.service';
 import { RequirePermissions } from './auth.guard';
 
-/**
- * Extract orgId and userId from JWT token (simple decode for now).
- * In production, this would be a proper Guard with full JWT verification.
- */
-function decodeJwt(authHeader?: string): { sub: string; orgId: string; roles: string[] } | null {
-  if (!authHeader?.startsWith('Bearer ')) return null;
-  try {
-    const token = authHeader.slice(7);
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
-    return {
-      sub: payload.sub || 'unknown',
-      orgId: payload.orgId || '',
-      roles: payload.roles || [],
-    };
-  } catch {
-    return null;
-  }
-}
-
 @Controller('api/pdfme/templates')
 export class TemplateController {
   constructor(
     private readonly templateService: TemplateService,
     private readonly renderService: RenderService,
   ) {}
+
+  /**
+   * Extract user ID from req.user, supporting both pdfme standalone (sub)
+   * and JRNY host app (id) user object shapes.
+   */
+  private getUserId(user: any): string {
+    return user?.sub || user?.id || 'unknown';
+  }
 
   /**
    * Validate that a schema field is valid JSON and has proper structure.
@@ -153,6 +141,7 @@ export class TemplateController {
   @Get()
   @RequirePermissions('pdfme.templates.view')
   async list(
+    @Req() req: any,
     @Query('orgId') queryOrgId?: string,
     @Query('limit') queryLimit?: string,
     @Query('cursor') queryCursor?: string,
@@ -161,11 +150,9 @@ export class TemplateController {
     @Query('sort') querySort?: string,
     @Query('order') queryOrder?: string,
     @Query('search') querySearch?: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    // Prefer orgId from JWT, fallback to query param for dev convenience
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId || queryOrgId;
+    // Prefer orgId from authenticated user, fallback to query param for dev convenience
+    const orgId = req.user?.orgId || queryOrgId;
 
     const limit = queryLimit ? Math.min(Math.max(parseInt(queryLimit, 10) || 100, 1), 1000) : 100;
 
@@ -183,11 +170,10 @@ export class TemplateController {
   @Get('types')
   @RequirePermissions('pdfme.templates.view')
   async getDistinctTypes(
+    @Req() req: any,
     @Query('orgId') queryOrgId?: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId || queryOrgId;
+    const orgId = req.user?.orgId || queryOrgId;
 
     const types = await this.templateService.getDistinctTypes(orgId);
     return { types };
@@ -196,8 +182,8 @@ export class TemplateController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
+    @Req() req: any,
     @Body() body: CreateTemplateDto,
-    @Headers('authorization') authHeader?: string,
   ) {
     // Valid template type enum values
     const VALID_TEMPLATE_TYPES = [
@@ -249,10 +235,9 @@ export class TemplateController {
       );
     }
 
-    const jwt = decodeJwt(authHeader);
-    // SECURITY: orgId MUST come from JWT, never from request body
-    const orgId = jwt?.orgId || body.orgId || null;
-    const createdBy = jwt?.sub || body.createdBy || 'system';
+    // SECURITY: orgId MUST come from authenticated user, never from request body
+    const orgId = req.user?.orgId || body.orgId || null;
+    const createdBy = this.getUserId(req.user) !== 'unknown' ? this.getUserId(req.user) : (body.createdBy || 'system');
 
     const result = await this.templateService.create({
       ...body,
@@ -275,13 +260,13 @@ export class TemplateController {
   @RequirePermissions('pdfme.templates.edit')
   @HttpCode(HttpStatus.CREATED)
   async importTemplate(
+    @Req() req: any,
     @Body() body: any,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -383,18 +368,18 @@ export class TemplateController {
       },
     };
 
-    const result = await this.templateService.importTemplate(validatedBody, jwt.orgId, jwt.sub);
+    const result = await this.templateService.importTemplate(validatedBody, user.orgId, this.getUserId(user));
     return result;
   }
 
   @Get('backup')
   async backupOrg(
-    @Headers('authorization') authHeader?: string,
+    @Req() req: any,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -406,12 +391,11 @@ export class TemplateController {
       // Try to fetch locale config from the expressions endpoint
       const http = await import('http');
       const localeData: any = await new Promise((resolve, reject) => {
-        const req = http.request({
+        const localeReq = http.request({
           hostname: 'localhost',
           port: 3000,
           path: '/api/pdfme/expressions/locale',
           method: 'GET',
-          headers: { 'Authorization': authHeader || '' },
         }, (res: any) => {
           let data = '';
           res.on('data', (chunk: string) => data += chunk);
@@ -419,8 +403,8 @@ export class TemplateController {
             try { resolve(JSON.parse(data)); } catch { resolve(null); }
           });
         });
-        req.on('error', () => resolve(null));
-        req.end();
+        localeReq.on('error', () => resolve(null));
+        localeReq.end();
       });
       if (localeData && localeData.locale) {
         localeConfig = {
@@ -433,20 +417,20 @@ export class TemplateController {
       // Locale config not available, will be null in backup
     }
 
-    const backup = await this.templateService.backupOrg(jwt.orgId, localeConfig);
+    const backup = await this.templateService.backupOrg(user.orgId, localeConfig);
     return backup;
   }
 
   @Post('backup/export')
   @HttpCode(HttpStatus.OK)
   async backupExportZip(
-    @Headers('authorization') authHeader?: string,
+    @Req() req: any,
     @Res() res?: any,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -456,12 +440,11 @@ export class TemplateController {
     try {
       const http = await import('http');
       const localeData: any = await new Promise((resolve, reject) => {
-        const req = http.request({
+        const localeReq = http.request({
           hostname: 'localhost',
           port: 3000,
           path: '/api/pdfme/expressions/locale',
           method: 'GET',
-          headers: { 'Authorization': authHeader || '' },
         }, (res: any) => {
           let data = '';
           res.on('data', (chunk: string) => data += chunk);
@@ -469,8 +452,8 @@ export class TemplateController {
             try { resolve(JSON.parse(data)); } catch { resolve(null); }
           });
         });
-        req.on('error', () => resolve(null));
-        req.end();
+        localeReq.on('error', () => resolve(null));
+        localeReq.end();
       });
       if (localeData && localeData.locale) {
         localeConfig = {
@@ -483,8 +466,8 @@ export class TemplateController {
       // Locale config not available
     }
 
-    const zipBuffer = await this.templateService.backupOrgAsZip(jwt.orgId, localeConfig);
-    const filename = `backup-${jwt.orgId}-${new Date().toISOString().split('T')[0]}.zip`;
+    const zipBuffer = await this.templateService.backupOrgAsZip(user.orgId, localeConfig);
+    const filename = `backup-${user.orgId}-${new Date().toISOString().split('T')[0]}.zip`;
 
     res.set({
       'Content-Type': 'application/zip',
@@ -497,13 +480,13 @@ export class TemplateController {
   @Post('backup/import')
   @HttpCode(HttpStatus.CREATED)
   async importBackup(
+    @Req() req: any,
     @Body() body: any,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -528,40 +511,39 @@ export class TemplateController {
         const http = await import('http');
         const postData = JSON.stringify(body.localeConfig);
         await new Promise<void>((resolve) => {
-          const req = http.request({
+          const localeReq = http.request({
             hostname: 'localhost',
             port: 3000,
             path: '/api/pdfme/expressions/locale',
             method: 'POST',
             headers: {
-              'Authorization': authHeader || '',
               'Content-Type': 'application/json',
               'Content-Length': Buffer.byteLength(postData),
             },
           }, () => resolve());
-          req.on('error', () => resolve());
-          req.write(postData);
-          req.end();
+          localeReq.on('error', () => resolve());
+          localeReq.write(postData);
+          localeReq.end();
         });
       } catch {
         // Non-fatal: locale config restore is best-effort
       }
     }
 
-    const result = await this.templateService.importBackup(body, jwt.orgId, jwt.sub);
+    const result = await this.templateService.importBackup(body, user.orgId, this.getUserId(user));
     return result;
   }
 
   @Post('backup/import-zip')
   @HttpCode(HttpStatus.CREATED)
   async importBackupZip(
+    @Req() req: any,
     @Body() body: any,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -592,7 +574,7 @@ export class TemplateController {
       );
     }
 
-    const result = await this.templateService.importBackupFromZip(zipBuffer, jwt.orgId, jwt.sub);
+    const result = await this.templateService.importBackupFromZip(zipBuffer, user.orgId, this.getUserId(user));
     return result;
   }
 
@@ -617,11 +599,10 @@ export class TemplateController {
   @Get(':id/versions')
   @RequirePermissions('pdfme.templates.view')
   async getVersionHistory(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     const versions = await this.templateService.getVersionHistory(id, orgId);
     return { data: versions, total: versions.length };
@@ -629,12 +610,11 @@ export class TemplateController {
 
   @Get(':id/versions/:version')
   async getVersionByNumber(
+    @Req() req: any,
     @Param('id') id: string,
     @Param('version') version: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     const versionNumber = parseInt(version, 10);
     if (isNaN(versionNumber) || versionNumber < 1) {
@@ -657,14 +637,12 @@ export class TemplateController {
   @Post(':id/restore')
   @RequirePermissions('pdfme.templates.edit')
   async restoreVersion(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: { version: number },
-    @Headers('authorization') authHeader?: string,
-    @Req() req?: any,
   ) {
-    const user = req?.user || decodeJwt(authHeader);
-    const orgId = user?.orgId;
-    const userId = user?.sub || 'unknown';
+    const orgId = req.user?.orgId;
+    const userId = this.getUserId(req.user);
 
     if (!body?.version || typeof body.version !== 'number' || body.version < 1) {
       throw new HttpException(
@@ -691,11 +669,10 @@ export class TemplateController {
 
   @Get(':id/export')
   async exportTemplate(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     const pkg = await this.templateService.exportTemplate(id, orgId);
     if (!pkg) {
@@ -710,18 +687,18 @@ export class TemplateController {
   @Post(':id/lock')
   @HttpCode(HttpStatus.OK)
   async acquireLock(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
 
-    const result = await this.templateService.acquireLock(id, jwt.sub, jwt.orgId);
+    const result = await this.templateService.acquireLock(id, this.getUserId(user), user.orgId);
     if ('error' in result) {
       const errResult = result as { error: string; lockedBy: string; lockedAt: Date; expiresAt: Date; statusCode?: number };
       const statusCode = errResult.statusCode || 409;
@@ -744,18 +721,18 @@ export class TemplateController {
   @Post(':id/lock/heartbeat')
   @HttpCode(HttpStatus.OK)
   async heartbeatLock(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt) {
+    const user = req.user;
+    if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
 
-    const result = await this.templateService.heartbeatLock(id, jwt.sub, jwt.orgId);
+    const result = await this.templateService.heartbeatLock(id, this.getUserId(user), user.orgId);
     if (!result.refreshed) {
       const statusCode = result.statusCode || 409;
       const errorLabel = statusCode === 404 ? 'Not Found' : statusCode === 403 ? 'Forbidden' : 'Conflict';
@@ -773,15 +750,14 @@ export class TemplateController {
 
   @Delete(':id/lock')
   async releaseLock(
+    @Req() req: any,
     @Param('id') id: string,
     @Query('force') force?: string,
-    @Headers('authorization') authHeader?: string,
-    @Req() req?: any,
   ) {
-    const user = req?.user || decodeJwt(authHeader);
+    const user = req.user;
     if (!user) {
       throw new HttpException(
-        { statusCode: 401, error: 'Unauthorized', message: 'Valid JWT required' },
+        { statusCode: 401, error: 'Unauthorized', message: 'Authentication required' },
         HttpStatus.UNAUTHORIZED,
       );
     }
@@ -803,7 +779,7 @@ export class TemplateController {
       }
     }
 
-    const result = await this.templateService.releaseLock(id, user.sub, isForce, user.orgId);
+    const result = await this.templateService.releaseLock(id, this.getUserId(user), isForce, user.orgId);
     if (!result.released) {
       throw new HttpException(
         { statusCode: 403, error: 'Forbidden', message: result.error },
@@ -815,11 +791,10 @@ export class TemplateController {
 
   @Get(':id/lock')
   async getLockStatus(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     return this.templateService.getLockStatus(id, orgId);
   }
@@ -827,12 +802,11 @@ export class TemplateController {
   @Get(':id')
   @RequirePermissions('pdfme.templates.view')
   async getById(
+    @Req() req: any,
     @Param('id') id: string,
     @Query('orgId') queryOrgId?: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId || queryOrgId;
+    const orgId = req.user?.orgId || queryOrgId;
 
     const result = await this.templateService.findById(id, orgId);
     if (!result || result.status === 'archived') {
@@ -847,13 +821,12 @@ export class TemplateController {
   @Put(':id/draft')
   @RequirePermissions('pdfme.templates.edit')
   async saveDraft(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: SaveDraftDto,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
-    const userId = jwt?.sub || 'unknown';
+    const orgId = req.user?.orgId;
+    const userId = this.getUserId(req.user);
 
     // Validate saveMode if provided (must be inPlace or newVersion)
     const VALID_SAVE_MODES = ['inPlace', 'newVersion'];
@@ -922,11 +895,10 @@ export class TemplateController {
   @Post(':id/validate')
   @HttpCode(HttpStatus.OK)
   async validate(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     const template = await this.templateService.findById(id, orgId);
     if (!template) {
@@ -957,11 +929,10 @@ export class TemplateController {
   @Post(':id/publish')
   @RequirePermissions('pdfme.templates.publish')
   async publish(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
+    const orgId = req.user?.orgId;
 
     const result = await this.templateService.publish(id, orgId);
     if (!result) {
@@ -993,20 +964,19 @@ export class TemplateController {
   @RequirePermissions('pdfme.templates.view')
   @Post(':id/preview')
   async generatePreview(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: { sampleRowCount?: number; channel?: string },
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    if (!jwt?.orgId) {
+    if (!req.user?.orgId) {
       throw new HttpException(
-        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in JWT claims' },
+        { statusCode: 400, error: 'Bad Request', message: 'orgId is required in authenticated user claims' },
         HttpStatus.BAD_REQUEST,
       );
     }
 
     // Fetch template (any status - previews work on drafts too)
-    const template = await this.templateService.findById(id, jwt.orgId);
+    const template = await this.templateService.findById(id, req.user.orgId);
     if (!template) {
       throw new HttpException(
         { statusCode: 404, error: 'Not Found', message: `Template ${id} not found` },
@@ -1027,8 +997,8 @@ export class TemplateController {
     try {
       const result = await this.renderService.generatePreview(
         template,
-        jwt.orgId,
-        jwt.sub,
+        req.user.orgId,
+        this.getUserId(req.user),
         channel,
         sampleRowCount,
       );
@@ -1045,14 +1015,12 @@ export class TemplateController {
   @Post(':id/fork')
   @RequirePermissions('pdfme.templates.edit')
   async forkTemplate(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: { name?: string },
-    @Headers('authorization') authHeader?: string,
-    @Req() req?: any,
   ) {
-    const user = req?.user || decodeJwt(authHeader);
-    const orgId = user?.orgId;
-    const userId = user?.sub || 'unknown';
+    const orgId = req.user?.orgId;
+    const userId = this.getUserId(req.user);
 
     const result = await this.templateService.forkTemplate(id, orgId, userId, body?.name);
     if (!result) {
@@ -1066,13 +1034,12 @@ export class TemplateController {
 
   @Put(':id')
   async update(
+    @Req() req: any,
     @Param('id') id: string,
     @Body() body: UpdateTemplateDto,
-    @Headers('authorization') authHeader?: string,
   ) {
-    const jwt = decodeJwt(authHeader);
-    const orgId = jwt?.orgId;
-    const userId = jwt?.sub || 'unknown';
+    const orgId = req.user?.orgId;
+    const userId = this.getUserId(req.user);
 
     // Validate schema if provided
     if (body.schema !== undefined) {
@@ -1108,12 +1075,10 @@ export class TemplateController {
   @Delete(':id')
   @RequirePermissions('pdfme.templates.delete')
   async delete(
+    @Req() req: any,
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
-    @Req() req?: any,
   ) {
-    // Use user from guard (set by JwtAuthGuard) or fallback to manual decode
-    const user = req?.user || decodeJwt(authHeader);
+    const user = req.user;
     const orgId = user?.orgId;
 
     // Check if this is a system template (orgId=null) - these are read-only
@@ -1125,7 +1090,7 @@ export class TemplateController {
       );
     }
 
-    const userId = user?.sub;
+    const userId = this.getUserId(user);
     const result = await this.templateService.softDelete(id, orgId, userId);
     if (!result) {
       throw new HttpException(
