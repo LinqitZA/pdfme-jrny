@@ -403,9 +403,15 @@ export const uiRender = async (arg: UIRenderProps<TableSchema>) => {
           handle.style.left = `${newLeft}mm`;
           move = newLeft - startLeft;
         };
-        rootElement.addEventListener('mousemove', mouseMove);
+        // Attach to document so listeners survive rootElement innerHTML destruction
+        // during React re-renders (onChange → changeSchemas → Renderer useEffect → innerHTML='')
+        document.addEventListener('mousemove', mouseMove);
 
         const commitResize = () => {
+          // Remove document-level listeners FIRST (before onChange triggers re-render)
+          document.removeEventListener('mousemove', mouseMove);
+          document.removeEventListener('mouseup', commitResize);
+
           if (move !== 0) {
             const newHeadWidthPercentages = calcResizedHeadWidthPercentages({
               currentHeadWidthPercentages: schema.headWidthPercentages,
@@ -416,12 +422,14 @@ export const uiRender = async (arg: UIRenderProps<TableSchema>) => {
             onChange({ key: 'headWidthPercentages', value: newHeadWidthPercentages });
           }
           move = 0;
-          dragHandle.addEventListener('mouseover', setColor);
-          dragHandle.addEventListener('mouseout', resetColor);
-          rootElement.removeEventListener('mousemove', mouseMove);
-          rootElement.removeEventListener('mouseup', commitResize);
+          // Re-add hover handlers only if the handle is still in the DOM
+          // (it may have been destroyed by a re-render triggered by onChange above)
+          if (handle.isConnected) {
+            dragHandle.addEventListener('mouseover', setColor);
+            dragHandle.addEventListener('mouseout', resetColor);
+          }
         };
-        rootElement.addEventListener('mouseup', commitResize);
+        document.addEventListener('mouseup', commitResize);
       });
       rootElement.appendChild(dragHandle);
     });
