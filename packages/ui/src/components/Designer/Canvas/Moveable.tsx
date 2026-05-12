@@ -1,10 +1,13 @@
 import React, { useEffect, forwardRef, Ref, useRef } from 'react';
 import MoveableComponent, {
   OnDrag,
+  OnDragStart,
   OnRotate,
+  OnRotateStart,
   OnRotateEnd,
   OnClick,
   OnResize,
+  OnResizeStart,
 } from 'react-moveable';
 import { uuid } from '../../../helper.js';
 import { theme } from 'antd';
@@ -18,12 +21,15 @@ type Props = {
   keepRatio: boolean;
   rotatable: boolean;
   scale: number;
+  onDragStart?: (e: OnDragStart) => void;
   onDrag: ({ target, left, top }: OnDrag) => void;
   onDragEnd: ({ target }: { target: HTMLElement | SVGElement }) => void;
   onDragGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
+  onRotateStart?: (e: OnRotateStart) => void;
   onRotate: ({ target, rotate }: OnRotate) => void;
   onRotateEnd: ({ target }: OnRotateEnd) => void;
   onRotateGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
+  onResizeStart?: (e: OnResizeStart) => void;
   onResize: ({ target, width, height, direction }: OnResize) => void;
   onResizeEnd: ({ target }: { target: HTMLElement | SVGElement }) => void;
   onResizeGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
@@ -76,12 +82,20 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
         events.forEach(props.onRotate);
       }}
       onRotateGroupEnd={props.onRotateGroupEnd}
+      onDragStart={props.onDragStart}
+      onDragGroupStart={props.onDragStart ? ({ events }: { events: OnDragStart[] }) => {
+        if (events.length > 0) props.onDragStart!(events[0]);
+      } : undefined}
       onDrag={props.onDrag}
       onDragGroup={({ events }: { events: OnDrag[] }) => {
         events.forEach(props.onDrag);
       }}
       onDragEnd={props.onDragEnd}
       onDragGroupEnd={props.onDragGroupEnd}
+      onResizeStart={props.onResizeStart}
+      onResizeGroupStart={props.onResizeStart ? ({ events }: { events: OnResizeStart[] }) => {
+        if (events.length > 0) props.onResizeStart!(events[0]);
+      } : undefined}
       onResize={props.onResize}
       onResizeGroup={({ events }: { events: OnResize[] }) => {
         events.forEach(props.onResize);

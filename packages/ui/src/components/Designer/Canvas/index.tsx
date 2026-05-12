@@ -129,7 +129,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const [isPressShiftKey, setIsPressShiftKey] = useState(false);
   const [editing, setEditing] = useState(false);
 
-  // ---- Crosshair cursor tracking ----
+  // ---- Crosshair cursor tracking (throttled) ----
   const [crosshairPos, setCrosshairPos] = useState<{
     x: number;
     y: number;
@@ -137,22 +137,48 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
     scrollH: number;
   } | null>(null);
 
+  // Suppress crosshair updates while Moveable is actively dragging or resizing
+  const isDraggingRef = useRef(false);
+  // Track pending rAF to avoid queuing multiple frames
+  const rafIdRef = useRef<number | null>(null);
+
   const handleCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    // Skip crosshair updates entirely during drag/resize operations
+    if (isDraggingRef.current) return;
+
     const container = e.currentTarget;
     const rect = container.getBoundingClientRect();
     // Position relative to the scrollable canvas content
     const x = e.clientX - rect.left + container.scrollLeft;
     const y = e.clientY - rect.top + container.scrollTop;
-    setCrosshairPos({
-      x,
-      y,
-      scrollW: container.scrollWidth,
-      scrollH: container.scrollHeight,
+    const scrollW = container.scrollWidth;
+    const scrollH = container.scrollHeight;
+
+    // Throttle to one update per animation frame
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      setCrosshairPos({ x, y, scrollW, scrollH });
     });
   }, []);
 
   const handleCanvasMouseLeave = useCallback(() => {
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
     setCrosshairPos(null);
+  }, []);
+
+  // Cleanup pending rAF on unmount
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+    };
   }, []);
 
   const prevSchemas = usePrevious(schemasList[pageCursor]);
@@ -195,6 +221,17 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
     }
   }, [pageCursor, schemasList, prevSchemas]);
 
+  // Disable crosshair when Moveable starts a drag or resize
+  const onMoveableInteractionStart = useCallback(() => {
+    isDraggingRef.current = true;
+    // Cancel any pending crosshair update and hide the crosshair
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    setCrosshairPos(null);
+  }, []);
+
   const onDrag = ({ target, top, left }: OnDrag) => {
     const { width: _width, height: _height } = target.style;
     const targetWidth = fmt(_width);
@@ -229,6 +266,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onDragEnd = ({ target }: { target: HTMLElement | SVGElement }) => {
+    isDraggingRef.current = false;
     const { top, left } = target.style;
     changeSchemas([
       { key: 'position.y', value: fmt(top), schemaId: target.id },
@@ -237,6 +275,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onDragEnds = ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => {
+    isDraggingRef.current = false;
     const arg = targets.map(({ style: { top, left }, id }) => [
       { key: 'position.y', value: fmt(top), schemaId: id },
       { key: 'position.x', value: fmt(left), schemaId: id },
@@ -265,6 +304,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onResizeEnd = ({ target }: { target: HTMLElement | SVGElement }) => {
+    isDraggingRef.current = false;
     const { id, style } = target;
     const { width, height, top, left } = style;
     changeSchemas([
@@ -280,6 +320,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onResizeEnds = ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => {
+    isDraggingRef.current = false;
     const arg = targets.map(({ style: { width, height, top, left }, id }) => [
       { key: 'width', value: fmt(width), schemaId: id },
       { key: 'height', value: fmt(height), schemaId: id },
@@ -517,12 +558,14 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   keepRatio={isPressShiftKey}
                   rotatable={rotatable}
                   scale={scale}
+                  onDragStart={onMoveableInteractionStart}
                   onDrag={onDrag}
                   onDragEnd={onDragEnd}
                   onDragGroupEnd={onDragEnds}
                   onRotate={onRotate}
                   onRotateEnd={onRotateEnd}
                   onRotateGroupEnd={onRotateEnds}
+                  onResizeStart={onMoveableInteractionStart}
                   onResize={onResize}
                   onResizeEnd={onResizeEnd}
                   onResizeGroupEnd={onResizeEnds}
