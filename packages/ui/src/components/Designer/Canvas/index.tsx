@@ -288,6 +288,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onRotateEnd = ({ target }: { target: HTMLElement | SVGElement }) => {
+    isDraggingRef.current = false;
     const { transform } = target.style;
     const rotate = Number(transform.replace('rotate(', '').replace('deg)', ''));
     const normalizedRotate = normalizeRotate(rotate);
@@ -295,6 +296,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   };
 
   const onRotateEnds = ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => {
+    isDraggingRef.current = false;
     const arg = targets.map(({ style: { transform }, id }) => {
       const rotate = Number(transform.replace('rotate(', '').replace('deg)', ''));
       const normalizedRotate = normalizeRotate(rotate);
@@ -562,6 +564,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   onDrag={onDrag}
                   onDragEnd={onDragEnd}
                   onDragGroupEnd={onDragEnds}
+                  onRotateStart={onMoveableInteractionStart}
                   onRotate={onRotate}
                   onRotateEnd={onRotateEnd}
                   onRotateGroupEnd={onRotateEnds}

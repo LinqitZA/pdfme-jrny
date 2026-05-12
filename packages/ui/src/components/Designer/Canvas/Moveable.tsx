@@ -76,6 +76,10 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       horizontalGuidelines={props.horizontalGuidelines}
       verticalGuidelines={props.verticalGuidelines}
       keepRatio={props.keepRatio}
+      onRotateStart={props.onRotateStart}
+      onRotateGroupStart={props.onRotateStart ? ({ events }: { events: OnRotateStart[] }) => {
+        if (events.length > 0) props.onRotateStart!(events[0]);
+      } : undefined}
       onRotate={props.onRotate}
       onRotateEnd={props.onRotateEnd}
       onRotateGroup={({ events }: { events: OnRotate[] }) => {
