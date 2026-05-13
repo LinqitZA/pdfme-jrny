@@ -3,7 +3,6 @@ import { ConfigProvider as ThemeConfigProvider } from 'antd';
 import { I18nContext, FontContext, PluginsRegistry, OptionsContext } from '../contexts.js';
 import { i18n, getDict } from '../i18n.js';
 import { defaultTheme } from '../theme.js';
-import { DESIGNER_CLASSNAME } from '../constants.js';
 import {
   FieldPaletteContext,
   type FieldGroup,
@@ -91,13 +90,6 @@ const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroup
       // to prevent the backdrop filter from interfering with the WYSIWYG canvas
       modal={{ mask: { blur: false } }}
       drawer={{ mask: { blur: false } }}
-      // Route all antd popup portals (Select dropdowns, Tooltips, Popconfirms,
-      // ColorPickers) into the Designer's DOM tree so they inherit its stacking
-      // context and aren't hidden behind canvas elements with high zIndex.
-      getPopupContainer={(triggerNode) => {
-        const designerRoot = triggerNode?.closest(`.${DESIGNER_CLASSNAME}root`) as HTMLElement | null;
-        return designerRoot || document.body;
-      }}
     >
       <I18nContext.Provider value={(key: keyof Dict) => i18n(key, dict)}>
         <FontContext.Provider value={font}>
