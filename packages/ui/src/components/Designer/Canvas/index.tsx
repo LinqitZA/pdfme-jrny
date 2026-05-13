@@ -126,8 +126,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const horizontalGuides = useRef<GuidesInterface[]>([]);
   const moveable = useRef<MoveableComponent>(null);
   const paperScaleRef = useRef<HTMLDivElement>(null);
-  // Local ref for the canvas scroll container — needed to pass as rootContainer
-  // to Moveable (must be outside the CSS transform:scale() wrapper in Paper)
+  // Local ref for the canvas scroll container — used as Selecto dragContainer
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   // Forward the local ref to the parent via the forwarded ref
   useImperativeHandle(ref, () => canvasContainerRef.current as HTMLDivElement);

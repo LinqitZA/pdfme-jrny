@@ -59,6 +59,7 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
 
   return (
     <MoveableComponent
+      style={{ zIndex: 1 }}
       className={uniqueClassName}
       snappable
       draggable
@@ -71,7 +72,7 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       rootContainer={props.rootContainer || undefined}
       throttleDrag={1}
       throttleRotate={1}
-      throttleResize={16}
+      throttleResize={1}
       ref={ref}
       target={props.target}
       bounds={props.bounds}
