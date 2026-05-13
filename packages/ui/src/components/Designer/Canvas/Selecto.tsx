@@ -8,6 +8,7 @@ import { theme } from 'antd';
 
 type Props = {
   container: HTMLElement | null;
+  dragContainer?: HTMLElement | null;
   continueSelect: boolean;
   onDragStart: (e: SelectoOnDragStart) => void;
   onSelect: (e: SelectoOnSelect) => void;
@@ -35,6 +36,7 @@ const Selecto = (props: Props) => {
       hitRate={0}
       selectableTargets={[`.${SELECTABLE_CLASSNAME}`]}
       container={props.container}
+      dragContainer={props.dragContainer || undefined}
       continueSelect={props.continueSelect}
       onDragStart={props.onDragStart}
       onSelect={props.onSelect}

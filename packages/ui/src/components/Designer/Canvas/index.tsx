@@ -8,6 +8,7 @@ import React, {
   useEffect,
   forwardRef,
   useCallback,
+  useImperativeHandle,
 } from 'react';
 import { theme, Button } from 'antd';
 import MoveableComponent, { OnDrag, OnRotate, OnResize } from 'react-moveable';
@@ -125,6 +126,11 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const horizontalGuides = useRef<GuidesInterface[]>([]);
   const moveable = useRef<MoveableComponent>(null);
   const paperScaleRef = useRef<HTMLDivElement>(null);
+  // Local ref for the canvas scroll container — needed to pass as rootContainer
+  // to Moveable (must be outside the CSS transform:scale() wrapper in Paper)
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  // Forward the local ref to the parent via the forwarded ref
+  useImperativeHandle(ref, () => canvasContainerRef.current as HTMLDivElement);
 
   const [isPressShiftKey, setIsPressShiftKey] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -422,7 +428,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
         overflow: 'auto',
         ...size,
       }}
-      ref={ref}
+      ref={canvasContainerRef}
       onMouseMove={handleCanvasMouseMove}
       onMouseLeave={handleCanvasMouseLeave}
     >
@@ -459,6 +465,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       )}
       <Selecto
         container={paperRefs.current[pageCursor]}
+        dragContainer={canvasContainerRef.current}
         continueSelect={isPressShiftKey}
         onDragStart={(e) => {
           // Use type assertion to safely access inputEvent properties
@@ -554,6 +561,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   ref={moveable}
                   target={activeElements}
                   container={paperRefs.current[index]}
+                  rootContainer={canvasContainerRef.current}
                   bounds={{ left: 0, top: 0, bottom: paperSize.height, right: paperSize.width }}
                   horizontalGuidelines={getGuideLines(horizontalGuides.current, index)}
                   verticalGuidelines={getGuideLines(verticalGuides.current, index)}
