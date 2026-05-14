@@ -126,6 +126,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const horizontalGuides = useRef<GuidesInterface[]>([]);
   const moveable = useRef<MoveableComponent>(null);
   const paperScaleRef = useRef<HTMLDivElement>(null);
+  const resizeStartRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
   // Local ref for the canvas scroll container — used as Selecto dragContainer
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   // Forward the local ref to the parent via the forwarded ref
@@ -237,6 +238,21 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
     setCrosshairPos(null);
   }, []);
 
+  // Dedicated resize start handler: suppresses crosshair AND captures start dimensions
+  // for scale compensation in onResize
+  const onResizeStart = useCallback((e: { target: HTMLElement | SVGElement }) => {
+    isDraggingRef.current = true;
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    setCrosshairPos(null);
+    resizeStartRef.current = {
+      w: fmt4Num((e.target as HTMLElement).style.width),
+      h: fmt4Num((e.target as HTMLElement).style.height),
+    };
+  }, []);
+
   const onDrag = ({ target, top, left }: OnDrag) => {
     const { width: _width, height: _height } = target.style;
     const targetWidth = fmt(_width);
@@ -339,6 +355,14 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
 
   const onResize = ({ target, width, height, direction }: OnResize) => {
     if (!target) return;
+    // Scale compensation: Moveable reports deltas in screen pixels, but the DOM
+    // element lives inside a CSS `transform: scale(${scale})` container (Paper).
+    // Convert screen-pixel deltas to local-space deltas so the handle tracks
+    // the mouse cursor 1:1 regardless of zoom level.
+    const startW = resizeStartRef.current.w;
+    const startH = resizeStartRef.current.h;
+    width = Math.round(startW + (width - startW) / scale);
+    height = Math.round(startH + (height - startH) / scale);
     let topPadding = 0;
     let rightPadding = 0;
     let bottomPadding = 0;
@@ -575,7 +599,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   onRotate={onRotate}
                   onRotateEnd={onRotateEnd}
                   onRotateGroupEnd={onRotateEnds}
-                  onResizeStart={onMoveableInteractionStart}
+                  onResizeStart={onResizeStart}
                   onResize={onResize}
                   onResizeEnd={onResizeEnd}
                   onResizeGroupEnd={onResizeEnds}
