@@ -26,6 +26,42 @@ import {
 import type { PropPanelSchema } from '@pdfme/common';
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *  Color utilities
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+/**
+ * Strip the alpha channel from a CSS color string.
+ * Handles: #rrggbbaa → #rrggbb, #rgba → #rgb,
+ *          rgba(r,g,b,a) → rgb(r,g,b), hsla(h,s,l,a) → hsl(h,s,l)
+ *
+ * Used to prevent the antd ColorPicker "disabledAlpha" warning that fires
+ * when `disabledAlpha={true}` and the incoming value has alpha < 100%.
+ */
+function stripAlpha(color: string | undefined | null): string {
+  if (!color || typeof color !== 'string') return color ?? '';
+
+  // #rrggbbaa → #rrggbb
+  if (/^#[0-9a-f]{8}$/i.test(color)) return color.slice(0, 7);
+
+  // #rgba → #rgb
+  if (/^#[0-9a-f]{4}$/i.test(color)) return color.slice(0, 4);
+
+  // rgba(r, g, b, a) → rgb(r, g, b)
+  const rgbaMatch = color.match(
+    /^rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*[\d.]+\s*\)$/,
+  );
+  if (rgbaMatch) return `rgb(${rgbaMatch[1]},${rgbaMatch[2]},${rgbaMatch[3]})`;
+
+  // hsla(h, s%, l%, a) → hsl(h, s%, l%)
+  const hslaMatch = color.match(
+    /^hsla\(\s*([\d.]+)\s*,\s*([\d.]+%?)\s*,\s*([\d.]+%?)\s*,\s*[\d.]+\s*\)$/,
+  );
+  if (hslaMatch) return `hsl(${hslaMatch[1]},${hslaMatch[2]},${hslaMatch[3]})`;
+
+  return color;
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  *  FormBridge — compatibility layer for form-render's useForm() API
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
@@ -251,12 +287,20 @@ const StandardField: React.FC<{ path: string; fs: FS; control: Ctrl }> = ({
             />
           );
         } else if (widget === 'color') {
+          // When disabledAlpha is true we must ensure the value has no alpha
+          // channel, otherwise antd logs a noisy console warning on every render.
+          // Additionally, antd's AggregationColor sets alpha=0 for falsy values
+          // (empty string / undefined = "cleared/transparent" state), so we must
+          // only enable disabledAlpha when there is an actual colour value.
+          const colorValue = extra.disabledAlpha
+            ? stripAlpha(field.value as string)
+            : (field.value as string);
           el = (
             <ColorPicker
-              value={field.value as string}
+              value={colorValue}
               onChange={(_color, hex) => field.onChange(hex)}
               disabled={off}
-              disabledAlpha={extra.disabledAlpha as boolean}
+              disabledAlpha={!!(extra.disabledAlpha && colorValue)}
               showText
               size="small"
             />
