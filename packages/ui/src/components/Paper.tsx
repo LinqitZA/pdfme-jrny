@@ -46,10 +46,11 @@ const PaperInner = (props: PaperProps, ref: Ref<HTMLDivElement>) => {
       style={{
         transform: `scale(${scale})`,
         transformOrigin: 'top left',
-        // NOTE: These values do not impact the UI unless they exceed the Paper sizes.
-        // We set them to the scale value to ensure the container is redrawn when you zoom in/out.
-        height: scale,
-        width: scale,
+        // NOTE: width/height intentionally omitted. Previously set to `scale`
+        // (e.g., 0.5) which created a ~0.5px container that broke Moveable's
+        // getBoundingClientRect() coordinate calculations, causing resize
+        // handles to detach from the cursor. The transform style change already
+        // triggers React re-renders when zoom changes.
       }}
     >
       {backgrounds.map((background, paperIndex) => {
