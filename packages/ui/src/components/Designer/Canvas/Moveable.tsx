@@ -56,7 +56,6 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
   return (
     <MoveableComponent
       className={uniqueClassName}
-      rootContainer={document ? document.body : undefined}
       snappable
       draggable
       rotatable={props.rotatable}
