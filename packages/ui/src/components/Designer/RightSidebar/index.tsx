@@ -1,5 +1,5 @@
 import React from 'react';
-import { theme, Button, ConfigProvider } from 'antd';
+import { theme, Button } from 'antd';
 import type { SidebarProps } from '../../../types.js';
 import { RIGHT_SIDEBAR_WIDTH, DESIGNER_CLASSNAME } from '../../../constants.js';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
@@ -59,18 +59,11 @@ const Sidebar = (props: SidebarProps) => {
           borderLeft: `1px solid ${token.colorSplit}`,
         }}
       >
-        <ConfigProvider
-          getPopupContainer={(triggerNode) =>
-            (triggerNode?.closest('.pdfme-designer-right-sidebar') as HTMLElement) ||
-            document.body
-          }
-        >
-          {getActiveSchemas().length === 0 ? (
-            <ListView {...props} />
-          ) : (
-            <DetailView {...props} activeSchema={getLastActiveSchema()} />
-          )}
-        </ConfigProvider>
+        {getActiveSchemas().length === 0 ? (
+          <ListView {...props} />
+        ) : (
+          <DetailView {...props} activeSchema={getLastActiveSchema()} />
+        )}
       </div>
     </div>
   );
