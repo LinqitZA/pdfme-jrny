@@ -1,5 +1,5 @@
-import React from 'react';
-import { theme, Button } from 'antd';
+import React, { useRef } from 'react';
+import { theme, Button, ConfigProvider } from 'antd';
 import type { SidebarProps } from '../../../types.js';
 import { RIGHT_SIDEBAR_WIDTH, DESIGNER_CLASSNAME } from '../../../constants.js';
 import { ArrowLeft, ArrowRight } from 'lucide-react';
@@ -10,6 +10,7 @@ const Sidebar = (props: SidebarProps) => {
   const { sidebarOpen, setSidebarOpen, activeElements, schemas } = props;
 
   const { token } = theme.useToken();
+  const sidebarContentRef = useRef<HTMLDivElement>(null);
   const getActiveSchemas = () =>
     schemas.filter((s) => activeElements.map((ae) => ae.id).includes(s.id));
   const getLastActiveSchema = () => {
@@ -46,6 +47,7 @@ const Sidebar = (props: SidebarProps) => {
         onClick={() => setSidebarOpen(!sidebarOpen)}
       />
       <div
+        ref={sidebarContentRef}
         style={{
           width: RIGHT_SIDEBAR_WIDTH,
           height: '100%',
@@ -59,11 +61,13 @@ const Sidebar = (props: SidebarProps) => {
           borderLeft: `1px solid ${token.colorSplit}`,
         }}
       >
-        {getActiveSchemas().length === 0 ? (
-          <ListView {...props} />
-        ) : (
-          <DetailView {...props} activeSchema={getLastActiveSchema()} />
-        )}
+        <ConfigProvider getPopupContainer={() => sidebarContentRef.current || document.body}>
+          {getActiveSchemas().length === 0 ? (
+            <ListView {...props} />
+          ) : (
+            <DetailView {...props} activeSchema={getLastActiveSchema()} />
+          )}
+        </ConfigProvider>
       </div>
     </div>
   );

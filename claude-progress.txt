@@ -6181,3 +6181,36 @@ handler, and no corner-aware resize math anywhere in the file.
 - tests/test-feature-433-sample-rows.js - 39 tests
 
 ### Test Results: 71/71 tests passing across 2 features
+
+---
+
+## Session - 2026-05-14 - Features #2265, #2266 (Canvas Resize Revert + Sidebar Dropdown Verification)
+
+### Completed Features:
+
+- **Feature #2265**: Revert Moveable.tsx and Canvas/index.tsx resize logic to pre-migration working state
+  - Fully reverted Moveable.tsx to c6522ae7 state plus three optional start handler props
+  - Removed: rootContainer prop, style zIndex, scale compensation in onResize, canvasContainerRef + useImperativeHandle, resizeStartRef, dedicated onResizeStart handler
+  - Restored direct schema mutation in onResizeEnd and onResizeEnds for Moveable DOM sync
+  - Kept crosshair improvements (isDraggingRef, rafIdRef, rAF-throttled mouse tracking, onMoveableInteractionStart)
+  - Changed Selecto dragContainer to use ref instead of removed canvasContainerRef
+  - Build clean: Vite 6313 modules, 7.76s, zero TypeScript errors
+  - Browser-verified: designer loads, elements selectable, selection handles visible, right sidebar panel works
+  - Committed: 3943fa92
+
+- **Feature #2266**: Verify right sidebar dropdowns - ConfigProvider approach working correctly
+  - VERIFICATION ONLY - no code changes needed
+  - All 5 dropdown selectors tested and confirmed working in browser:
+    - Font Name: shows Roboto, Open Sans
+    - Page Visibility: shows All Pages, First Page Only, Last Page Only
+    - Output Channel: shows Both Email and Print, Email Only, Print Only
+    - Visibility: shows Always Visible, Conditional
+    - Field Binding: shows Organisation Name, Organisation Logo URL with search and optgroup structure
+  - ConfigProvider with getPopupContainer routing to .pdfme-designer-right-sidebar is working correctly
+  - The issue described in the feature was already fixed by the ConfigProvider approach from feature #2264
+
+### Key Files Modified:
+- packages/ui/src/components/Designer/Canvas/Moveable.tsx - Full revert to c6522ae7 + start handler props
+- packages/ui/src/components/Designer/Canvas/index.tsx - Removed scale compensation, rootContainer, restored direct mutation
+
+### Test Results: All browser verification passing, zero console errors from changes
