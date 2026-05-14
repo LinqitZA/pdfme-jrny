@@ -1,13 +1,10 @@
 import React, { useEffect, forwardRef, Ref, useRef } from 'react';
 import MoveableComponent, {
   OnDrag,
-  OnDragStart,
   OnRotate,
-  OnRotateStart,
   OnRotateEnd,
   OnClick,
   OnResize,
-  OnResizeStart,
 } from 'react-moveable';
 import { uuid } from '../../../helper.js';
 import { theme } from 'antd';
@@ -15,22 +12,21 @@ import { theme } from 'antd';
 type Props = {
   target: HTMLElement[];
   container?: HTMLElement | null;
-  rootContainer?: HTMLElement | null;
   bounds: { left: number; top: number; bottom: number; right: number };
   horizontalGuidelines: number[];
   verticalGuidelines: number[];
   keepRatio: boolean;
   rotatable: boolean;
   scale: number;
-  onDragStart?: (e: OnDragStart) => void;
+  onDragStart?: () => void;
   onDrag: ({ target, left, top }: OnDrag) => void;
   onDragEnd: ({ target }: { target: HTMLElement | SVGElement }) => void;
   onDragGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
-  onRotateStart?: (e: OnRotateStart) => void;
+  onRotateStart?: () => void;
   onRotate: ({ target, rotate }: OnRotate) => void;
   onRotateEnd: ({ target }: OnRotateEnd) => void;
   onRotateGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
-  onResizeStart?: (e: OnResizeStart) => void;
+  onResizeStart?: () => void;
   onResize: ({ target, width, height, direction }: OnResize) => void;
   onResizeEnd: ({ target }: { target: HTMLElement | SVGElement }) => void;
   onResizeGroupEnd: ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => void;
@@ -59,7 +55,6 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
 
   return (
     <MoveableComponent
-      style={{ zIndex: 1 }}
       className={uniqueClassName}
       snappable
       draggable
@@ -69,7 +64,6 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       origin={false}
       zoom={1 / props.scale}
       container={props.container || undefined}
-      rootContainer={props.rootContainer || undefined}
       throttleDrag={1}
       throttleRotate={1}
       throttleResize={1}
@@ -79,20 +73,14 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       horizontalGuidelines={props.horizontalGuidelines}
       verticalGuidelines={props.verticalGuidelines}
       keepRatio={props.keepRatio}
+      onDragStart={props.onDragStart}
       onRotateStart={props.onRotateStart}
-      onRotateGroupStart={props.onRotateStart ? ({ events }: { events: OnRotateStart[] }) => {
-        if (events.length > 0) props.onRotateStart!(events[0]);
-      } : undefined}
       onRotate={props.onRotate}
       onRotateEnd={props.onRotateEnd}
       onRotateGroup={({ events }: { events: OnRotate[] }) => {
         events.forEach(props.onRotate);
       }}
       onRotateGroupEnd={props.onRotateGroupEnd}
-      onDragStart={props.onDragStart}
-      onDragGroupStart={props.onDragStart ? ({ events }: { events: OnDragStart[] }) => {
-        if (events.length > 0) props.onDragStart!(events[0]);
-      } : undefined}
       onDrag={props.onDrag}
       onDragGroup={({ events }: { events: OnDrag[] }) => {
         events.forEach(props.onDrag);
@@ -100,9 +88,6 @@ const Moveable = (props: Props, ref: Ref<MoveableComponent>) => {
       onDragEnd={props.onDragEnd}
       onDragGroupEnd={props.onDragGroupEnd}
       onResizeStart={props.onResizeStart}
-      onResizeGroupStart={props.onResizeStart ? ({ events }: { events: OnResizeStart[] }) => {
-        if (events.length > 0) props.onResizeStart!(events[0]);
-      } : undefined}
       onResize={props.onResize}
       onResizeGroup={({ events }: { events: OnResize[] }) => {
         events.forEach(props.onResize);

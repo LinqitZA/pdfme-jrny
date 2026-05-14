@@ -8,7 +8,6 @@ import React, {
   useEffect,
   forwardRef,
   useCallback,
-  useImperativeHandle,
 } from 'react';
 import { theme, Button } from 'antd';
 import MoveableComponent, { OnDrag, OnRotate, OnResize } from 'react-moveable';
@@ -126,11 +125,6 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
   const horizontalGuides = useRef<GuidesInterface[]>([]);
   const moveable = useRef<MoveableComponent>(null);
   const paperScaleRef = useRef<HTMLDivElement>(null);
-  const resizeStartRef = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
-  // Local ref for the canvas scroll container — used as Selecto dragContainer
-  const canvasContainerRef = useRef<HTMLDivElement>(null);
-  // Forward the local ref to the parent via the forwarded ref
-  useImperativeHandle(ref, () => canvasContainerRef.current as HTMLDivElement);
 
   const [isPressShiftKey, setIsPressShiftKey] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -238,21 +232,6 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
     setCrosshairPos(null);
   }, []);
 
-  // Dedicated resize start handler: suppresses crosshair AND captures start dimensions
-  // for scale compensation in onResize
-  const onResizeStart = useCallback((e: { target: HTMLElement | SVGElement }) => {
-    isDraggingRef.current = true;
-    if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-    setCrosshairPos(null);
-    resizeStartRef.current = {
-      w: fmt4Num((e.target as HTMLElement).style.width),
-      h: fmt4Num((e.target as HTMLElement).style.height),
-    };
-  }, []);
-
   const onDrag = ({ target, top, left }: OnDrag) => {
     const { width: _width, height: _height } = target.style;
     const targetWidth = fmt(_width);
@@ -336,10 +315,14 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       { key: 'width', value: fmt(width), schemaId: id },
       { key: 'height', value: fmt(height), schemaId: id },
     ]);
-    // Note: Do NOT directly mutate targetSchema here. The changeSchemas() call
-    // above handles state updates through React's state management. Direct mutation
-    // creates race conditions where Moveable's stale DOM references conflict with
-    // React's re-render cycle, causing resize interactions to freeze.
+
+    const targetSchema = schemasList[pageCursor].find((schema) => schema.id === id);
+    if (targetSchema) {
+      targetSchema.position.x = fmt(left);
+      targetSchema.position.y = fmt(top);
+      targetSchema.width = fmt(width);
+      targetSchema.height = fmt(height);
+    }
   };
 
   const onResizeEnds = ({ targets }: { targets: (HTMLElement | SVGElement)[] }) => {
@@ -351,18 +334,20 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       { key: 'position.x', value: fmt(left), schemaId: id },
     ]);
     changeSchemas(flatten(arg));
+
+    targets.forEach(({ style: { width, height, top, left }, id }) => {
+      const targetSchema = schemasList[pageCursor].find((schema) => schema.id === id);
+      if (targetSchema) {
+        targetSchema.position.x = fmt(left);
+        targetSchema.position.y = fmt(top);
+        targetSchema.width = fmt(width);
+        targetSchema.height = fmt(height);
+      }
+    });
   };
 
   const onResize = ({ target, width, height, direction }: OnResize) => {
     if (!target) return;
-    // Scale compensation: Moveable reports deltas in screen pixels, but the DOM
-    // element lives inside a CSS `transform: scale(${scale})` container (Paper).
-    // Convert screen-pixel deltas to local-space deltas so the handle tracks
-    // the mouse cursor 1:1 regardless of zoom level.
-    const startW = resizeStartRef.current.w;
-    const startH = resizeStartRef.current.h;
-    width = Math.round(startW + (width - startW) / scale);
-    height = Math.round(startH + (height - startH) / scale);
     let topPadding = 0;
     let rightPadding = 0;
     let bottomPadding = 0;
@@ -451,7 +436,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
         overflow: 'auto',
         ...size,
       }}
-      ref={canvasContainerRef}
+      ref={ref}
       onMouseMove={handleCanvasMouseMove}
       onMouseLeave={handleCanvasMouseLeave}
     >
@@ -488,7 +473,6 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
       )}
       <Selecto
         container={paperRefs.current[pageCursor]}
-        dragContainer={canvasContainerRef.current}
         continueSelect={isPressShiftKey}
         onDragStart={(e) => {
           // Use type assertion to safely access inputEvent properties
@@ -584,7 +568,6 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   ref={moveable}
                   target={activeElements}
                   container={paperRefs.current[index]}
-                  rootContainer={canvasContainerRef.current}
                   bounds={{ left: 0, top: 0, bottom: paperSize.height, right: paperSize.width }}
                   horizontalGuidelines={getGuideLines(horizontalGuides.current, index)}
                   verticalGuidelines={getGuideLines(verticalGuides.current, index)}
@@ -599,7 +582,7 @@ const Canvas = (props: Props, ref: Ref<HTMLDivElement>) => {
                   onRotate={onRotate}
                   onRotateEnd={onRotateEnd}
                   onRotateGroupEnd={onRotateEnds}
-                  onResizeStart={onResizeStart}
+                  onResizeStart={onMoveableInteractionStart}
                   onResize={onResize}
                   onResizeEnd={onResizeEnd}
                   onResizeGroupEnd={onResizeEnds}
