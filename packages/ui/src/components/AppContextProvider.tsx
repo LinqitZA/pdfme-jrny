@@ -90,6 +90,14 @@ const AppContextProvider = ({ children, lang, font, plugins, options, fieldGroup
       // to prevent the backdrop filter from interfering with the WYSIWYG canvas
       modal={{ mask: { blur: false } }}
       drawer={{ mask: { blur: false } }}
+      // Route antd popup portals (Select dropdowns, etc.) inside the pdfme React root
+      // so @rc-component/trigger can properly calculate coordinates relative to the
+      // trigger element. Without this, dropdowns render at document.body which is
+      // OUTSIDE the pdfme React root, causing off-screen positioning (-25600px).
+      getPopupContainer={(triggerNode) => {
+        const designerRoot = triggerNode?.closest('.pdfme-designer-root') as HTMLElement | null;
+        return designerRoot || document.body;
+      }}
     >
       <I18nContext.Provider value={(key: keyof Dict) => i18n(key, dict)}>
         <FontContext.Provider value={font}>
