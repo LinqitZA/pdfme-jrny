@@ -96,12 +96,41 @@ const DetailView = (props: DetailViewProps) => {
   useEffect(() => form.resetFields(), [activeSchema.id]);
 
   useEffect(() => {
-    // Create a type-safe copy of the schema with editable property
-    const values: Record<string, unknown> = { ...activeSchema };
-    // Safely access and set properties
-    const readOnly = typeof values.readOnly === 'boolean' ? values.readOnly : false;
-    values.editable = !readOnly;
-    form.setValues(values);
+    // FIX 2: Only call form.setValues() when the incoming activeSchema values
+    // meaningfully differ from the current form values. This prevents a
+    // redundant reset cycle when the schema update originated from the form
+    // itself (e.g., user typed a width → handleWatch → changeSchemas → schema
+    // updated → this effect fires → setValues would trigger the watch again).
+    // Uses numeric tolerance (2 decimal places) for floating-point fields.
+    const incoming: Record<string, unknown> = { ...activeSchema };
+    const readOnly = typeof incoming.readOnly === 'boolean' ? incoming.readOnly : false;
+    incoming.editable = !readOnly;
+
+    const current = form.getValues();
+    const hasChanged = Object.keys(incoming).some((key) => {
+      const a = incoming[key];
+      const b = current[key];
+      if (a === b) return false;
+      // Numeric tolerance: treat values within 0.005 as equal (covers round-to-2dp drift)
+      if (typeof a === 'number' && typeof b === 'number') {
+        return Math.abs(a - b) >= 0.005;
+      }
+      // Object comparison (e.g., position: {x, y})
+      if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+        const aJson = JSON.stringify(a, (_k, v) =>
+          typeof v === 'number' ? Math.round(v * 100) / 100 : v,
+        );
+        const bJson = JSON.stringify(b, (_k, v) =>
+          typeof v === 'number' ? Math.round(v * 100) / 100 : v,
+        );
+        return aJson !== bJson;
+      }
+      return JSON.stringify(a) !== JSON.stringify(b);
+    });
+
+    if (hasChanged) {
+      form.setValues(incoming);
+    }
   }, [activeSchema]);
 
   useEffect(() => {
@@ -161,9 +190,19 @@ const DetailView = (props: DetailViewProps) => {
   // Use explicit type for debounce function that matches the expected signature
   const handleWatch = debounce(function (...args: unknown[]) {
     const formSchema = args[0] as Record<string, unknown>;
+    // FIX 4 (Defense in depth): Use numeric tolerance (0.01) for width, height,
+    // and position fields instead of strict equality, preventing floating-point
+    // micro-differences from triggering schema updates that feed back into the loop.
     const formAndSchemaValuesDiffer = (formValue: unknown, schemaValue: unknown): boolean => {
+      if (typeof formValue === 'number' && typeof schemaValue === 'number') {
+        return Math.abs(formValue - schemaValue) >= 0.01;
+      }
       if (typeof formValue === 'object' && formValue !== null) {
-        return JSON.stringify(formValue) !== JSON.stringify(schemaValue);
+        return JSON.stringify(formValue, (_k, v) =>
+          typeof v === 'number' ? Math.round(v * 100) / 100 : v,
+        ) !== JSON.stringify(schemaValue, (_k, v) =>
+          typeof v === 'number' ? Math.round(v * 100) / 100 : v,
+        );
       }
       return formValue !== schemaValue;
     };

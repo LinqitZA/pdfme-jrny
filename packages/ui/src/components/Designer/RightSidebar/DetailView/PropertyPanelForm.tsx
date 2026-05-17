@@ -71,6 +71,11 @@ type RHF = UseFormReturn<Record<string, any>>;
 export interface FormBridge {
   /** @internal Called by PropertyPanelForm to bind the react-hook-form instance */
   _connect: (rhf: RHF) => void;
+  /**
+   * @internal Flag set true by setValues/resetFields to suppress the watch
+   * effect from re-notifying during programmatic resets (prevents oscillation).
+   */
+  _isResetting: boolean;
   /** Reset all fields to their default values */
   resetFields: () => void;
   /** Replace all form values */
@@ -97,10 +102,13 @@ export function usePropertyPanelForm(): FormBridge {
       _connect(rhf) {
         rhfRef.current = rhf;
       },
+      _isResetting: false,
       resetFields() {
+        this._isResetting = true;
         rhfRef.current?.reset();
       },
       setValues(values) {
+        this._isResetting = true;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         rhfRef.current?.reset(values as Record<string, any>);
       },
@@ -438,13 +446,30 @@ const PropertyPanelForm: React.FC<PropertyPanelFormProps> = ({
   // Watch all form values (enables hidden expression evaluation + change notification)
   const vals = rhf.watch();
 
-  // Notify the external watch handler when form values actually change
+  // Notify the external watch handler when form values actually change.
+  // FIX 1: Skip notification when the change originated from a programmatic
+  // setValues/resetFields (bridge._isResetting flag) to prevent the
+  // DetailView → form.setValues → watch → handleWatch → changeSchemas → repeat loop.
+  // FIX 3: Normalize numeric values to 2 decimal places before JSON comparison
+  // to prevent floating-point micro-differences from triggering false positives.
   const prevJsonRef = useRef<string>('{}');
   useEffect(() => {
-    const json = JSON.stringify(vals);
+    const json = JSON.stringify(vals, (_key, value) =>
+      typeof value === 'number' ? Math.round(value * 100) / 100 : value,
+    );
     if (json !== prevJsonRef.current) {
       prevJsonRef.current = json;
+      // FIX 1: If the form was just programmatically reset, update the
+      // prevJsonRef (so future user edits diff correctly) but do NOT
+      // fire the external watch handler — this is not a user-initiated change.
+      if (bridge._isResetting) {
+        bridge._isResetting = false;
+        return;
+      }
       watchConfig?.['#']?.(vals);
+    } else {
+      // Even if JSON didn't change, clear the resetting flag
+      bridge._isResetting = false;
     }
   });
 
