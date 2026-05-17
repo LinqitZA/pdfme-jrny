@@ -291,16 +291,35 @@ export function uiRender(arg: {
       rowDiv.style.backgroundColor = alternateRowColor;
     }
 
+    let maxCellLines = 1;
     for (let ci = 0; ci < columns.length; ci++) {
       const col = columns[ci];
       const cell = document.createElement('div');
       cell.style.flex = `0 0 ${(col.width / totalWidth) * 100}%`;
       cell.style.padding = '2px 4px';
       cell.style.boxSizing = 'border-box';
-      cell.style.overflow = 'hidden';
-      cell.style.textOverflow = 'ellipsis';
-      cell.style.whiteSpace = 'nowrap';
       cell.style.textAlign = col.align || 'left';
+
+      // Overflow behaviour per column (default: wrap)
+      const overflow = (col as any).overflow || 'wrap';
+      if (overflow === 'wrap') {
+        cell.style.whiteSpace = 'normal';
+        cell.style.wordBreak = 'break-word';
+        cell.style.overflow = 'hidden';
+        // Estimate wrapped line count for row height tracking
+        const text = row[ci] || '';
+        const charWidth = bodyFontSize * 0.55; // approximate avg char width in px
+        const colWidthPx = ((col.width / totalWidth) * rootElement.clientWidth) || 50;
+        const charsPerLine = Math.max(1, Math.floor((colWidthPx - 8) / charWidth));
+        const lineCount = Math.ceil(text.length / charsPerLine) || 1;
+        if (lineCount > maxCellLines) maxCellLines = lineCount;
+      } else {
+        // clip / truncate: single line
+        cell.style.overflow = 'hidden';
+        cell.style.textOverflow = overflow === 'truncate' ? 'ellipsis' : 'clip';
+        cell.style.whiteSpace = 'nowrap';
+      }
+
       cell.textContent = row[ci] || '';
 
       // Per-column body font overrides
@@ -314,7 +333,7 @@ export function uiRender(arg: {
       rowDiv.appendChild(cell);
     }
     container.appendChild(rowDiv);
-    contentHeight += bodyFontSize + 6;
+    contentHeight += (bodyFontSize + 6) * maxCellLines;
   }
 
   // ─── Tracking sub-rows (sample) ──────────────────────────────────

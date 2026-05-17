@@ -5,7 +5,75 @@
  * standard pdfme table by the render service (resolveLineItemsTables).
  * This pdf() function serves as a fallback: if an unresolved lineItemsTable
  * element reaches the generator, it renders a simple table directly using pdf-lib.
+ *
+ * Supports text wrapping with dynamic row heights (#2251):
+ * - Columns with overflow: 'wrap' (or default) wrap text and expand row height
+ * - Columns with overflow: 'clip' or 'truncate' clip to single line
  */
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+/** Parse a hex color string (#RRGGBB or RRGGBB) to normalised {r, g, b}. */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const h = hex.replace('#', '');
+  return {
+    r: parseInt(h.substring(0, 2), 16) / 255,
+    g: parseInt(h.substring(2, 4), 16) / 255,
+    b: parseInt(h.substring(4, 6), 16) / 255,
+  };
+}
+
+/** Approximate the width of a string in pt using the embedded font metrics. */
+function measureText(text: string, font: any, fontSize: number): number {
+  if (!font) return text.length * fontSize * 0.5; // rough fallback
+  try {
+    return font.widthOfTextAtSize(text, fontSize);
+  } catch {
+    return text.length * fontSize * 0.5;
+  }
+}
+
+/**
+ * Word-wrap a text string to fit within `maxWidthPt`, breaking at word
+ * boundaries. Returns an array of lines.
+ */
+function wrapText(
+  text: string,
+  font: any,
+  fontSize: number,
+  maxWidthPt: number,
+): string[] {
+  if (!text) return [''];
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const testWidth = measureText(testLine, font, fontSize);
+    if (testWidth > maxWidthPt && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+  if (lines.length === 0) lines.push('');
+  return lines;
+}
+
+// ── Column type with overflow ────────────────────────────────────────
+
+interface PdfColumn {
+  key: string;
+  header: string;
+  width: number;
+  align?: string;
+  overflow?: 'wrap' | 'truncate' | 'clip';
+}
+
+// ── Main render ──────────────────────────────────────────────────────
 
 /**
  * Render a line items table element to a PDF page.
@@ -21,14 +89,17 @@ export async function pdfRender(arg: {
 }): Promise<void> {
   const { schema, value, page, pdfLib } = arg;
 
-  const columns = (schema.columns as Array<{ key: string; header: string; width: number; align?: string }>) || [];
+  const columns = (schema.columns as PdfColumn[]) || [];
   const position = schema.position as { x: number; y: number };
-  const width = schema.width as number || 190;
-  const height = schema.height as number || 100;
+  const width = (schema.width as number) || 190;
+  const height = (schema.height as number) || 100;
   const showHeader = schema.showHeader !== false;
-  const headerBg = ((schema.headerStyle as Record<string, unknown>)?.backgroundColor as string) || '#2d3748';
-  const headerFontSize = ((schema.headerStyle as Record<string, unknown>)?.fontSize as number) || 9;
-  const bodyFontSize = ((schema.bodyStyle as Record<string, unknown>)?.fontSize as number) || 8;
+  const headerBg =
+    ((schema.headerStyle as Record<string, unknown>)?.backgroundColor as string) || '#2d3748';
+  const headerFontSize =
+    ((schema.headerStyle as Record<string, unknown>)?.fontSize as number) || 9;
+  const bodyFontSize =
+    ((schema.bodyStyle as Record<string, unknown>)?.fontSize as number) || 8;
 
   // Parse body data
   let bodyRows: string[][] = [];
@@ -44,18 +115,17 @@ export async function pdfRender(arg: {
   const mmToPt = 2.835;
   const x = position.x * mmToPt;
   const pageHeight = page.getHeight();
-  const y = pageHeight - (position.y * mmToPt);
+  const y = pageHeight - position.y * mmToPt;
   const tableWidth = width * mmToPt;
   const totalColWidth = columns.reduce((s, c) => s + c.width, 0) || 1;
+  const cellPaddingPt = 2; // horizontal cell padding in pt
+  const lineHeightMultiplier = 1.3;
 
   // Get or embed a font
-  let font;
+  let font: any;
   try {
-    font = await pdfLib.PDFDocument.prototype.embedFont
-      ? await arg.pdfDoc.embedFont(pdfLib.StandardFonts.Helvetica)
-      : null;
+    font = await arg.pdfDoc.embedFont(pdfLib.StandardFonts.Helvetica);
   } catch {
-    // Fallback
     try {
       font = await arg.pdfDoc.embedFont('Helvetica');
     } catch {
@@ -63,22 +133,45 @@ export async function pdfRender(arg: {
     }
   }
 
-  const rowHeight = 14 * mmToPt / 5; // ~8pt rows
+  const drawFontSize = bodyFontSize * 0.8;
+  const lineHeightPt = drawFontSize * lineHeightMultiplier;
+  const bottomBoundary = pageHeight - (position.y + height) * mmToPt;
   let currentY = y;
 
-  // Parse hex color to rgb
-  function hexToRgb(hex: string): { r: number; g: number; b: number } {
-    const h = hex.replace('#', '');
-    return {
-      r: parseInt(h.substring(0, 2), 16) / 255,
-      g: parseInt(h.substring(2, 4), 16) / 255,
-      b: parseInt(h.substring(4, 6), 16) / 255,
-    };
+  // ── Pre-compute wrapped lines and row heights ──────────────────────
+  const colWidthsPt = columns.map((c) => (c.width / totalColWidth) * tableWidth);
+
+  interface WrappedCell {
+    lines: string[];
+  }
+  interface WrappedRow {
+    cells: WrappedCell[];
+    height: number;
   }
 
-  // Draw header
+  const wrappedRows: WrappedRow[] = bodyRows.map((row) => {
+    let maxLines = 1;
+    const cells: WrappedCell[] = columns.map((col, ci) => {
+      const cellText = row[ci] || '';
+      const overflow = col.overflow || 'wrap';
+      const availableWidth = colWidthsPt[ci] - cellPaddingPt * 2;
+
+      if (overflow === 'wrap') {
+        const lines = wrapText(cellText, font, drawFontSize, availableWidth);
+        if (lines.length > maxLines) maxLines = lines.length;
+        return { lines };
+      }
+      // clip / truncate: single line, no expansion
+      return { lines: [cellText] };
+    });
+
+    const rowH = Math.max(maxLines * lineHeightPt + cellPaddingPt * 2, lineHeightPt + 4);
+    return { cells, height: rowH };
+  });
+
+  // ── Draw header ────────────────────────────────────────────────────
   if (showHeader && columns.length > 0) {
-    const hdrHeight = (headerFontSize + 6) * mmToPt / 3;
+    const hdrHeight = (headerFontSize + 6) * (mmToPt / 3);
     const bgColor = hexToRgb(headerBg);
 
     page.drawRectangle({
@@ -94,7 +187,7 @@ export async function pdfRender(arg: {
       const colW = (col.width / totalColWidth) * tableWidth;
       if (font) {
         page.drawText(col.header, {
-          x: colX + 2,
+          x: colX + cellPaddingPt,
           y: currentY - hdrHeight + 3,
           size: headerFontSize * 0.8,
           font,
@@ -106,12 +199,13 @@ export async function pdfRender(arg: {
     currentY -= hdrHeight;
   }
 
-  // Draw body rows
-  for (let ri = 0; ri < bodyRows.length; ri++) {
-    const row = bodyRows[ri];
-    const rHeight = (bodyFontSize + 4) * mmToPt / 3;
+  // ── Draw body rows ─────────────────────────────────────────────────
+  for (let ri = 0; ri < wrappedRows.length; ri++) {
+    const wr = wrappedRows[ri];
+    const rHeight = wr.height;
 
-    if (currentY - rHeight < pageHeight - (position.y + height) * mmToPt) break;
+    // Stop if we've exceeded the element's vertical bounds
+    if (currentY - rHeight < bottomBoundary) break;
 
     // Alternating row shading
     if (schema.alternateRowShading && ri % 2 === 1) {
@@ -127,24 +221,27 @@ export async function pdfRender(arg: {
 
     let colX = x;
     for (let ci = 0; ci < columns.length; ci++) {
-      const col = columns[ci];
-      const colW = (col.width / totalColWidth) * tableWidth;
-      const cellText = row[ci] || '';
-      if (font && cellText) {
-        page.drawText(cellText.substring(0, 50), {
-          x: colX + 2,
-          y: currentY - rHeight + 2,
-          size: bodyFontSize * 0.8,
-          font,
-          color: pdfLib.rgb(0, 0, 0),
-        });
+      const colW = colWidthsPt[ci];
+      const cell = wr.cells[ci];
+      if (font && cell) {
+        for (let li = 0; li < cell.lines.length; li++) {
+          const lineText = cell.lines[li];
+          if (!lineText) continue;
+          page.drawText(lineText, {
+            x: colX + cellPaddingPt,
+            y: currentY - cellPaddingPt - lineHeightPt * (li + 1) + drawFontSize * 0.3,
+            size: drawFontSize,
+            font,
+            color: pdfLib.rgb(0, 0, 0),
+          });
+        }
       }
       colX += colW;
     }
     currentY -= rHeight;
   }
 
-  // Draw border
+  // ── Draw outer border ──────────────────────────────────────────────
   page.drawRectangle({
     x,
     y: currentY,

@@ -645,7 +645,7 @@ function buildPerColumnStyles(
     if (col.columnStyle) {
       Object.assign(bodyMapped, fontStyleToCellStyle(col.columnStyle));
     }
-    if (col.overflow && col.overflow !== 'wrap') {
+    if (col.overflow) {
       bodyMapped.overflow = col.overflow;
     }
     if (col.verticalAlign && col.verticalAlign !== 'middle') {
