@@ -463,10 +463,12 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     }
 
     // 3a. Resolve field bindings with fallbackValue for missing/empty inputs
-    this.resolveFieldBindings(pdfmeTemplate, inputs);
+    const substitutedFields = this.resolveFieldBindings(pdfmeTemplate, inputs);
 
     // 3a2. Resolve expressions in all text-containing schema element values
-    this.resolveExpressions(pdfmeTemplate, inputs);
+    // Pass substitutedFields so that data-source-resolved values (e.g. "INV-01258")
+    // are not re-evaluated as arithmetic expressions (which would yield -1258).
+    this.resolveExpressions(pdfmeTemplate, inputs, substitutedFields);
 
     // 3b. Resolve drawnSignature fields - fetch user's signature PNG and embed as base64
     try {
@@ -1409,11 +1411,18 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    * The designer (FieldBindingWidget) writes user-selected bindings as `{{key}}`
    * into the element's `content` property. Without step 2, those bindings would
    * never resolve at render time and the PDF would show empty fields.
+   *
+   * Returns a set of field names whose values were resolved via `{{key}}`
+   * placeholder substitution. These should be skipped during expression
+   * evaluation because their values are data-source text (e.g. "INV-01258",
+   * "2025-11-14"), NOT arithmetic expressions — even though they may
+   * coincidentally match the EXPRESSION_PATTERN regex.
    */
   private resolveFieldBindings(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
     inputs: Record<string, string>[],
-  ): void {
+  ): Set<string> {
+    const substitutedFields = new Set<string>();
     // Build a map of field name -> fallbackValue from schema elements
     const fallbackMap = new Map<string, string>();
     // Build a map of field name -> { type, content } so the placeholder pass
@@ -1474,6 +1483,11 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             // intent that "binding to a missing key shows the fallback".
             if (substituted.replace(/\s+/g, '') !== '') {
               inputRecord[name] = substituted;
+              // Track that this field was resolved from a data-source binding.
+              // Values from {{key}} substitution are display text (e.g. "INV-01258",
+              // "2025-11-14") and must NOT be re-evaluated as arithmetic expressions
+              // by resolveExpressions() — "INV-01258" would wrongly become -1258.
+              substitutedFields.add(name);
               continue;
             }
           }
@@ -1484,6 +1498,8 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         }
       }
     }
+
+    return substitutedFields;
   }
 
   /**
@@ -1518,6 +1534,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   private resolveExpressions(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
     inputs: Record<string, string>[],
+    substitutedFields?: Set<string>,
   ): void {
     if (!Array.isArray(pdfmeTemplate.schemas) || inputs.length === 0) return;
 
@@ -1533,6 +1550,16 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         if (elName && elType && RenderService.EXPRESSION_SKIP_TYPES.has(elType)) {
           skipNames.add(elName);
         }
+      }
+    }
+
+    // Also skip fields whose values came from {{key}} content placeholder
+    // substitution — these are data-source display values (e.g. "INV-01258",
+    // "2025-11-14"), not expressions, even if they coincidentally match the
+    // EXPRESSION_PATTERN regex (e.g. "INV-01258" would match \w+[+-*/]\w+).
+    if (substitutedFields) {
+      for (const name of substitutedFields) {
+        skipNames.add(name);
       }
     }
 
@@ -2247,10 +2274,10 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     // 3. Run the full render pipeline (same as renderNow but without DB record)
     // 3a. Resolve field bindings with fallbackValue
-    this.resolveFieldBindings(pdfmeTemplate, inputs);
+    const substitutedFields = this.resolveFieldBindings(pdfmeTemplate, inputs);
 
     // 3a2. Resolve expressions in all text-containing schema element values
-    this.resolveExpressions(pdfmeTemplate, inputs);
+    this.resolveExpressions(pdfmeTemplate, inputs, substitutedFields);
 
     // 3b. Resolve drawnSignature fields
     await this.resolveDrawnSignatures(pdfmeTemplate, inputs, orgId, userId);
