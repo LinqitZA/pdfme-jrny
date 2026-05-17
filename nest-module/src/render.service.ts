@@ -1461,7 +1461,13 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             existing === '' ||
             existing === undefined ||
             existing === null;
-          if (!isEmpty) continue; // data source provided a value; respect it.
+          if (!isEmpty) {
+            // Track that this field has a value directly from the data source.
+            // Data-source values (e.g. "INV-01258", "2025-11-14") must NOT be
+            // re-evaluated as arithmetic expressions by resolveExpressions().
+            substitutedFields.add(name);
+            continue; // data source provided a value; respect it.
+          }
 
           const meta = elementMeta.get(name);
           const elType = meta?.type ?? '';
@@ -1504,11 +1510,17 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Expression pattern detection regex.
-   * Matches values containing function calls (e.g. CONCAT(...), IF(...), FORMAT_DATE(...))
-   * or arithmetic operators between non-whitespace tokens (e.g. "100 + 200", "qty * price").
-   * Simple values like "INV-001" or "Hello World" will NOT match.
+   * Matches values containing:
+   *   1. Function calls (e.g. CONCAT(...), IF(...), FORMAT_DATE(...))
+   *   2. Numeric arithmetic with spaces (e.g. "100 + 200", "3.5 * 2")
+   *   3. Variable arithmetic with spaces (e.g. "qty * price", "a + b")
+   *
+   * Simple values like "INV-001", "2025-11-14", "PO-2025/001", or "Hello World"
+   * will NOT match because operators must have at least one space on each side.
+   * This prevents false positives on document numbers, dates, and reference codes
+   * where dashes/slashes are separators, not arithmetic operators.
    */
-  private static readonly EXPRESSION_PATTERN = /(?:[A-Z_][A-Z0-9_]*\s*\()|(?:(?:^|[^a-zA-Z])\d+(?:\.\d+)?\s*[+\-*\/]\s*\d)|(?:\w+\s*[+\-*\/]\s*\w+)/i;
+  private static readonly EXPRESSION_PATTERN = /(?:[A-Z_][A-Z0-9_]*\s*\()|(?:(?:^|[^a-zA-Z])\d+(?:\.\d+)?\s+[+\-*\/]\s+\d)|(?:\w+\s+[+\-*\/]\s+\w+)/i;
 
   /**
    * Types that should be skipped during expression resolution.
