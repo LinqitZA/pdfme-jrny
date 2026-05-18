@@ -11,6 +11,7 @@ const Sidebar = (props: SidebarProps) => {
 
   const { token } = theme.useToken();
   const sidebarContentRef = useRef<HTMLDivElement>(null);
+  const popupContainerRef = useRef<HTMLDivElement>(null);
   const getActiveSchemas = () =>
     schemas.filter((s) => activeElements.map((ae) => ae.id).includes(s.id));
   const getLastActiveSchema = () => {
@@ -61,13 +62,29 @@ const Sidebar = (props: SidebarProps) => {
           borderLeft: `1px solid ${token.colorSplit}`,
         }}
       >
-        <ConfigProvider getPopupContainer={() => sidebarContentRef.current || document.body}>
-          {getActiveSchemas().length === 0 ? (
-            <ListView {...props} />
-          ) : (
-            <DetailView {...props} activeSchema={getLastActiveSchema()} />
-          )}
-        </ConfigProvider>
+        {/* position:relative wrapper breaks the deeply nested position:absolute
+            chain so that @rc-component/trigger can calculate dropdown coordinates
+            correctly. Without this, the popup alignment algorithm compounds
+            offset/scale errors across the three absolute-positioned ancestors,
+            producing wildly negative inset values for Select dropdowns. */}
+        <div
+          ref={popupContainerRef}
+          style={{
+            position: 'relative',
+            display: 'flex',
+            flex: 1,
+            width: '100%',
+            minHeight: 0,
+          }}
+        >
+          <ConfigProvider getPopupContainer={() => popupContainerRef.current || document.body}>
+            {getActiveSchemas().length === 0 ? (
+              <ListView {...props} />
+            ) : (
+              <DetailView {...props} activeSchema={getLastActiveSchema()} />
+            )}
+          </ConfigProvider>
+        </div>
       </div>
     </div>
   );

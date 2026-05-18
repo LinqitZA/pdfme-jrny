@@ -8,7 +8,7 @@
 // Schema plugins
 export { lineItemsTable, resolveLineItemsTables } from './line-items-table';
 export { groupedTable, GroupedTable } from './grouped-table';
-export type { GroupedTableConfig } from './grouped-table';
+export type { GroupedTableConfig, GroupNode, RenderedRow } from './grouped-table';
 export { erpImage, resolveErpImages, generatePlaceholderImage } from './erp-image';
 export { signatureBlock, resolveSignatureBlocks, applySignatureBlocks } from './signature-block';
 export type { SignatureBlockRenderInfo } from './signature-block';
