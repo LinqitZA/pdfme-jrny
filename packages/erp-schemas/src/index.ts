@@ -6,7 +6,7 @@
  */
 
 // Schema plugins
-export { lineItemsTable, resolveLineItemsTables } from './line-items-table';
+export { lineItemsTable, resolveLineItemsTables, resolveLineItemsTableInputs } from './line-items-table';
 export { groupedTable, GroupedTable } from './grouped-table';
 export type { GroupedTableConfig, GroupNode, RenderedRow } from './grouped-table';
 export { erpImage, resolveErpImages, generatePlaceholderImage } from './erp-image';

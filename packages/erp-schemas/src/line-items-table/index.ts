@@ -23,7 +23,7 @@ import type {
   TrackingDetailStyle,
 } from '../types';
 import { ExpressionEngine } from '../expression-engine';
-import { formatNumber, type CarriedSubtotalConfig } from './rowHeights';
+import { formatNumber, type CarriedSubtotalConfig, type ResolvedFooterRow } from './rowHeights';
 
 // Re-exported for backward compatibility: formatNumber used to be defined
 // directly in this file; it now lives in ./rowHeights.ts (single source of
@@ -143,6 +143,22 @@ export interface LineItemsTableSchema {
   trackingLotFields?: string[];
   /** Styling for tracking detail sub-rows */
   trackingDetailStyle?: TrackingDetailStyle;
+  /** Grid line (column separator / row divider) color for body rows. Default '#cccccc'. */
+  gridColor?: string;
+  /** Grid line width (pt) for body rows. Default 0.25. */
+  gridWidth?: number;
+  /** Outer border / header divider color. Default '#000000'. */
+  borderColor?: string;
+  /** Outer border / header divider width (pt). Default 0.5. */
+  borderWidth?: number;
+  /**
+   * Resolved footer rows (subtotal/VAT/total), computed by
+   * resolveLineItemsTableInputs and attached to the schema before it reaches
+   * generate(). Drawn ONLY on the final chunk, after the last body row.
+   * Not intended to be set directly on a template — this is write-once
+   * output of the data-resolution step.
+   */
+  __resolvedFooterRows?: ResolvedFooterRow[];
   /** Additional schema properties */
   [key: string]: unknown;
 }
@@ -872,6 +888,99 @@ export function resolveLineItemsTables(
   };
 }
 
+/**
+ * Resolve lineItemsTable DATA — parse each table's raw line-item input via
+ * resolveLineItemsTableData (flattened body rows, calculated columns,
+ * per-cell number/currency formatting, sub-rows, tracking rows, and footer
+ * row values), then write the resolved body rows back onto `inputs` and
+ * attach the resolved footer rows to the schema — WITHOUT converting the
+ * element's type away from `'lineItemsTable'`.
+ *
+ * This is the native-render counterpart to resolveLineItemsTables(): that
+ * function rewrites the element to `type: 'table'` so @pdfme/generator
+ * dispatches to the upstream `table` plugin's own (fixed-height /
+ * maxRowsPerPage) pagination. This function keeps `type: 'lineItemsTable'`
+ * so generate() dispatches to THIS plugin's own pdf()/getDynamicHeights —
+ * enabling linesPerPage/carriedSubtotal/height-fit pagination (see
+ * ./dynamicHeights.ts, ./pdf.ts). There is deliberately no maxRowsPerPage
+ * pre-split here: per-page row counts are governed entirely by
+ * getDynamicHeights + the generator's own page-fit chunker.
+ *
+ * Footer rows are excluded from the paginated body (never counted as body
+ * rows, never subject to linesPerPage/height-fit splitting) and instead
+ * stored on `__resolvedFooterRows`, one entry per `schema.footerRows` config
+ * (same index), so pdf.ts can draw them only on the final chunk and
+ * dynamicHeights.ts can reserve space for them on the last page.
+ *
+ * Should be called by the render service INSTEAD OF resolveLineItemsTables()
+ * before passing the template to pdfme generate(), with `lineItemsTable`
+ * registered in the plugins map passed to generate().
+ */
+export function resolveLineItemsTableInputs(
+  pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
+  inputs: Record<string, string>[],
+): { template: { basePdf: unknown; schemas: unknown[] }; inputs: Record<string, string>[] } {
+  const newSchemas = pdfmeTemplate.schemas.map((page) => {
+    if (!Array.isArray(page)) return page;
+
+    return page.map((field: Record<string, unknown>) => {
+      if (!field || typeof field !== 'object') return field;
+      if (field.type !== 'lineItemsTable') return field;
+
+      const litSchema = field as unknown as LineItemsTableSchema;
+      const fieldName = litSchema.name;
+      // Feature #432: Use dataSource property as primary data key, fall back to field name
+      const dataSourceKey = (field as Record<string, unknown>).dataSource as string | undefined;
+
+      // Parse line items from the first input that has this field
+      let lineItems: LineItemRecord[] = [];
+      for (const input of inputs) {
+        const rawData = (dataSourceKey && input[dataSourceKey]) || input[fieldName];
+        if (rawData) {
+          try {
+            lineItems = JSON.parse(rawData);
+          } catch {
+            lineItems = [];
+          }
+          break;
+        }
+      }
+
+      // Resolve the table data (body rows + footer rows, in one array —
+      // footerStartIndex is the boundary between the two).
+      const resolved = resolveLineItemsTableData(lineItems, litSchema);
+      const bodyOnly = resolved.body.slice(0, resolved.footerStartIndex);
+      const footerCellRows = resolved.body.slice(resolved.footerStartIndex);
+      const footerConfigs = litSchema.footerRows || [];
+
+      // Write the resolved (non-footer) body rows back onto every input
+      // record that carries this field, matching the JSON shape pdf.ts /
+      // getLineItemsTableDynamicHeights already parse via JSON.parse(value).
+      const bodyJson = JSON.stringify(bodyOnly);
+      for (const input of inputs) {
+        input[fieldName] = bodyJson;
+      }
+
+      const resolvedFooterRows: ResolvedFooterRow[] = footerCellRows.map((cells, i) => ({
+        cells,
+        style: footerConfigs[i]?.style,
+      }));
+
+      // Keep type: 'lineItemsTable' unchanged — only attach the resolved
+      // footer data as extra (internal) schema properties.
+      return {
+        ...field,
+        __resolvedFooterRows: resolvedFooterRows,
+      };
+    });
+  });
+
+  return {
+    template: { basePdf: pdfmeTemplate.basePdf, schemas: newSchemas },
+    inputs,
+  };
+}
+
 import { uiRender } from './ui';
 import { pdfRender } from './pdf';
 import { propPanel } from './propPanel';
@@ -975,10 +1084,19 @@ export const lineItemsTable = {
   icon: LINE_ITEMS_TABLE_ICON,
 
   /**
-   * Resolve line items tables in a template.
-   * Called by the render service before pdfme generate().
+   * Resolve line items tables in a template by converting them to standard
+   * `table` elements (legacy path — no longer called by RenderService; kept
+   * for backward compatibility / other consumers).
    */
   resolve: resolveLineItemsTables,
+
+  /**
+   * Resolve line items table DATA in place, keeping type: 'lineItemsTable'
+   * so generate() dispatches to this plugin's own pdf()/getDynamicHeights
+   * for native pagination. Called by the render service before pdfme
+   * generate().
+   */
+  resolveInputs: resolveLineItemsTableInputs,
 
   /**
    * Compute per-row dynamic heights for pagination. Dispatched to by

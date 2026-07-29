@@ -13,6 +13,8 @@
  * actually draws.
  */
 
+import type { RowStyle } from '../types';
+
 /** mm -> pt conversion factor used throughout this plugin's PDF fallback renderer. */
 export const MM_TO_PT = 2.835;
 
@@ -22,14 +24,51 @@ export const CELL_PADDING_PT = 2;
 /** Line height multiplier applied to the draw font size. */
 export const LINE_HEIGHT_MULTIPLIER = 1.3;
 
+/** Default grid line (column separator / row divider) color for body rows. */
+export const DEFAULT_GRID_BORDER_COLOR = '#cccccc';
+/** Default grid line width (pt) for body rows. */
+export const DEFAULT_GRID_BORDER_WIDTH = 0.25;
+/** Default outer/header border color. */
+export const DEFAULT_OUTER_BORDER_COLOR = '#000000';
+/** Default outer/header border width (pt). */
+export const DEFAULT_OUTER_BORDER_WIDTH = 0.5;
+
 export interface PdfColumn {
   key: string;
   header: string;
   width: number;
   align?: string;
+  /** Horizontal alignment override for the header cell (inherits from align if not set). */
+  headerAlign?: string;
   overflow?: 'wrap' | 'truncate' | 'clip';
   /** Optional number/currency format string (e.g. '#,##0.00'), consumed by formatNumber(). */
   format?: string;
+}
+
+/**
+ * A single resolved footer row: cell text (aligned 1:1 with `columns`, already
+ * formatted by resolveLineItemsTableData/computeFooterRows) plus the optional
+ * style config from the corresponding FooterRowConfig entry. Produced by
+ * index.ts's resolveLineItemsTableInputs (the production data-resolution
+ * step) and attached to the schema as `__resolvedFooterRows` so pdf.ts and
+ * dynamicHeights.ts can draw/reserve them without re-running the
+ * data-resolution layer (which needs the original, unformatted line items —
+ * not available at draw time).
+ */
+export interface ResolvedFooterRow {
+  cells: string[];
+  style?: RowStyle;
+}
+
+/**
+ * Parse a CSS-like border string (e.g. '1px solid #000000') into a pt width
+ * + hex color. Returns undefined when the string is empty/unparsable.
+ */
+export function parseBorderBottom(value: string | undefined): { widthPt: number; color: string } | undefined {
+  if (!value) return undefined;
+  const m = value.match(/^\s*(\d+(?:\.\d+)?)\s*px\s+\S+\s+(#[0-9a-fA-F]{3,8})\s*$/);
+  if (!m) return undefined;
+  return { widthPt: parseFloat(m[1]), color: m[2] };
 }
 
 /**
@@ -98,12 +137,37 @@ export interface LineItemsTableGeometrySchema {
   position?: { x: number; y: number };
   /** Carried-forward subtotal row, drawn on every non-final page. See CarriedSubtotalConfig. */
   carriedSubtotal?: CarriedSubtotalConfig;
+  /** Grid line (column separator / row divider) color for body rows. Default '#cccccc'. */
+  gridColor?: string;
+  /** Grid line width (pt) for body rows. Default 0.25. */
+  gridWidth?: number;
+  /** Outer border / header divider color. Default '#000000'. */
+  borderColor?: string;
+  /** Outer border / header divider width (pt). Default 0.5. */
+  borderWidth?: number;
+  /**
+   * Resolved footer rows (subtotal/VAT/total), computed by
+   * resolveLineItemsTableInputs and attached to the schema before it reaches
+   * generate(). Drawn ONLY on the final chunk, after the last body row.
+   */
+  __resolvedFooterRows?: ResolvedFooterRow[];
   [key: string]: unknown;
 }
 
-/** Parse a hex color string (#RRGGBB or RRGGBB) to normalised {r, g, b}. */
+/**
+ * Parse a hex color string (#RGB, #RRGGBB, RGB, or RRGGBB) to normalised
+ * {r, g, b}. Shorthand 3-digit hex (e.g. '#000') is expanded to 6-digit
+ * (each nibble doubled) before parsing — footer row styling
+ * (RowStyle.borderBottom, e.g. '1px solid #000') commonly uses this form.
+ */
 export function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '');
+  let h = hex.replace('#', '');
+  if (h.length === 3) {
+    h = h
+      .split('')
+      .map((c) => c + c)
+      .join('');
+  }
   return {
     r: parseInt(h.substring(0, 2), 16) / 255,
     g: parseInt(h.substring(2, 4), 16) / 255,
@@ -119,6 +183,32 @@ export function measureText(text: string, font: any, fontSize: number): number {
   } catch {
     return text.length * fontSize * 0.5;
   }
+}
+
+/**
+ * Compute the x (pt) at which a single line of text should be drawn within a
+ * column cell, honoring the column's horizontal alignment. `colX` is the
+ * cell's left edge, `colWidthPt` its full width (including padding).
+ * Shared by pdf.ts's header/body/carried-subtotal/footer drawing so every
+ * row type aligns identically for a given column.
+ */
+export function computeCellDrawX(
+  colX: number,
+  colWidthPt: number,
+  lineText: string,
+  align: string | undefined,
+  font: any,
+  fontSize: number,
+): number {
+  if (align === 'right') {
+    const textWidth = measureText(lineText, font, fontSize);
+    return colX + colWidthPt - CELL_PADDING_PT - textWidth;
+  }
+  if (align === 'center') {
+    const textWidth = measureText(lineText, font, fontSize);
+    return colX + (colWidthPt - textWidth) / 2;
+  }
+  return colX + CELL_PADDING_PT;
 }
 
 /**

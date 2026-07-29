@@ -1,10 +1,15 @@
 /**
- * Line Items Table - PDF renderer.
+ * Line Items Table - PDF renderer (NATIVE render path).
  *
- * For PDF generation, the line items table is normally pre-resolved to a
- * standard pdfme table by the render service (resolveLineItemsTables).
- * This pdf() function serves as a fallback: if an unresolved lineItemsTable
- * element reaches the generator, it renders a simple table directly using pdf-lib.
+ * This is the primary renderer for lineItemsTable elements: the render
+ * service (nest-module/src/render.service.ts) resolves line-item DATA via
+ * resolveLineItemsTableInputs() (body rows + resolved footer rows) while
+ * keeping the element's type as 'lineItemsTable', so @pdfme/generator
+ * dispatches straight to this pdf() function (and to getDynamicHeights, see
+ * ./dynamicHeights.ts) instead of converting it to a base `table` element.
+ * The legacy convert-to-`table` path (resolveLineItemsTables/buildTableSchema
+ * in ./index.ts) still exists for backward compatibility but is no longer
+ * used by the render service.
  *
  * Supports text wrapping with dynamic row heights (#2251):
  * - Columns with overflow: 'wrap' (or default) wrap text and expand row height
@@ -19,6 +24,28 @@
  * __bodyRange and repeats the column header on split chunks when repeatHeader
  * is on — it no longer truncates rows against a fixed pixel boundary, so no
  * rows are silently dropped.
+ *
+ * Column alignment (col.align / col.headerAlign), grid borders (column
+ * separators + row divider lines), and footer rows (subtotal/VAT/total,
+ * drawn only on the final chunk) are all handled natively here — see the
+ * dedicated sections below.
+ *
+ * TODO(parity): the following features were supported by the OLD
+ * convert-to-`table` path (via buildPerColumnStyles/computeFooterRows in
+ * ./index.ts) and are NOT YET ported to this native renderer:
+ *  - Per-column font/color overrides (ColumnDefinition.columnStyle /
+ *    headerColumnStyle) — every cell draws with the single embedded
+ *    Helvetica/Helvetica-Bold font and black text color.
+ *  - Sub-row / tracking-row (serial/lot) special styling — these rows DO
+ *    render (they arrive as ordinary entries in the resolved body via
+ *    resolveLineItemsTableData), but with plain body-row styling, not any
+ *    dedicated indent/italic/background treatment.
+ *  - Footer row `type: 'expression'` / `type: 'static'` calc types — see
+ *    computeFooterRows in ./index.ts, which already returns 0 for these
+ *    (unimplemented upstream of this renderer, not specific to it).
+ *  - Cell colSpan (FooterRowConfig.labelColSpan, SubRowConfig.colSpan) —
+ *    resolveLineItemsTableData does not currently emit merged-cell layout
+ *    information for this renderer to consume.
  */
 
 import {
@@ -30,8 +57,14 @@ import {
   getBodyFontSize,
   getDrawFontSize,
   resolveColumnIndex,
+  computeCellDrawX,
+  parseBorderBottom,
   formatNumber,
   DEFAULT_CARRIED_SUBTOTAL_LABEL,
+  DEFAULT_GRID_BORDER_COLOR,
+  DEFAULT_GRID_BORDER_WIDTH,
+  DEFAULT_OUTER_BORDER_COLOR,
+  DEFAULT_OUTER_BORDER_WIDTH,
   MM_TO_PT,
   LINE_HEIGHT_MULTIPLIER,
   CELL_PADDING_PT,
@@ -93,9 +126,35 @@ export async function pdfRender(arg: {
     }
   }
 
+  // Bold variant, used for footer rows whose style.fontWeight === 'bold'.
+  let boldFont: any;
+  try {
+    boldFont = await arg.pdfDoc.embedFont(pdfLib.StandardFonts.HelveticaBold);
+  } catch {
+    boldFont = font;
+  }
+
   const drawFontSize = getDrawFontSize(bodyFontSize);
   const lineHeightPt = drawFontSize * LINE_HEIGHT_MULTIPLIER;
   let currentY = y;
+
+  // ── Border/grid styling (schema-configurable, with sensible defaults) ──
+  const outerBorderColor = hexToRgb((schema.borderColor as string) || DEFAULT_OUTER_BORDER_COLOR);
+  const outerBorderWidth = (schema.borderWidth as number) || DEFAULT_OUTER_BORDER_WIDTH;
+  const gridBorderColor = hexToRgb((schema.gridColor as string) || DEFAULT_GRID_BORDER_COLOR);
+  const gridBorderWidth = (schema.gridWidth as number) || DEFAULT_GRID_BORDER_WIDTH;
+
+  /** Draw a full-width horizontal divider line at the given y (pt). */
+  const drawHorizontalLine = (lineY: number, color: { r: number; g: number; b: number }, thickness: number) => {
+    page.drawLine({
+      start: { x, y: lineY },
+      end: { x: x + tableWidth, y: lineY },
+      thickness,
+      color: pdfLib.rgb(color.r, color.g, color.b),
+    });
+  };
+
+  const tableTopY = currentY;
 
   // ── Pre-compute wrapped lines and row heights ──────────────────────
   // Shared with getLineItemsTableDynamicHeights (./dynamicHeights.ts) so the
@@ -103,6 +162,18 @@ export async function pdfRender(arg: {
   // what gets drawn here.
   const colWidthsPt = computeColWidthsPt(columns, tableWidth);
   const wrappedRows = computeWrappedRows(bodyRows, columns, colWidthsPt, font, bodyFontSize);
+
+  // Column left-edge x positions (for vertical grid lines) — the post-pass
+  // near the end of this function draws internal separators at each
+  // boundary once the table's full vertical extent (header..footer) is known.
+  const colBoundaryX: number[] = [x];
+  {
+    let cx = x;
+    for (const w of colWidthsPt) {
+      cx += w;
+      colBoundaryX.push(cx);
+    }
+  }
 
   // ── Determine which rows belong on THIS page/chunk ──────────────────
   // __bodyRange is set by @pdfme/common's getDynamicTemplate when it splits
@@ -153,11 +224,13 @@ export async function pdfRender(arg: {
     for (let ci = 0; ci < columns.length; ci++) {
       const col = columns[ci];
       const colW = colWidthsPt[ci];
+      const headerDrawSize = headerFontSize * 0.8;
+      const headerAlign = col.headerAlign || col.align;
       if (font) {
         page.drawText(col.header, {
-          x: colX + CELL_PADDING_PT,
+          x: computeCellDrawX(colX, colW, col.header, headerAlign, font, headerDrawSize),
           y: currentY - hdrHeight + 3,
-          size: headerFontSize * 0.8,
+          size: headerDrawSize,
           font,
           color: pdfLib.rgb(1, 1, 1),
         });
@@ -165,6 +238,8 @@ export async function pdfRender(arg: {
       colX += colW;
     }
     currentY -= hdrHeight;
+    // Divider between header and body.
+    drawHorizontalLine(currentY, outerBorderColor, outerBorderWidth);
   }
 
   // ── Draw body rows ─────────────────────────────────────────────────
@@ -190,12 +265,13 @@ export async function pdfRender(arg: {
     for (let ci = 0; ci < columns.length; ci++) {
       const colW = colWidthsPt[ci];
       const cell = wr.cells[ci];
+      const align = columns[ci]?.align;
       if (font && cell) {
         for (let li = 0; li < cell.lines.length; li++) {
           const lineText = cell.lines[li];
           if (!lineText) continue;
           page.drawText(lineText, {
-            x: colX + CELL_PADDING_PT,
+            x: computeCellDrawX(colX, colW, lineText, align, font, drawFontSize),
             y: currentY - CELL_PADDING_PT - lineHeightPt * (li + 1) + drawFontSize * 0.3,
             size: drawFontSize,
             font,
@@ -206,6 +282,8 @@ export async function pdfRender(arg: {
       colX += colW;
     }
     currentY -= rHeight;
+    // Row divider (grid line) beneath this body row.
+    drawHorizontalLine(currentY, gridBorderColor, gridBorderWidth);
   }
 
   // ── Draw carried-forward subtotal row (non-final pages only) ───────
@@ -272,23 +350,19 @@ export async function pdfRender(arg: {
 
         // Thin top border to visually separate the carried subtotal from the
         // regular rows above it, mirroring the footer rows' borderBottom styling.
-        page.drawLine({
-          start: { x, y: currentY },
-          end: { x: x + tableWidth, y: currentY },
-          thickness: 0.75,
-          color: pdfLib.rgb(0, 0, 0),
-        });
+        drawHorizontalLine(currentY, { r: 0, g: 0, b: 0 }, 0.75);
 
         let colX = x;
         for (let ci = 0; ci < columns.length; ci++) {
           const colW = colWidthsPt[ci];
           const cell = subtotalWrapped.cells[ci];
+          const align = ci === amountColIdx ? columns[ci]?.align : undefined;
           if (font && cell) {
             for (let li = 0; li < cell.lines.length; li++) {
               const lineText = cell.lines[li];
               if (!lineText) continue;
               page.drawText(lineText, {
-                x: colX + CELL_PADDING_PT,
+                x: computeCellDrawX(colX, colW, lineText, align, font, drawFontSize),
                 y: currentY - CELL_PADDING_PT - lineHeightPt * (li + 1) + drawFontSize * 0.3,
                 size: drawFontSize,
                 font,
@@ -299,8 +373,87 @@ export async function pdfRender(arg: {
           colX += colW;
         }
         currentY -= rHeight;
+        drawHorizontalLine(currentY, gridBorderColor, gridBorderWidth);
       }
     }
+  }
+
+  // ── Draw footer rows (subtotal/VAT/total) — FINAL chunk only ───────
+  // Excluded from the paginated body (they're never part of `bodyRows`/
+  // `wrappedRows`), drawn once, immediately after the last body row (or
+  // carried-forward subtotal, which never coexists with footer rows since
+  // it's only drawn on non-final chunks). Styled distinctly (bold font
+  // and/or a configured borderBottom per row) and NEVER alternately shaded.
+  // dynamicHeights.ts reserves room for this block on the last page (see
+  // getLineItemsTableDynamicHeights's footerReserveMm), so it should never
+  // overflow past the page here.
+  const resolvedFooterRows = (schema as LineItemsTableGeometrySchema).__resolvedFooterRows;
+  if (isLastChunk && resolvedFooterRows && resolvedFooterRows.length > 0 && columns.length > 0) {
+    // Divider separating the footer block from the body/carried-subtotal above it.
+    drawHorizontalLine(currentY, outerBorderColor, outerBorderWidth);
+
+    for (const footerRow of resolvedFooterRows) {
+      const isBold = footerRow.style?.fontWeight === 'bold';
+      const rowFont = isBold ? boldFont : font;
+      const rowFontSize = footerRow.style?.fontSize ?? bodyFontSize;
+      const rowDrawFontSize = getDrawFontSize(rowFontSize);
+      const rowLineHeightPt = rowDrawFontSize * LINE_HEIGHT_MULTIPLIER;
+
+      const wrapped = computeWrappedRows([footerRow.cells], columns, colWidthsPt, font, rowFontSize)[0];
+      const rHeight = wrapped.height;
+
+      // No alternating shading on footer rows — but an explicit
+      // backgroundColor override is honored if present.
+      if (footerRow.style?.backgroundColor) {
+        const bg = hexToRgb(footerRow.style.backgroundColor);
+        page.drawRectangle({
+          x,
+          y: currentY - rHeight,
+          width: tableWidth,
+          height: rHeight,
+          color: pdfLib.rgb(bg.r, bg.g, bg.b),
+        });
+      }
+
+      let colX = x;
+      for (let ci = 0; ci < columns.length; ci++) {
+        const colW = colWidthsPt[ci];
+        const cell = wrapped.cells[ci];
+        const align = columns[ci]?.align;
+        if (rowFont && cell) {
+          for (let li = 0; li < cell.lines.length; li++) {
+            const lineText = cell.lines[li];
+            if (!lineText) continue;
+            page.drawText(lineText, {
+              x: computeCellDrawX(colX, colW, lineText, align, rowFont, rowDrawFontSize),
+              y: currentY - CELL_PADDING_PT - rowLineHeightPt * (li + 1) + rowDrawFontSize * 0.3,
+              size: rowDrawFontSize,
+              font: rowFont,
+              color: pdfLib.rgb(0, 0, 0),
+            });
+          }
+        }
+        colX += colW;
+      }
+      currentY -= rHeight;
+
+      const border = parseBorderBottom(footerRow.style?.borderBottom);
+      if (border) {
+        drawHorizontalLine(currentY, hexToRgb(border.color), border.widthPt);
+      }
+    }
+  }
+
+  // ── Draw grid: internal vertical column separators ──────────────────
+  // Spans the table's full drawn vertical extent (header top through the
+  // bottom of the last row drawn — body, carried-subtotal, or footer).
+  for (let bi = 1; bi < colBoundaryX.length - 1; bi++) {
+    page.drawLine({
+      start: { x: colBoundaryX[bi], y: tableTopY },
+      end: { x: colBoundaryX[bi], y: currentY },
+      thickness: gridBorderWidth,
+      color: pdfLib.rgb(gridBorderColor.r, gridBorderColor.g, gridBorderColor.b),
+    });
   }
 
   // ── Draw outer border ──────────────────────────────────────────────
@@ -309,7 +462,7 @@ export async function pdfRender(arg: {
     y: currentY,
     width: tableWidth,
     height: y - currentY,
-    borderColor: pdfLib.rgb(0, 0, 0),
-    borderWidth: 0.5,
+    borderColor: pdfLib.rgb(outerBorderColor.r, outerBorderColor.g, outerBorderColor.b),
+    borderWidth: outerBorderWidth,
   });
 }

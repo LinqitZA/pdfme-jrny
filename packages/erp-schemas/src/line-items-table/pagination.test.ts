@@ -26,11 +26,19 @@
 import * as zlib from 'zlib';
 import { generate } from '@pdfme/generator';
 import { BLANK_A4_PDF, isBlankPdf, type BlankPdf, type Schema, type Template } from '@pdfme/common';
-import { PDFDocument, PDFArray, PDFName } from '@pdfme/pdf-lib';
+import { PDFDocument, PDFArray, PDFName, StandardFonts } from '@pdfme/pdf-lib';
 import { text as textPlugin } from '@pdfme/schemas';
-import { lineItemsTable } from './index';
+import { lineItemsTable, resolveLineItemsTableInputs } from './index';
 import { getLineItemsTableDynamicHeights } from './dynamicHeights';
-import { computeHeaderHeightPt, MM_TO_PT } from './rowHeights';
+import {
+  computeHeaderHeightPt,
+  computeColWidthsPt,
+  measureText,
+  getBodyFontSize,
+  getDrawFontSize,
+  CELL_PADDING_PT,
+  MM_TO_PT,
+} from './rowHeights';
 
 // ── Shared fixtures ─────────────────────────────────────────────────────
 
@@ -716,6 +724,273 @@ describe('lineItemsTable pagination via generate()', () => {
 
       expect(firstBreakWithReserve).toBeGreaterThanOrEqual(0);
       expect(firstBreakWithReserve).toBeLessThanOrEqual(firstBreakWithoutReserve);
+    });
+  });
+
+  // ── Native render parity: alignment, grid borders, footer rows ────────
+  //
+  // Exercises the SAME production data-resolution step RenderService now
+  // calls (resolveLineItemsTableInputs, from ./index.ts) — not just
+  // getLineItemsTableDynamicHeights/pdfRender directly — so this covers the
+  // real wiring: raw line-item records in, resolved body + __resolvedFooterRows
+  // out, fed into generate() with the schema still type: 'lineItemsTable'.
+  describe('native render parity (alignment, grid borders, footer rows)', () => {
+    const PARITY_COLUMNS = [
+      { key: 'description', header: 'Description', width: 100 },
+      { key: 'qty', header: 'Qty', width: 30, align: 'right' as const },
+      { key: 'price', header: 'Price', width: 30, align: 'right' as const },
+      { key: 'amount', header: 'Amount', width: 30, align: 'right' as const, format: '#,##0.00' },
+    ];
+
+    /** Every raw line item has amount=10, so N rows sum to N*10. */
+    function makeRawLineItems(n: number) {
+      return Array.from({ length: n }, (_, i) => ({
+        description: `Item ${i + 1}`,
+        qty: 1,
+        price: 10,
+        amount: 10,
+      }));
+    }
+
+    function buildParityTemplate(rowCount: number) {
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 15,
+        columns: PARITY_COLUMNS,
+        carriedSubtotal: { enabled: true, amountColumn: 'amount' },
+        footerRows: [
+          {
+            id: 'subtotal',
+            label: 'Subtotal',
+            valueColumnKey: 'amount',
+            type: 'sum' as const,
+            format: '#,##0.00',
+            style: { fontWeight: 'bold' as const },
+          },
+          {
+            id: 'vat',
+            label: 'VAT (15%)',
+            valueColumnKey: 'amount',
+            type: 'percentage' as const,
+            referenceFooterId: 'subtotal',
+            percentage: 0.15,
+            format: '#,##0.00',
+          },
+          {
+            id: 'total',
+            label: 'Total',
+            valueColumnKey: 'amount',
+            type: 'sumWithFooters' as const,
+            footerIds: ['subtotal', 'vat'],
+            format: '#,##0.00',
+            style: { fontWeight: 'bold' as const, borderBottom: '1px solid #000' },
+          },
+        ],
+      };
+
+      const rawTemplate = { basePdf: BLANK_A4_PDF, schemas: [[tableSchema] as unknown as Schema[]] };
+      const rawInputs = [{ items: JSON.stringify(makeRawLineItems(rowCount)) }];
+
+      // Reuse the SAME production data-resolution step render.service.ts calls
+      // (resolveLineItemsTableInputs) — resolves body rows + footer rows,
+      // keeps type: 'lineItemsTable', does NOT convert to a base `table`.
+      return resolveLineItemsTableInputs(
+        rawTemplate as { basePdf: unknown; schemas: unknown[] },
+        rawInputs as Record<string, string>[],
+      );
+    }
+
+    /** Extract (x, decodedText) pairs, in draw order, from a WinAnsi/Standard-font content stream. */
+    function extractTextPositions(raw: string): { x: number; text: string }[] {
+      const re = /1 0 0 1 ([\-\d.]+) [\-\d.]+ Tm\r?\n<([0-9A-Fa-f]+)> Tj/g;
+      const out: { x: number; text: string }[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw))) {
+        out.push({ x: parseFloat(m[1]), text: Buffer.from(m[2], 'hex').toString('latin1') });
+      }
+      return out;
+    }
+
+    /** Extract stroked line segments (m ... l ... S), with their stroke width. */
+    function extractLineSegments(
+      raw: string,
+    ): { x1: number; y1: number; x2: number; y2: number; thickness: number }[] {
+      const re =
+        /([\d.]+) w\r?\n\[\] 0 d\r?\n([\-\d.]+) ([\-\d.]+) m\r?\n(?:[\-\d.]+ [\-\d.]+ m\r?\n)?([\-\d.]+) ([\-\d.]+) l/g;
+      const out: { x1: number; y1: number; x2: number; y2: number; thickness: number }[] = [];
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(raw))) {
+        out.push({
+          thickness: parseFloat(m[1]),
+          x1: parseFloat(m[2]),
+          y1: parseFloat(m[3]),
+          x2: parseFloat(m[4]),
+          y2: parseFloat(m[5]),
+        });
+      }
+      return out;
+    }
+
+    test('30 rows / linesPerPage 15: 2 pages of 15, footer rows ONLY on page 2, carried subtotal ONLY on page 1', async () => {
+      const { template, inputs } = buildParityTemplate(30);
+
+      const pdf = await generate({
+        inputs,
+        template: template as unknown as Template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      expect(pages).toHaveLength(2);
+
+      const pageContents = pages.map((p) => extractPageContent(doc, p));
+      const pageTexts = pageContents.map((c) => c.tokens);
+
+      // Exactly 15 rows per page, no drops/duplicates.
+      expect(countItemTokensOnPage(pageTexts[0])).toBe(15);
+      expect(countItemTokensOnPage(pageTexts[1])).toBe(15);
+      const fullText = pageTexts.join('|');
+      for (let i = 1; i <= 30; i++) {
+        expect(fullText.split('|').filter((tok) => tok === `Item ${i}`)).toHaveLength(1);
+      }
+
+      // Carried-forward subtotal: page 1 (non-final) only.
+      expect(pageTexts[0]).toContain('Carried forward');
+      expect(pageTexts[1]).not.toContain('Carried forward');
+
+      // Footer rows (subtotal/VAT/total): FINAL chunk (page 2) only — never
+      // on page 1, never split/double-counted across both pages.
+      for (const label of ['Subtotal', 'VAT (15%)', 'Total']) {
+        expect(pageTexts[0]).not.toContain(label);
+        expect(pageTexts[1]).toContain(label);
+      }
+      // Each footer label appears exactly once (not duplicated by any
+      // interaction between the linesPerPage cap and the footer reservation).
+      for (const label of ['Subtotal', 'VAT (15%)', 'Total']) {
+        expect(pageTexts[1].split('|').filter((tok) => tok === label)).toHaveLength(1);
+      }
+
+      // Footer values: subtotal = 30 * 10.00 = 300.00, vat = 45.00, total = 345.00.
+      expect(pageTexts[1]).toContain('300.00');
+      expect(pageTexts[1]).toContain('45.00');
+      expect(pageTexts[1]).toContain('345.00');
+    });
+
+    test('amount column (align: right) draws body, carried-subtotal, and footer cells right-aligned to the same column edge', async () => {
+      const { template, inputs } = buildParityTemplate(30);
+
+      const pdf = await generate({
+        inputs,
+        template: template as unknown as Template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      const raw0 = extractPageContent(doc, pages[0]).raw;
+      const raw1 = extractPageContent(doc, pages[1]).raw;
+
+      // Independently compute the amount column's right edge (pt) using the
+      // SAME geometry helpers pdf.ts itself uses — column 3 (0-based) of a
+      // 190mm-wide, 4-column [100,30,30,30] table starting at x=10mm.
+      const tableWidthPt = 190 * MM_TO_PT;
+      const colWidthsPt = computeColWidthsPt(PARITY_COLUMNS, tableWidthPt);
+      const xStartPt = 10 * MM_TO_PT;
+      const amountColLeft = xStartPt + colWidthsPt[0] + colWidthsPt[1] + colWidthsPt[2];
+      const amountColRightEdge = amountColLeft + colWidthsPt[3] - CELL_PADDING_PT;
+      const amountColLeftAlignedX = amountColLeft + CELL_PADDING_PT;
+
+      const bodyFontSize = getBodyFontSize({});
+      const bodyDrawFontSize = getDrawFontSize(bodyFontSize);
+      const measurementFont = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica);
+      const measurementBoldFont = await (await PDFDocument.create()).embedFont(StandardFonts.HelveticaBold);
+
+      // A regular body row's amount cell ("10.00") on page 1.
+      const positions0 = extractTextPositions(raw0);
+      const bodyAmountEntry = positions0.find((p) => p.text === '10.00');
+      expect(bodyAmountEntry).toBeDefined();
+      const bodyAmountWidth = measureText('10.00', measurementFont, bodyDrawFontSize);
+      const bodyExpectedX = amountColRightEdge - bodyAmountWidth;
+      expect(bodyAmountEntry!.x).toBeCloseTo(bodyExpectedX, 1);
+      // Not left-aligned: right-aligned x differs from the fixed left-aligned x.
+      expect(Math.abs(bodyAmountEntry!.x - amountColLeftAlignedX)).toBeGreaterThan(1);
+
+      // The carried-forward subtotal's amount cell ("150.00", 15 rows * 10.00) on page 1.
+      const carriedEntry = positions0.find((p) => p.text === '150.00');
+      expect(carriedEntry).toBeDefined();
+      const carriedWidth = measureText('150.00', measurementFont, bodyDrawFontSize);
+      expect(carriedEntry!.x).toBeCloseTo(amountColRightEdge - carriedWidth, 1);
+
+      // The footer "Total" row's amount cell ("345.00", bold) on page 2 —
+      // right-edge-aligned to the SAME column boundary as the body rows,
+      // despite using a bold font (different glyph widths than plain Helvetica).
+      const positions1 = extractTextPositions(raw1);
+      const totalEntry = positions1.find((p) => p.text === '345.00');
+      expect(totalEntry).toBeDefined();
+      const totalWidth = measureText('345.00', measurementBoldFont, bodyDrawFontSize);
+      expect(totalEntry!.x).toBeCloseTo(amountColRightEdge - totalWidth, 1);
+
+      // Header "Amount" label itself is right-aligned too (headerAlign inherits from align).
+      const headerEntry = positions0.find((p) => p.text === 'Amount');
+      expect(headerEntry).toBeDefined();
+      expect(headerEntry!.x).toBeGreaterThan(amountColLeftAlignedX);
+    });
+
+    test('draws grid borders: internal column separators and per-row dividers, on every page', async () => {
+      const { template, inputs } = buildParityTemplate(30);
+
+      const pdf = await generate({
+        inputs,
+        template: template as unknown as Template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      const raw0 = extractPageContent(doc, pages[0]).raw;
+      const raw1 = extractPageContent(doc, pages[1]).raw;
+
+      for (const raw of [raw0, raw1]) {
+        const segments = extractLineSegments(raw);
+
+        // Internal vertical column separators: 3 boundaries for a 4-column
+        // table, each a vertical segment (x1 === x2) spanning the table's
+        // full drawn height, using the grid color/width (0.25pt).
+        const verticalGridLines = segments.filter(
+          (s) => Math.abs(s.x1 - s.x2) < 0.01 && s.thickness === 0.25,
+        );
+        const distinctVerticalX = new Set(verticalGridLines.map((s) => Math.round(s.x1 * 100)));
+        expect(distinctVerticalX.size).toBe(3);
+
+        // Row divider (horizontal) lines beneath body rows: 15 body rows per
+        // page => at least 15 horizontal grid-colored dividers.
+        const horizontalGridLines = segments.filter(
+          (s) => Math.abs(s.y1 - s.y2) < 0.01 && s.thickness === 0.25,
+        );
+        expect(horizontalGridLines.length).toBeGreaterThanOrEqual(15);
+
+        // Outer/header-divider border lines (0.5pt, black) are also present
+        // (header/body divider on every page; footer-block divider on the
+        // last page only, so just assert at least one exists everywhere).
+        const outerLines = segments.filter((s) => s.thickness === 0.5);
+        expect(outerLines.length).toBeGreaterThanOrEqual(1);
+      }
+
+      // The footer's "Total" row has a configured borderBottom ('1px solid
+      // #000') distinct from the default outer/grid widths — present only
+      // on the final page (page 2), right after the footer block.
+      const segments1 = extractLineSegments(raw1);
+      const footerBorderLines = segments1.filter((s) => s.thickness === 1);
+      expect(footerBorderLines.length).toBeGreaterThanOrEqual(1);
+      const segments0 = extractLineSegments(raw0);
+      expect(segments0.filter((s) => s.thickness === 1)).toHaveLength(0);
     });
   });
 });

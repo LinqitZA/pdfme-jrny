@@ -29,6 +29,9 @@ import {
   type PdfColumn,
 } from './rowHeights';
 
+/** Small fixed allowance (pt) for the footer block's top divider line/gap. */
+const FOOTER_TOP_DIVIDER_ALLOWANCE_PT = 2;
+
 const MEASUREMENT_FONT_CACHE_KEY = '__lineItemsTable_measurementFont';
 
 /**
@@ -117,6 +120,16 @@ const SAFETY_MARGIN = 0.5;
  * have been necessary — an intentionally conservative tradeoff (same
  * spirit as the cap's own hasMoreRows check) that trades a rare extra page
  * for a hard guarantee against the subtotal ever overflowing past the page.
+ *
+ * `footerReserveHeight` (mm) applies the SAME "inflate to force a break"
+ * trick, but for the opposite case: footer rows (subtotal/VAT/total) are
+ * drawn ONLY after the truly last body row, on the final page. So instead of
+ * checking "any rows left" (as carriedSubtotal does, to skip the final
+ * page), this reservation is only evaluated on the single row for which
+ * `hasMoreRows` is false — i.e. the last entry in `baseHeights` — inflating
+ * ITS placement check so that if the footer block wouldn't fit below it on
+ * the current page, the last body row itself (and therefore the footer that
+ * follows it) rolls onto a fresh page with the full page height available.
  */
 function applyPageBreakSimulation(
   baseHeights: number[],
@@ -124,7 +137,12 @@ function applyPageBreakSimulation(
   headRowCount: number,
   schema: Pick<Schema, 'position'>,
   basePdf: BlankPdf,
-  opts: { foldHeader: boolean; linesPerPageCap?: number; carriedSubtotalRowHeight?: number },
+  opts: {
+    foldHeader: boolean;
+    linesPerPageCap?: number;
+    carriedSubtotalRowHeight?: number;
+    footerReserveHeight?: number;
+  },
 ): number[] {
   const [paddingTop, , paddingBottom] = basePdf.padding;
   const pageContentHeight = basePdf.height - paddingTop - paddingBottom;
@@ -155,6 +173,7 @@ function applyPageBreakSimulation(
   for (let i = 0; i < baseHeights.length; i++) {
     const isBodyRow = i >= headRowCount;
     const rowHeight = baseHeights[i];
+    const isLastRowOverall = i === baseHeights.length - 1;
 
     while (true) {
       const currentPageStartY = getPageStartY(currentPageIndex);
@@ -164,7 +183,9 @@ function applyPageBreakSimulation(
         isBodyRow &&
         rowsOnCurrentPage === 0 &&
         currentPageIndex > initialPageIndex;
-      const totalRowHeight = rowHeight + (needsHeader ? headerHeight : 0);
+      const footerReserve =
+        isBodyRow && isLastRowOverall && opts.footerReserveHeight ? opts.footerReserveHeight : 0;
+      const totalRowHeight = rowHeight + (needsHeader ? headerHeight : 0) + footerReserve;
 
       if (totalRowHeight > remainingHeight - SAFETY_MARGIN) {
         if (
@@ -309,7 +330,29 @@ export async function getLineItemsTableDynamicHeights(
   const shouldReserveCarriedSubtotal =
     carriedSubtotalReserveMm !== undefined && carriedSubtotalReserveMm > 0;
 
-  if (!shouldRepeatHeader && !shouldEnforceCap && !shouldReserveCarriedSubtotal) {
+  // Footer rows (subtotal/VAT/total): only meaningful when the table can
+  // actually paginate (blank/paginated basePdf) and there ARE resolved
+  // footer rows to draw. Measured with the SAME wrap logic pdf.ts uses to
+  // draw them (computeWrappedRows), per-row using that row's own
+  // style.fontSize override (falling back to the table's bodyFontSize) — so
+  // the space reserved here can never drift from what pdf.ts actually draws.
+  // Only ever reserved against the LAST body row (see
+  // applyPageBreakSimulation's isLastRowOverall check) — footer rows are
+  // drawn once, after the truly last body row, on the final page.
+  let footerReserveMm: number | undefined;
+  if (schema.__resolvedFooterRows && schema.__resolvedFooterRows.length > 0 && isBlankPdf(args.basePdf)) {
+    let totalFooterHeightPt = 0;
+    for (const footerRow of schema.__resolvedFooterRows) {
+      const footerFontSize = footerRow.style?.fontSize ?? bodyFontSize;
+      const wrapped = computeWrappedRows([footerRow.cells], columns, colWidthsPt, font, footerFontSize);
+      totalFooterHeightPt += wrapped[0]?.height ?? 0;
+    }
+    totalFooterHeightPt += FOOTER_TOP_DIVIDER_ALLOWANCE_PT;
+    footerReserveMm = totalFooterHeightPt / MM_TO_PT;
+  }
+  const shouldReserveFooter = footerReserveMm !== undefined && footerReserveMm > 0;
+
+  if (!shouldRepeatHeader && !shouldEnforceCap && !shouldReserveCarriedSubtotal && !shouldReserveFooter) {
     return baseHeights;
   }
 
@@ -323,6 +366,7 @@ export async function getLineItemsTableDynamicHeights(
       foldHeader: shouldRepeatHeader,
       linesPerPageCap: linesPerPageCap,
       carriedSubtotalRowHeight: shouldReserveCarriedSubtotal ? carriedSubtotalReserveMm : undefined,
+      footerReserveHeight: shouldReserveFooter ? footerReserveMm : undefined,
     },
   );
 }
