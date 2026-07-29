@@ -31,6 +31,7 @@ import {
   resolveRectangles,
   applyRectangleShadows,
   ExpressionEngine,
+  pageNumber,
 } from '@pdfme-erp/schemas';
 import type { RichTextRenderInfo, SignatureBlockRenderInfo } from '@pdfme-erp/schemas';
 import { PdfaProcessor } from './pdfa-processor';
@@ -603,6 +604,10 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         // ERP custom: drawnSignature uses image plugin for PDF rendering
         // (signature data resolved to base64 in step 3b above)
         drawnSignature: schemas.image,
+        // ERP custom: pageNumber renders via the upstream text plugin (its
+        // `content` format template is placeholder-substituted per page by
+        // generate() when placed in template.basePdf.staticSchema).
+        pageNumber,
       };
 
       const generateOptions: Record<string, unknown> = {};
@@ -2390,6 +2395,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       checkbox: schemas.checkbox,
       ...schemas.barcodes,
       drawnSignature: schemas.image,
+      pageNumber,
     };
 
     const previewGenerateOptions: Record<string, unknown> = {};

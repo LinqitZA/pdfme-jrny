@@ -22,6 +22,8 @@ export { richText, resolveRichText, applyRichText } from './rich-text';
 export type { RichTextRenderInfo } from './rich-text';
 export { rectangle, resolveRectangles, applyRectangleShadows, parseHexColorWithAlpha, toUpstreamRectangleSchema, RECTANGLE_DEFAULTS, SHADOW_DEFAULTS } from './rectangle';
 export type { RectangleSchema, RectangleShadow } from './rectangle';
+export { pageNumber, PAGE_NUMBER_DEFAULT_FORMAT } from './page-number';
+export type { PageNumberSchema } from './page-number';
 
 // Expression engine
 export { ExpressionEngine } from './expression-engine';
