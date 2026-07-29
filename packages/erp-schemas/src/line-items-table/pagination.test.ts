@@ -342,4 +342,202 @@ describe('lineItemsTable pagination via generate()', () => {
       expect(pageText).toContain(`Item ${i}`);
     }
   });
+
+  /**
+   * Count how many "Item N" tokens (per the makeRows() fixture) appear on a
+   * single decoded page's token string.
+   */
+  function countItemTokensOnPage(pageTokens: string): number {
+    return pageTokens.split('|').filter((tok) => /^Item \d+$/.test(tok)).length;
+  }
+
+  describe('linesPerPage cap', () => {
+    test('30 rows with linesPerPage=15 on a tall page produce exactly 2 pages of 15 rows each', async () => {
+      const ROW_COUNT = 30;
+      const rows = makeRows(ROW_COUNT);
+
+      // Small, normal-sized body font (unlike the height-fit test above) so
+      // that height-based wrapping alone would comfortably fit far more than
+      // 15 rows per A4 page — any page break here is caused ONLY by the
+      // linesPerPage cap, not by running out of vertical space.
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 15,
+        columns: COLUMNS,
+      };
+
+      const template: Template = {
+        basePdf: BLANK_A4_PDF,
+        schemas: [[tableSchema] as unknown as Schema[]],
+      };
+
+      const pdf = await generate({
+        inputs: [{ items: JSON.stringify(rows) }],
+        template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+
+      // Exactly 2 pages.
+      expect(pages).toHaveLength(2);
+
+      const pageContents = pages.map((p) => extractPageContent(doc, p));
+      const pageTexts = pageContents.map((c) => c.tokens);
+
+      // Exactly 15 rows per page.
+      expect(countItemTokensOnPage(pageTexts[0])).toBe(15);
+      expect(countItemTokensOnPage(pageTexts[1])).toBe(15);
+
+      // Header repeats on both pages.
+      for (const pageText of pageTexts) {
+        expect(pageText).toContain('Description');
+      }
+
+      // No row dropped, none duplicated.
+      const fullText = pageTexts.join('|');
+      for (let i = 1; i <= ROW_COUNT; i++) {
+        const label = `Item ${i}`;
+        const occurrences = fullText.split('|').filter((tok) => tok === label).length;
+        expect(occurrences).toBe(1);
+      }
+
+      // Page 1 holds rows 1-15, page 2 holds rows 16-30 (order preserved,
+      // cap split at the right boundary, not just the right count).
+      for (let i = 1; i <= 15; i++) {
+        expect(pageTexts[0]).toContain(`Item ${i}`);
+      }
+      for (let i = 16; i <= 30; i++) {
+        expect(pageTexts[1]).toContain(`Item ${i}`);
+      }
+    });
+
+    test('linesPerPage unset leaves height-fit pagination unchanged', async () => {
+      // Same tall-row scenario as the height-fit pagination test above, with
+      // no linesPerPage set — must reproduce identical page count/shape.
+      const ROW_COUNT = 30;
+      const rows = makeRows(ROW_COUNT);
+
+      const buildTemplate = (): Template => ({
+        basePdf: BLANK_A4_PDF,
+        schemas: [
+          [
+            {
+              type: 'lineItemsTable',
+              name: 'items',
+              position: { x: 10, y: 20 },
+              width: 190,
+              height: 100,
+              showHeader: true,
+              repeatHeader: true,
+              bodyStyle: { fontSize: 40 },
+              columns: COLUMNS,
+            },
+          ] as unknown as Schema[],
+        ],
+      });
+
+      const [pdfWithoutCap, pdfExplicitUndefinedCap] = await Promise.all([
+        generate({
+          inputs: [{ items: JSON.stringify(rows) }],
+          template: buildTemplate(),
+          plugins: { lineItemsTable },
+        }),
+        generate({
+          inputs: [{ items: JSON.stringify(rows) }],
+          template: {
+            basePdf: BLANK_A4_PDF,
+            schemas: [
+              [
+                {
+                  type: 'lineItemsTable',
+                  name: 'items',
+                  position: { x: 10, y: 20 },
+                  width: 190,
+                  height: 100,
+                  showHeader: true,
+                  repeatHeader: true,
+                  bodyStyle: { fontSize: 40 },
+                  linesPerPage: undefined,
+                  columns: COLUMNS,
+                },
+              ] as unknown as Schema[],
+            ],
+          },
+          plugins: { lineItemsTable },
+        }),
+      ]);
+
+      const docA = await PDFDocument.load(pdfWithoutCap);
+      const docB = await PDFDocument.load(pdfExplicitUndefinedCap);
+
+      // Same page count as the pre-existing height-fit test (multi-page,
+      // driven purely by tall rows), and identical between the two runs.
+      expect(docA.getPageCount()).toBeGreaterThan(1);
+      expect(docB.getPageCount()).toBe(docA.getPageCount());
+
+      const tokensA = docA.getPages().map((p) => extractPageContent(docA, p).tokens);
+      const tokensB = docB.getPages().map((p) => extractPageContent(docB, p).tokens);
+      expect(tokensB).toEqual(tokensA);
+    });
+
+    test('a cap larger than the row count renders a single page', async () => {
+      const rows = makeRows(5);
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 100,
+        columns: COLUMNS,
+      };
+
+      const template: Template = {
+        basePdf: BLANK_A4_PDF,
+        schemas: [[tableSchema] as unknown as Schema[]],
+      };
+
+      const pdf = await generate({
+        inputs: [{ items: JSON.stringify(rows) }],
+        template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      expect(pages).toHaveLength(1);
+
+      const pageText = extractPageContent(doc, pages[0]).tokens;
+      expect(countItemTokensOnPage(pageText)).toBe(5);
+    });
+
+    test('unit: applyPageBreakSimulation-driven getLineItemsTableDynamicHeights inflates exactly the 15th body row per page to force the cap', async () => {
+      const schema = makeSchema({ linesPerPage: 15 });
+      const rows = makeRows(30);
+      const heights = await getLineItemsTableDynamicHeights(JSON.stringify(rows), {
+        schema,
+        basePdf: BLANK_A4_PDF,
+        options: {},
+        _cache: _cache(),
+      });
+
+      // [header, body0..body29] = 31 entries; body index 14 (the 15th body
+      // row, 0-based) must be inflated well beyond a normal row height to
+      // consume the rest of the page and force the break.
+      expect(heights).toHaveLength(31);
+      const normalRowHeight = heights[1]; // first body row, unaffected by the cap
+      const boundaryRowHeight = heights[15]; // header(0) + 15th body row => index 15
+      expect(boundaryRowHeight).toBeGreaterThan(normalRowHeight * 2);
+    });
+  });
 });

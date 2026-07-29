@@ -20,6 +20,13 @@ export const propPanel = {
       widget: 'checkbox',
       span: 12,
     },
+    linesPerPage: {
+      title: 'Lines Per Page (cap)',
+      type: 'number' as const,
+      widget: 'inputNumber',
+      props: { min: 1, step: 1 },
+      span: 12,
+    },
     alternateRowShading: {
       title: 'Alternate Row Shading',
       type: 'boolean' as const,

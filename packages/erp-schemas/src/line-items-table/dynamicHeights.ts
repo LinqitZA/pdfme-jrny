@@ -75,15 +75,34 @@ const SAFETY_MARGIN = 0.5;
  *
  * Simulates walking the header + body rows down the page, inserting the
  * header height in front of the first body row of every page after the
- * first, so getDynamicTemplate's chunker reserves the right amount of space
- * for the repeated header when it splits the schema across pages.
+ * first (when `foldHeader` is on), so getDynamicTemplate's chunker reserves
+ * the right amount of space for the repeated header when it splits the
+ * schema across pages.
+ *
+ * Also enforces an optional `linesPerPageCap`: a hard limit on how many body
+ * rows may land on one page, independent of remaining height. The engine's
+ * real chunker (placeRowsOnPages in packages/common/src/dynamicTemplate.ts)
+ * only ever sees the flat heights array this function returns and re-derives
+ * page fit purely from summing those numbers — it has no notion of "row
+ * count". So the cap is enforced here by INFLATING the height of the last
+ * body row allowed on a page (once the cap is hit) so it consumes the rest
+ * of that page's content height; the real chunker then finds no room left
+ * for the next row and rolls it onto a new page, exactly as if the cap row
+ * had genuinely been that tall. This is purely a chunking signal — pdf.ts
+ * never reads this returned array; it recomputes each row's true height
+ * independently via computeWrappedRows, so the inflated number here can
+ * never corrupt what actually gets drawn. The effective break point is
+ * therefore min(linesPerPageCap, height-fit): if the natural height-based
+ * packing would already have broken the page before the cap is reached,
+ * bodyRowsOnCurrentPage resets first and the cap logic never fires early.
  */
-function applyRepeatHeaderSimulation(
+function applyPageBreakSimulation(
   baseHeights: number[],
   headerHeight: number,
   headRowCount: number,
   schema: Pick<Schema, 'position'>,
   basePdf: BlankPdf,
+  opts: { foldHeader: boolean; linesPerPageCap?: number },
 ): number[] {
   const [paddingTop, , paddingBottom] = basePdf.padding;
   const pageContentHeight = basePdf.height - paddingTop - paddingBottom;
@@ -94,9 +113,15 @@ function applyRepeatHeaderSimulation(
     Math.floor((schema.position.y - paddingTop) / pageContentHeight),
   );
 
+  const cap =
+    opts.linesPerPageCap !== undefined && opts.linesPerPageCap > 0
+      ? opts.linesPerPageCap
+      : undefined;
+
   let currentPageIndex = initialPageIndex;
   let currentPageY = schema.position.y;
   let rowsOnCurrentPage = 0;
+  let bodyRowsOnCurrentPage = 0;
 
   const result: number[] = [];
 
@@ -108,7 +133,10 @@ function applyRepeatHeaderSimulation(
       const currentPageStartY = getPageStartY(currentPageIndex);
       const remainingHeight = currentPageStartY + pageContentHeight - currentPageY;
       const needsHeader =
-        isBodyRow && rowsOnCurrentPage === 0 && currentPageIndex > initialPageIndex;
+        opts.foldHeader &&
+        isBodyRow &&
+        rowsOnCurrentPage === 0 &&
+        currentPageIndex > initialPageIndex;
       const totalRowHeight = rowHeight + (needsHeader ? headerHeight : 0);
 
       if (totalRowHeight > remainingHeight - SAFETY_MARGIN) {
@@ -119,22 +147,40 @@ function applyRepeatHeaderSimulation(
           result.push(totalRowHeight);
           currentPageY += totalRowHeight;
           rowsOnCurrentPage++;
+          if (isBodyRow) bodyRowsOnCurrentPage++;
           break;
         }
         currentPageIndex++;
         currentPageY = getPageStartY(currentPageIndex);
         rowsOnCurrentPage = 0;
+        bodyRowsOnCurrentPage = 0;
         continue;
       }
 
       result.push(totalRowHeight);
       currentPageY += totalRowHeight;
       rowsOnCurrentPage++;
+      if (isBodyRow) bodyRowsOnCurrentPage++;
 
-      if (currentPageY >= currentPageStartY + pageContentHeight - SAFETY_MARGIN) {
+      const atPageBottom = currentPageY >= currentPageStartY + pageContentHeight - SAFETY_MARGIN;
+      const hasMoreRows = i < baseHeights.length - 1;
+      const capHit = cap !== undefined && isBodyRow && bodyRowsOnCurrentPage >= cap && hasMoreRows;
+
+      if (atPageBottom || capHit) {
+        if (capHit && !atPageBottom) {
+          // Force the break: pad the row we just pushed out to the page
+          // boundary so the real chunker (which only sees these numbers)
+          // concludes this page is full.
+          const leftover = currentPageStartY + pageContentHeight - currentPageY;
+          if (leftover > SAFETY_MARGIN) {
+            result[result.length - 1] += leftover;
+            currentPageY += leftover;
+          }
+        }
         currentPageIndex++;
         currentPageY = getPageStartY(currentPageIndex);
         rowsOnCurrentPage = 0;
+        bodyRowsOnCurrentPage = 0;
       }
       break;
     }
@@ -179,6 +225,13 @@ export async function getLineItemsTableDynamicHeights(
   const repeatHeader = schema.repeatHeader !== false;
   const widthMm = schema.width || 190;
 
+  // Clamp to >= 1 at use: 0/negative/non-integer configuration values are
+  // treated as "no cap" rather than silently misbehaving.
+  const linesPerPageCap =
+    schema.linesPerPage != null && Number.isFinite(schema.linesPerPage)
+      ? Math.max(1, Math.floor(schema.linesPerPage))
+      : undefined;
+
   const bodyRows = parseBodyRows(value);
 
   const tableWidthPt = widthMm * MM_TO_PT;
@@ -197,16 +250,18 @@ export async function getLineItemsTableDynamicHeights(
 
   const shouldRepeatHeader =
     repeatHeader && showHeader && isBlankPdf(args.basePdf) && headerHeightMm > 0;
+  const shouldEnforceCap = linesPerPageCap !== undefined && isBlankPdf(args.basePdf);
 
-  if (!shouldRepeatHeader) {
+  if (!shouldRepeatHeader && !shouldEnforceCap) {
     return baseHeights;
   }
 
-  return applyRepeatHeaderSimulation(
+  return applyPageBreakSimulation(
     baseHeights,
     headerHeightMm,
     1, // exactly one header "row" occupies index 0
     schema,
     args.basePdf as BlankPdf,
+    { foldHeader: shouldRepeatHeader, linesPerPageCap: linesPerPageCap },
   );
 }

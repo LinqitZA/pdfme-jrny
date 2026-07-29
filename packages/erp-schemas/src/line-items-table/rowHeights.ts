@@ -45,6 +45,8 @@ export interface LineItemsTableGeometrySchema {
   width?: number;
   showHeader?: boolean;
   repeatHeader?: boolean;
+  /** Hard cap on body rows rendered per page (independent of remaining height). Clamped to >= 1 at use. */
+  linesPerPage?: number;
   headerStyle?: { fontSize?: number };
   bodyStyle?: { fontSize?: number };
   position?: { x: number; y: number };

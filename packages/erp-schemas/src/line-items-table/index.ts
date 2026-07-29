@@ -105,6 +105,14 @@ export interface LineItemsTableSchema {
   subRows?: SubRowConfig[];
   /** Maximum rows per page */
   maxRowsPerPage?: MaxRowsPerPage;
+  /**
+   * Hard cap on body rows rendered per page via the getDynamicHeights
+   * pagination path (independent of remaining page height — e.g. force
+   * exactly 15 lines per page). Clamped to >= 1 at use. Unset preserves
+   * pure height-fit pagination. Distinct from maxRowsPerPage, which drives
+   * a separate pre-resolve page-splitting path (resolveLineItemsTables).
+   */
+  linesPerPage?: number;
   /** Alternating row shading */
   alternateRowShading?: boolean;
   /** Alternate row background color */
