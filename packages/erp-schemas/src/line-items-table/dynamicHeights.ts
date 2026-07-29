@@ -23,6 +23,8 @@ import {
   computeHeaderHeightPt,
   getHeaderFontSize,
   getBodyFontSize,
+  resolveColumnIndex,
+  DEFAULT_CARRIED_SUBTOTAL_LABEL,
   type LineItemsTableGeometrySchema,
   type PdfColumn,
 } from './rowHeights';
@@ -95,6 +97,26 @@ const SAFETY_MARGIN = 0.5;
  * therefore min(linesPerPageCap, height-fit): if the natural height-based
  * packing would already have broken the page before the cap is reached,
  * bodyRowsOnCurrentPage resets first and the cap logic never fires early.
+ *
+ * `carriedSubtotalRowHeight` (mm) applies the same "inflate to force a
+ * break" trick for the carried-forward subtotal row (see index.ts's
+ * CarriedSubtotalConfig / pdf.ts's render logic): once placing a body row
+ * would leave less than one subtotal-row's worth of space at the bottom of
+ * the page, AND at least one more body row remains to be placed (this page
+ * is therefore not the last one), the remaining space on the page is padded
+ * away exactly like a cap-hit — forcing the real chunker to roll the next
+ * row onto a new page and leaving room for pdf.ts to draw the carried
+ * subtotal in the space that's left. A page containing the very last body
+ * row is never treated this way, so it never reserves space it won't use
+ * (matching "no carried subtotal on the final page"). Because this check is
+ * evaluated after every row placement using the GLOBAL "any rows left at
+ * all" signal (not a lookahead into whether the remaining rows will in fact
+ * need a further page), a page whose remaining rows would otherwise have
+ * fit entirely may occasionally still be split one row early purely to
+ * leave room for a subtotal that, in that specific case, wouldn't strictly
+ * have been necessary — an intentionally conservative tradeoff (same
+ * spirit as the cap's own hasMoreRows check) that trades a rare extra page
+ * for a hard guarantee against the subtotal ever overflowing past the page.
  */
 function applyPageBreakSimulation(
   baseHeights: number[],
@@ -102,7 +124,7 @@ function applyPageBreakSimulation(
   headRowCount: number,
   schema: Pick<Schema, 'position'>,
   basePdf: BlankPdf,
-  opts: { foldHeader: boolean; linesPerPageCap?: number },
+  opts: { foldHeader: boolean; linesPerPageCap?: number; carriedSubtotalRowHeight?: number },
 ): number[] {
   const [paddingTop, , paddingBottom] = basePdf.padding;
   const pageContentHeight = basePdf.height - paddingTop - paddingBottom;
@@ -116,6 +138,11 @@ function applyPageBreakSimulation(
   const cap =
     opts.linesPerPageCap !== undefined && opts.linesPerPageCap > 0
       ? opts.linesPerPageCap
+      : undefined;
+
+  const carriedSubtotalRowHeight =
+    opts.carriedSubtotalRowHeight !== undefined && opts.carriedSubtotalRowHeight > 0
+      ? opts.carriedSubtotalRowHeight
       : undefined;
 
   let currentPageIndex = initialPageIndex;
@@ -165,12 +192,19 @@ function applyPageBreakSimulation(
       const atPageBottom = currentPageY >= currentPageStartY + pageContentHeight - SAFETY_MARGIN;
       const hasMoreRows = i < baseHeights.length - 1;
       const capHit = cap !== undefined && isBodyRow && bodyRowsOnCurrentPage >= cap && hasMoreRows;
+      const leftoverAfterRow = currentPageStartY + pageContentHeight - currentPageY;
+      const reservationHit =
+        carriedSubtotalRowHeight !== undefined &&
+        isBodyRow &&
+        hasMoreRows &&
+        leftoverAfterRow < carriedSubtotalRowHeight + SAFETY_MARGIN;
 
-      if (atPageBottom || capHit) {
-        if (capHit && !atPageBottom) {
+      if (atPageBottom || capHit || reservationHit) {
+        if ((capHit || reservationHit) && !atPageBottom) {
           // Force the break: pad the row we just pushed out to the page
           // boundary so the real chunker (which only sees these numbers)
-          // concludes this page is full.
+          // concludes this page is full — reserving room for either the
+          // linesPerPage cap or the carried-forward subtotal row.
           const leftover = currentPageStartY + pageContentHeight - currentPageY;
           if (leftover > SAFETY_MARGIN) {
             result[result.length - 1] += leftover;
@@ -252,7 +286,30 @@ export async function getLineItemsTableDynamicHeights(
     repeatHeader && showHeader && isBlankPdf(args.basePdf) && headerHeightMm > 0;
   const shouldEnforceCap = linesPerPageCap !== undefined && isBlankPdf(args.basePdf);
 
-  if (!shouldRepeatHeader && !shouldEnforceCap) {
+  // Carried-forward subtotal: only meaningful when the table can actually
+  // paginate (blank/paginated basePdf) and amountColumn resolves to a real
+  // column. The reserved row height is measured with the SAME wrap logic
+  // (computeWrappedRows) pdf.ts uses to draw the row, using the configured
+  // (or default) label in column 0 — so the space reserved here can never
+  // drift from what pdf.ts actually draws.
+  let carriedSubtotalReserveMm: number | undefined;
+  if (schema.carriedSubtotal?.enabled && isBlankPdf(args.basePdf) && columns.length > 0) {
+    const amountColIdx = resolveColumnIndex(columns, schema.carriedSubtotal.amountColumn);
+    if (amountColIdx >= 0) {
+      const label = schema.carriedSubtotal.label || DEFAULT_CARRIED_SUBTOTAL_LABEL;
+      const labelRow = columns.map((_, i) => (i === 0 ? label : ''));
+      const subtotalWrapped = computeWrappedRows([labelRow], columns, colWidthsPt, font, bodyFontSize);
+      carriedSubtotalReserveMm = (subtotalWrapped[0]?.height ?? 0) / MM_TO_PT;
+    } else {
+      console.warn(
+        `[lineItemsTable] carriedSubtotal.amountColumn "${String(schema.carriedSubtotal.amountColumn)}" did not resolve to a valid column — no space reserved for the carried-forward subtotal row.`,
+      );
+    }
+  }
+  const shouldReserveCarriedSubtotal =
+    carriedSubtotalReserveMm !== undefined && carriedSubtotalReserveMm > 0;
+
+  if (!shouldRepeatHeader && !shouldEnforceCap && !shouldReserveCarriedSubtotal) {
     return baseHeights;
   }
 
@@ -262,6 +319,10 @@ export async function getLineItemsTableDynamicHeights(
     1, // exactly one header "row" occupies index 0
     schema,
     args.basePdf as BlankPdf,
-    { foldHeader: shouldRepeatHeader, linesPerPageCap: linesPerPageCap },
+    {
+      foldHeader: shouldRepeatHeader,
+      linesPerPageCap: linesPerPageCap,
+      carriedSubtotalRowHeight: shouldReserveCarriedSubtotal ? carriedSubtotalReserveMm : undefined,
+    },
   );
 }

@@ -28,6 +28,52 @@ export interface PdfColumn {
   width: number;
   align?: string;
   overflow?: 'wrap' | 'truncate' | 'clip';
+  /** Optional number/currency format string (e.g. '#,##0.00'), consumed by formatNumber(). */
+  format?: string;
+}
+
+/**
+ * Configuration for the optional carried-forward subtotal row: on every page
+ * of a paginated lineItemsTable EXCEPT the last, a row is drawn summing
+ * `amountColumn` across every body row rendered so far (from row 0 through
+ * the end of the current page's __bodyRange, inclusive of earlier pages).
+ * The final page never shows this row — the table's own footer/totals
+ * element covers the grand total there.
+ */
+export interface CarriedSubtotalConfig {
+  /** Whether the carried-forward subtotal row is drawn on non-final pages. */
+  enabled?: boolean;
+  /** Which column to sum — a 0-based column index, or a column `key`. */
+  amountColumn?: number | string;
+  /** Label drawn in the first column. Defaults to 'Carried forward'. */
+  label?: string;
+}
+
+/** Default label used when `carriedSubtotal.label` is unset/empty. */
+export const DEFAULT_CARRIED_SUBTOTAL_LABEL = 'Carried forward';
+
+/**
+ * Resolve a carriedSubtotal.amountColumn value (0-based index, numeric
+ * string index, or a column `key`) to a concrete column index. Returns -1
+ * when it doesn't resolve to any column in `columns`, so callers can skip
+ * the subtotal and warn rather than silently drawing into the wrong cell.
+ */
+export function resolveColumnIndex(
+  columns: PdfColumn[],
+  amountColumn: number | string | undefined | null,
+): number {
+  if (amountColumn === undefined || amountColumn === null || amountColumn === '') return -1;
+  if (typeof amountColumn === 'number') {
+    return Number.isInteger(amountColumn) && amountColumn >= 0 && amountColumn < columns.length
+      ? amountColumn
+      : -1;
+  }
+  const trimmed = amountColumn.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const idx = parseInt(trimmed, 10);
+    return idx >= 0 && idx < columns.length ? idx : -1;
+  }
+  return columns.findIndex((c) => c.key === amountColumn);
 }
 
 export interface WrappedCell {
@@ -50,6 +96,8 @@ export interface LineItemsTableGeometrySchema {
   headerStyle?: { fontSize?: number };
   bodyStyle?: { fontSize?: number };
   position?: { x: number; y: number };
+  /** Carried-forward subtotal row, drawn on every non-final page. See CarriedSubtotalConfig. */
+  carriedSubtotal?: CarriedSubtotalConfig;
   [key: string]: unknown;
 }
 
@@ -157,4 +205,67 @@ export function computeWrappedRows(
     const rowH = Math.max(maxLines * lineHeightPt + CELL_PADDING_PT * 2, lineHeightPt + 4);
     return { cells, height: rowH };
   });
+}
+
+/**
+ * Format a number value with optional format string.
+ *
+ * Supported format patterns:
+ * - Number:     '#,##0', '#,##0.00', '#,##0.000', '0', '0.00'
+ * - Currency:   'R #,##0.00', '$ #,##0.00', '€ #,##0.00' (prefix before number pattern)
+ * - Percentage: '0%', '0.0%', '0.00%' (appends % suffix)
+ *
+ * The format string is parsed as: [prefix][number-pattern][% suffix]
+ * where prefix is any characters before the first '#' or '0',
+ * and number-pattern uses '#' for optional digits, '0' for required digits,
+ * ',' for thousand separator, and '.' for decimal point.
+ *
+ * Single source of truth for line-items-table number/currency formatting —
+ * shared by index.ts (footer rows, calculated columns) and pdf.ts (the
+ * carried-forward subtotal row), so a page's carried subtotal is always
+ * formatted identically to the same column's regular cells and footer sums.
+ */
+export function formatNumber(value: number, format?: string): string {
+  if (!format) {
+    // Default: 2 decimal places
+    return value.toFixed(2);
+  }
+
+  // Check for percentage suffix
+  const isPercentage = format.endsWith('%');
+  let numberFormat = isPercentage ? format.slice(0, -1) : format;
+
+  // Extract prefix (everything before the first '#' or '0')
+  let prefix = '';
+  const firstFormatChar = numberFormat.search(/[#0]/);
+  if (firstFormatChar > 0) {
+    prefix = numberFormat.slice(0, firstFormatChar);
+    numberFormat = numberFormat.slice(firstFormatChar);
+  } else if (firstFormatChar < 0) {
+    // No numeric format characters found — return raw value with 2 decimals
+    return value.toFixed(2);
+  }
+
+  // Count decimal places from the number-pattern portion
+  const dotIdx = numberFormat.indexOf('.');
+  let decimals = 0;
+  if (dotIdx >= 0) {
+    decimals = numberFormat.length - dotIdx - 1;
+  }
+
+  // Check for thousand separator in number-pattern
+  const hasThousandSep = numberFormat.includes(',');
+
+  // Handle negative values: format the absolute value, prepend minus to prefix
+  const isNegative = value < 0;
+  let result = Math.abs(value).toFixed(decimals);
+
+  if (hasThousandSep) {
+    const parts = result.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    result = parts.join('.');
+  }
+
+  const sign = isNegative ? '-' : '';
+  return sign + prefix + result + (isPercentage ? '%' : '');
 }

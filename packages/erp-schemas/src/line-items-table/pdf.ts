@@ -29,6 +29,9 @@ import {
   getHeaderFontSize,
   getBodyFontSize,
   getDrawFontSize,
+  resolveColumnIndex,
+  formatNumber,
+  DEFAULT_CARRIED_SUBTOTAL_LABEL,
   MM_TO_PT,
   LINE_HEIGHT_MULTIPLIER,
   CELL_PADDING_PT,
@@ -203,6 +206,101 @@ export async function pdfRender(arg: {
       colX += colW;
     }
     currentY -= rHeight;
+  }
+
+  // ── Draw carried-forward subtotal row (non-final pages only) ───────
+  // "Last chunk" is determined the same way the engine's real chunker
+  // decides it: __bodyRange.end is EXCLUSIVE, so this chunk is the last one
+  // iff its end reaches (or somehow exceeds) the full parsed body row count.
+  // When __bodyRange is absent (unresolved/non-paginated render), the whole
+  // table is a single chunk — always "last" — so no carried subtotal is ever
+  // drawn in that case either.
+  const isLastChunk = rangeEndExclusive >= wrappedRows.length;
+  const carriedSubtotal = (schema as LineItemsTableGeometrySchema).carriedSubtotal;
+
+  if (carriedSubtotal?.enabled && !isLastChunk && columns.length > 0) {
+    const amountColIdx = resolveColumnIndex(columns, carriedSubtotal.amountColumn);
+
+    if (amountColIdx < 0) {
+      console.warn(
+        `[lineItemsTable] carriedSubtotal.amountColumn "${String(carriedSubtotal.amountColumn)}" did not resolve to a valid column — skipping carried-forward subtotal row.`,
+      );
+    } else {
+      // Cumulative sum over ALL rows rendered so far, across every page up
+      // to and including this one — i.e. bodyRows[0 .. rangeEndExclusive),
+      // using the FULL parsed body (bodyRows), not just this chunk's slice.
+      let sum = 0;
+      let summable = true;
+      for (let ri = 0; ri < rangeEndExclusive; ri++) {
+        const raw = bodyRows[ri]?.[amountColIdx];
+        const num = typeof raw === 'number' ? raw : parseFloat(String(raw ?? ''));
+        if (raw === undefined || raw === null || raw === '' || isNaN(num)) {
+          summable = false;
+          break;
+        }
+        sum += num;
+      }
+
+      if (!summable) {
+        console.warn(
+          `[lineItemsTable] carriedSubtotal.amountColumn "${String(carriedSubtotal.amountColumn)}" is not numerically summable — skipping carried-forward subtotal row.`,
+        );
+      } else {
+        const label = carriedSubtotal.label || DEFAULT_CARRIED_SUBTOTAL_LABEL;
+        // Reuse the SAME formatter + per-column format string the table
+        // already uses for this column's regular cells and footer sums, so
+        // the carried subtotal is never formatted differently.
+        const amountText = formatNumber(sum, columns[amountColIdx].format);
+
+        const subtotalCells = columns.map((_, ci) => (ci === amountColIdx ? amountText : ''));
+        if (amountColIdx === 0) {
+          // Label and amount column coincide (edge case): combine into one cell
+          // rather than silently dropping the label.
+          subtotalCells[0] = `${label} ${amountText}`;
+        } else {
+          subtotalCells[0] = label;
+        }
+
+        const subtotalWrapped = computeWrappedRows(
+          [subtotalCells],
+          columns,
+          colWidthsPt,
+          font,
+          bodyFontSize,
+        )[0];
+        const rHeight = subtotalWrapped.height;
+
+        // Thin top border to visually separate the carried subtotal from the
+        // regular rows above it, mirroring the footer rows' borderBottom styling.
+        page.drawLine({
+          start: { x, y: currentY },
+          end: { x: x + tableWidth, y: currentY },
+          thickness: 0.75,
+          color: pdfLib.rgb(0, 0, 0),
+        });
+
+        let colX = x;
+        for (let ci = 0; ci < columns.length; ci++) {
+          const colW = colWidthsPt[ci];
+          const cell = subtotalWrapped.cells[ci];
+          if (font && cell) {
+            for (let li = 0; li < cell.lines.length; li++) {
+              const lineText = cell.lines[li];
+              if (!lineText) continue;
+              page.drawText(lineText, {
+                x: colX + CELL_PADDING_PT,
+                y: currentY - CELL_PADDING_PT - lineHeightPt * (li + 1) + drawFontSize * 0.3,
+                size: drawFontSize,
+                font,
+                color: pdfLib.rgb(0, 0, 0),
+              });
+            }
+          }
+          colX += colW;
+        }
+        currentY -= rHeight;
+      }
+    }
   }
 
   // ── Draw outer border ──────────────────────────────────────────────

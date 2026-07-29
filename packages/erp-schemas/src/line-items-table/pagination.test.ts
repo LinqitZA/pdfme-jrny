@@ -540,4 +540,182 @@ describe('lineItemsTable pagination via generate()', () => {
       expect(boundaryRowHeight).toBeGreaterThan(normalRowHeight * 2);
     });
   });
+
+  describe('carriedSubtotal (carried-forward subtotal row)', () => {
+    const COLUMNS_WITH_FORMAT = [
+      { key: 'description', header: 'Description', width: 100 },
+      { key: 'qty', header: 'Qty', width: 30, align: 'right' as const },
+      { key: 'price', header: 'Price', width: 30, align: 'right' as const },
+      { key: 'amount', header: 'Amount', width: 30, align: 'right' as const, format: '#,##0.00' },
+    ];
+
+    test('shows the cumulative sum labelled "Carried forward" on every non-final page, and none on the last page', async () => {
+      const ROW_COUNT = 30;
+      const rows = makeRows(ROW_COUNT); // every row's amount cell is '10.00'
+
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 15,
+        columns: COLUMNS_WITH_FORMAT,
+        carriedSubtotal: { enabled: true, amountColumn: 'amount' },
+      };
+
+      const template: Template = {
+        basePdf: BLANK_A4_PDF,
+        schemas: [[tableSchema] as unknown as Schema[]],
+      };
+
+      const pdf = await generate({
+        inputs: [{ items: JSON.stringify(rows) }],
+        template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      expect(pages).toHaveLength(2);
+
+      const pageTexts = pages.map((p) => extractPageContent(doc, p).tokens);
+
+      // Page 1 (non-final): carried subtotal = sum of rows 1-15's amounts (15 * 10.00 = 150.00),
+      // formatted using the amount column's own '#,##0.00' format.
+      expect(pageTexts[0]).toContain('Carried forward');
+      expect(pageTexts[0]).toContain('150.00');
+
+      // Page 2 (last): no carried subtotal at all — the separate totals element covers the grand total there.
+      expect(pageTexts[1]).not.toContain('Carried forward');
+
+      // No row dropped, none duplicated.
+      const fullText = pageTexts.join('|');
+      for (let i = 1; i <= ROW_COUNT; i++) {
+        expect(fullText.split('|').filter((tok) => tok === `Item ${i}`)).toHaveLength(1);
+      }
+    });
+
+    test('carriedSubtotal disabled leaves pagination and rendering unchanged (same as the plain linesPerPage cap behaviour)', async () => {
+      const ROW_COUNT = 30;
+      const rows = makeRows(ROW_COUNT);
+
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 15,
+        columns: COLUMNS_WITH_FORMAT,
+        carriedSubtotal: { enabled: false, amountColumn: 'amount' },
+      };
+
+      const template: Template = {
+        basePdf: BLANK_A4_PDF,
+        schemas: [[tableSchema] as unknown as Schema[]],
+      };
+
+      const pdf = await generate({
+        inputs: [{ items: JSON.stringify(rows) }],
+        template,
+        plugins: { lineItemsTable },
+      });
+
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      expect(pages).toHaveLength(2);
+
+      const pageTexts = pages.map((p) => extractPageContent(doc, p).tokens);
+      expect(countItemTokensOnPage(pageTexts[0])).toBe(15);
+      expect(countItemTokensOnPage(pageTexts[1])).toBe(15);
+      expect(pageTexts.join('|')).not.toContain('Carried forward');
+    });
+
+    test('a non-numerically-summable amountColumn skips the subtotal, warns, and still renders successfully', async () => {
+      const ROW_COUNT = 30;
+      const rows = makeRows(ROW_COUNT);
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const tableSchema = {
+        type: 'lineItemsTable',
+        name: 'items',
+        position: { x: 10, y: 20 },
+        width: 190,
+        height: 100,
+        showHeader: true,
+        repeatHeader: true,
+        linesPerPage: 15,
+        columns: COLUMNS_WITH_FORMAT,
+        // 'description' holds text ("Item 1", "Item 2", ...) — not numerically summable.
+        carriedSubtotal: { enabled: true, amountColumn: 'description' },
+      };
+
+      const template: Template = {
+        basePdf: BLANK_A4_PDF,
+        schemas: [[tableSchema] as unknown as Schema[]],
+      };
+
+      const pdf = await generate({
+        inputs: [{ items: JSON.stringify(rows) }],
+        template,
+        plugins: { lineItemsTable },
+      });
+
+      expect(pdf).toBeDefined();
+      const doc = await PDFDocument.load(pdf);
+      const pages = doc.getPages();
+      expect(pages.length).toBeGreaterThan(1);
+
+      const pageTexts = pages.map((p) => extractPageContent(doc, p).tokens);
+      expect(pageTexts.join('|')).not.toContain('Carried forward');
+
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not numerically summable'));
+      warnSpy.mockRestore();
+    });
+
+    test('unit: reserving room for the carried subtotal forces an earlier page break than an unreserved run, so the subtotal never overflows past the page', async () => {
+      // Tall rows (as in the repeatHeader-folding test above) so pagination is
+      // driven by real vertical space pressure, not just the linesPerPage cap —
+      // this is the scenario where the reservation mechanism actually matters.
+      const schemaWithReserve = makeSchema({
+        bodyStyle: { fontSize: 60 },
+        carriedSubtotal: { enabled: true, amountColumn: 'amount' },
+      });
+      const schemaWithoutReserve = makeSchema({ bodyStyle: { fontSize: 60 } });
+      const rows = makeRows(40);
+
+      const [heightsWithReserve, heightsWithoutReserve] = await Promise.all([
+        getLineItemsTableDynamicHeights(JSON.stringify(rows), {
+          schema: schemaWithReserve,
+          basePdf: BLANK_A4_PDF,
+          options: {},
+          _cache: _cache(),
+        }),
+        getLineItemsTableDynamicHeights(JSON.stringify(rows), {
+          schema: schemaWithoutReserve,
+          basePdf: BLANK_A4_PDF,
+          options: {},
+          _cache: _cache(),
+        }),
+      ]);
+
+      // Reserving space for the subtotal must break the first page at least
+      // one row earlier than the unreserved run (fewer/shorter rows placed
+      // before the first inflated/forced-break row).
+      const findFirstInflatedIndex = (heights: number[], plain: number) =>
+        heights.slice(1).findIndex((h) => Math.round(h * 1000) !== Math.round(plain * 1000));
+
+      const plainRowHeight = Math.min(...heightsWithoutReserve.slice(1));
+      const firstBreakWithoutReserve = findFirstInflatedIndex(heightsWithoutReserve, plainRowHeight);
+      const firstBreakWithReserve = findFirstInflatedIndex(heightsWithReserve, plainRowHeight);
+
+      expect(firstBreakWithReserve).toBeGreaterThanOrEqual(0);
+      expect(firstBreakWithReserve).toBeLessThanOrEqual(firstBreakWithoutReserve);
+    });
+  });
 });

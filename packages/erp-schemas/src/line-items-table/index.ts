@@ -23,6 +23,13 @@ import type {
   TrackingDetailStyle,
 } from '../types';
 import { ExpressionEngine } from '../expression-engine';
+import { formatNumber, type CarriedSubtotalConfig } from './rowHeights';
+
+// Re-exported for backward compatibility: formatNumber used to be defined
+// directly in this file; it now lives in ./rowHeights.ts (single source of
+// truth shared with pdf.ts's carried-forward subtotal row), but any existing
+// `import { formatNumber } from '.../line-items-table'` call sites still work.
+export { formatNumber };
 
 /** Lazily-created expression engine singleton (one per process) */
 let _exprEngine: ExpressionEngine | null = null;
@@ -113,6 +120,13 @@ export interface LineItemsTableSchema {
    * a separate pre-resolve page-splitting path (resolveLineItemsTables).
    */
   linesPerPage?: number;
+  /**
+   * Carried-forward subtotal row: on every non-final page, draws a row
+   * summing `amountColumn` across all body rows rendered so far (rows 0
+   * through the end of that page). The final page never shows it — see
+   * ./rowHeights.ts's CarriedSubtotalConfig and ./pdf.ts's render logic.
+   */
+  carriedSubtotal?: CarriedSubtotalConfig;
   /** Alternating row shading */
   alternateRowShading?: boolean;
   /** Alternate row background color */
@@ -337,65 +351,6 @@ export function computeFooterRows(
   }
 
   return { cells: resultCells, styles: resultStyles };
-}
-
-/**
- * Format a number value with optional format string.
- *
- * Supported format patterns:
- * - Number:     '#,##0', '#,##0.00', '#,##0.000', '0', '0.00'
- * - Currency:   'R #,##0.00', '$ #,##0.00', '€ #,##0.00' (prefix before number pattern)
- * - Percentage: '0%', '0.0%', '0.00%' (appends % suffix)
- * - Date:       'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY' (passthrough for string values)
- *
- * The format string is parsed as: [prefix][number-pattern][% suffix]
- * where prefix is any characters before the first '#' or '0',
- * and number-pattern uses '#' for optional digits, '0' for required digits,
- * ',' for thousand separator, and '.' for decimal point.
- */
-export function formatNumber(value: number, format?: string): string {
-  if (!format) {
-    // Default: 2 decimal places
-    return value.toFixed(2);
-  }
-
-  // Check for percentage suffix
-  const isPercentage = format.endsWith('%');
-  let numberFormat = isPercentage ? format.slice(0, -1) : format;
-
-  // Extract prefix (everything before the first '#' or '0')
-  let prefix = '';
-  const firstFormatChar = numberFormat.search(/[#0]/);
-  if (firstFormatChar > 0) {
-    prefix = numberFormat.slice(0, firstFormatChar);
-    numberFormat = numberFormat.slice(firstFormatChar);
-  } else if (firstFormatChar < 0) {
-    // No numeric format characters found — return raw value with 2 decimals
-    return value.toFixed(2);
-  }
-
-  // Count decimal places from the number-pattern portion
-  const dotIdx = numberFormat.indexOf('.');
-  let decimals = 0;
-  if (dotIdx >= 0) {
-    decimals = numberFormat.length - dotIdx - 1;
-  }
-
-  // Check for thousand separator in number-pattern
-  const hasThousandSep = numberFormat.includes(',');
-
-  // Handle negative values: format the absolute value, prepend minus to prefix
-  const isNegative = value < 0;
-  let result = Math.abs(value).toFixed(decimals);
-
-  if (hasThousandSep) {
-    const parts = result.split('.');
-    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    result = parts.join('.');
-  }
-
-  const sign = isNegative ? '-' : '';
-  return sign + prefix + result + (isPercentage ? '%' : '');
 }
 
 /**

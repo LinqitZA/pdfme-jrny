@@ -76,6 +76,31 @@ export const propPanel = {
         },
       },
     },
+    '---carried-subtotal---': { type: 'void' as const, widget: 'Divider' },
+    carriedSubtotalSection: {
+      title: 'Carried Forward Subtotal',
+      type: 'object' as const,
+      widget: 'Card',
+      span: 24,
+      properties: {
+        'carriedSubtotal.enabled': {
+          title: 'Show on Non-Final Pages',
+          type: 'boolean' as const,
+          widget: 'checkbox',
+        },
+        'carriedSubtotal.amountColumn': {
+          title: 'Amount Column (key or index)',
+          type: 'string' as const,
+          widget: 'inputText',
+        },
+        'carriedSubtotal.label': {
+          title: 'Label',
+          type: 'string' as const,
+          widget: 'inputText',
+          props: { placeholder: 'Carried forward' },
+        },
+      },
+    },
   }),
   defaultSchema: {
     name: '',
