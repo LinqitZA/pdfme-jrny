@@ -9,69 +9,32 @@
  * Supports text wrapping with dynamic row heights (#2251):
  * - Columns with overflow: 'wrap' (or default) wrap text and expand row height
  * - Columns with overflow: 'clip' or 'truncate' clip to single line
+ *
+ * Supports pagination (see ./dynamicHeights.ts, registered as this plugin's
+ * getDynamicHeights): @pdfme/generator dispatches to getLineItemsTableDynamicHeights
+ * to compute per-row heights, and @pdfme/common's getDynamicTemplate chunks the
+ * schema across pages using those heights, tagging each chunk with
+ * schema.__bodyRange ({ start, end }, body-row indices) and schema.__isSplit
+ * (true on every chunk after the first). This renderer draws ONLY the rows in
+ * __bodyRange and repeats the column header on split chunks when repeatHeader
+ * is on — it no longer truncates rows against a fixed pixel boundary, so no
+ * rows are silently dropped.
  */
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-/** Parse a hex color string (#RRGGBB or RRGGBB) to normalised {r, g, b}. */
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '');
-  return {
-    r: parseInt(h.substring(0, 2), 16) / 255,
-    g: parseInt(h.substring(2, 4), 16) / 255,
-    b: parseInt(h.substring(4, 6), 16) / 255,
-  };
-}
-
-/** Approximate the width of a string in pt using the embedded font metrics. */
-function measureText(text: string, font: any, fontSize: number): number {
-  if (!font) return text.length * fontSize * 0.5; // rough fallback
-  try {
-    return font.widthOfTextAtSize(text, fontSize);
-  } catch {
-    return text.length * fontSize * 0.5;
-  }
-}
-
-/**
- * Word-wrap a text string to fit within `maxWidthPt`, breaking at word
- * boundaries. Returns an array of lines.
- */
-function wrapText(
-  text: string,
-  font: any,
-  fontSize: number,
-  maxWidthPt: number,
-): string[] {
-  if (!text) return [''];
-  const words = text.split(/\s+/);
-  const lines: string[] = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const testWidth = measureText(testLine, font, fontSize);
-    if (testWidth > maxWidthPt && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
-    }
-  }
-  if (currentLine) lines.push(currentLine);
-  if (lines.length === 0) lines.push('');
-  return lines;
-}
-
-// ── Column type with overflow ────────────────────────────────────────
-
-interface PdfColumn {
-  key: string;
-  header: string;
-  width: number;
-  align?: string;
-  overflow?: 'wrap' | 'truncate' | 'clip';
-}
+import {
+  hexToRgb,
+  computeColWidthsPt,
+  computeWrappedRows,
+  computeHeaderHeightPt,
+  getHeaderFontSize,
+  getBodyFontSize,
+  getDrawFontSize,
+  MM_TO_PT,
+  LINE_HEIGHT_MULTIPLIER,
+  CELL_PADDING_PT,
+  type PdfColumn,
+  type LineItemsTableGeometrySchema,
+} from './rowHeights';
 
 // ── Main render ──────────────────────────────────────────────────────
 
@@ -92,14 +55,12 @@ export async function pdfRender(arg: {
   const columns = (schema.columns as PdfColumn[]) || [];
   const position = schema.position as { x: number; y: number };
   const width = (schema.width as number) || 190;
-  const height = (schema.height as number) || 100;
   const showHeader = schema.showHeader !== false;
+  const repeatHeader = schema.repeatHeader !== false;
   const headerBg =
     ((schema.headerStyle as Record<string, unknown>)?.backgroundColor as string) || '#2d3748';
-  const headerFontSize =
-    ((schema.headerStyle as Record<string, unknown>)?.fontSize as number) || 9;
-  const bodyFontSize =
-    ((schema.bodyStyle as Record<string, unknown>)?.fontSize as number) || 8;
+  const headerFontSize = getHeaderFontSize(schema as LineItemsTableGeometrySchema);
+  const bodyFontSize = getBodyFontSize(schema as LineItemsTableGeometrySchema);
 
   // Parse body data
   let bodyRows: string[][] = [];
@@ -112,14 +73,10 @@ export async function pdfRender(arg: {
   }
 
   // Convert mm to points (1mm = 2.835pt)
-  const mmToPt = 2.835;
-  const x = position.x * mmToPt;
+  const x = position.x * MM_TO_PT;
   const pageHeight = page.getHeight();
-  const y = pageHeight - position.y * mmToPt;
-  const tableWidth = width * mmToPt;
-  const totalColWidth = columns.reduce((s, c) => s + c.width, 0) || 1;
-  const cellPaddingPt = 2; // horizontal cell padding in pt
-  const lineHeightMultiplier = 1.3;
+  const y = pageHeight - position.y * MM_TO_PT;
+  const tableWidth = width * MM_TO_PT;
 
   // Get or embed a font
   let font: any;
@@ -133,45 +90,52 @@ export async function pdfRender(arg: {
     }
   }
 
-  const drawFontSize = bodyFontSize * 0.8;
-  const lineHeightPt = drawFontSize * lineHeightMultiplier;
-  const bottomBoundary = pageHeight - (position.y + height) * mmToPt;
+  const drawFontSize = getDrawFontSize(bodyFontSize);
+  const lineHeightPt = drawFontSize * LINE_HEIGHT_MULTIPLIER;
   let currentY = y;
 
   // ── Pre-compute wrapped lines and row heights ──────────────────────
-  const colWidthsPt = columns.map((c) => (c.width / totalColWidth) * tableWidth);
+  // Shared with getLineItemsTableDynamicHeights (./dynamicHeights.ts) so the
+  // heights the generator used to decide page breaks can never drift from
+  // what gets drawn here.
+  const colWidthsPt = computeColWidthsPt(columns, tableWidth);
+  const wrappedRows = computeWrappedRows(bodyRows, columns, colWidthsPt, font, bodyFontSize);
 
-  interface WrappedCell {
-    lines: string[];
+  // ── Determine which rows belong on THIS page/chunk ──────────────────
+  // __bodyRange is set by @pdfme/common's getDynamicTemplate when it splits
+  // this schema across pages. Its `end` is an EXCLUSIVE slice boundary —
+  // NOT an inclusive last-index — matching getBodyWithRange's own
+  // `body.slice(range.start, range.end)` (packages/schemas/src/tables/helper.ts),
+  // the same convention the base `table` plugin relies on. Treating it as
+  // inclusive here previously double-rendered the row straddling every page
+  // boundary (e.g. the last row of page N reappearing as the first row of
+  // page N+1) — caught by the generate()-driven pagination test.
+  //
+  // Clamping to the actual row count is the "safety guard" replacing the
+  // old fixed bottomBoundary break: per-page chunking (including forcing a
+  // single over-tall row onto its own page) is the engine's responsibility
+  // now (see placeRowsOnPages in packages/common/src/dynamicTemplate.ts);
+  // this guard only prevents out-of-range slicing. When __bodyRange is
+  // absent (e.g. this pdf() fallback invoked outside the dynamic-pagination
+  // flow), every row is rendered — never silently dropped.
+  const bodyRange = schema.__bodyRange as { start: number; end?: number } | undefined;
+  const isSplit = Boolean(schema.__isSplit);
+
+  let rangeStart = 0;
+  let rangeEndExclusive = wrappedRows.length;
+  if (bodyRange) {
+    rangeStart = Math.max(0, Math.min(bodyRange.start ?? 0, wrappedRows.length));
+    const end = bodyRange.end ?? wrappedRows.length;
+    rangeEndExclusive = Math.max(rangeStart, Math.min(end, wrappedRows.length));
   }
-  interface WrappedRow {
-    cells: WrappedCell[];
-    height: number;
-  }
+  const rowsToRender = wrappedRows.slice(rangeStart, rangeEndExclusive);
 
-  const wrappedRows: WrappedRow[] = bodyRows.map((row) => {
-    let maxLines = 1;
-    const cells: WrappedCell[] = columns.map((col, ci) => {
-      const cellText = row[ci] || '';
-      const overflow = col.overflow || 'wrap';
-      const availableWidth = colWidthsPt[ci] - cellPaddingPt * 2;
-
-      if (overflow === 'wrap') {
-        const lines = wrapText(cellText, font, drawFontSize, availableWidth);
-        if (lines.length > maxLines) maxLines = lines.length;
-        return { lines };
-      }
-      // clip / truncate: single line, no expansion
-      return { lines: [cellText] };
-    });
-
-    const rowH = Math.max(maxLines * lineHeightPt + cellPaddingPt * 2, lineHeightPt + 4);
-    return { cells, height: rowH };
-  });
+  // Draw the header on the first chunk, and on every chunk when repeatHeader is on.
+  const showHeaderOnThisChunk = showHeader && columns.length > 0 && (!isSplit || repeatHeader);
 
   // ── Draw header ────────────────────────────────────────────────────
-  if (showHeader && columns.length > 0) {
-    const hdrHeight = (headerFontSize + 6) * (mmToPt / 3);
+  if (showHeaderOnThisChunk) {
+    const hdrHeight = computeHeaderHeightPt(headerFontSize);
     const bgColor = hexToRgb(headerBg);
 
     page.drawRectangle({
@@ -183,11 +147,12 @@ export async function pdfRender(arg: {
     });
 
     let colX = x;
-    for (const col of columns) {
-      const colW = (col.width / totalColWidth) * tableWidth;
+    for (let ci = 0; ci < columns.length; ci++) {
+      const col = columns[ci];
+      const colW = colWidthsPt[ci];
       if (font) {
         page.drawText(col.header, {
-          x: colX + cellPaddingPt,
+          x: colX + CELL_PADDING_PT,
           y: currentY - hdrHeight + 3,
           size: headerFontSize * 0.8,
           font,
@@ -200,15 +165,14 @@ export async function pdfRender(arg: {
   }
 
   // ── Draw body rows ─────────────────────────────────────────────────
-  for (let ri = 0; ri < wrappedRows.length; ri++) {
-    const wr = wrappedRows[ri];
+  for (let i = 0; i < rowsToRender.length; i++) {
+    const wr = rowsToRender[i];
     const rHeight = wr.height;
-
-    // Stop if we've exceeded the element's vertical bounds
-    if (currentY - rHeight < bottomBoundary) break;
+    // Absolute row index (pre-slice) so alternating shading stays stable across page breaks.
+    const originalRowIndex = rangeStart + i;
 
     // Alternating row shading
-    if (schema.alternateRowShading && ri % 2 === 1) {
+    if (schema.alternateRowShading && originalRowIndex % 2 === 1) {
       const altColor = hexToRgb((schema.alternateRowColor as string) || '#f7fafc');
       page.drawRectangle({
         x,
@@ -228,8 +192,8 @@ export async function pdfRender(arg: {
           const lineText = cell.lines[li];
           if (!lineText) continue;
           page.drawText(lineText, {
-            x: colX + cellPaddingPt,
-            y: currentY - cellPaddingPt - lineHeightPt * (li + 1) + drawFontSize * 0.3,
+            x: colX + CELL_PADDING_PT,
+            y: currentY - CELL_PADDING_PT - lineHeightPt * (li + 1) + drawFontSize * 0.3,
             size: drawFontSize,
             font,
             color: pdfLib.rgb(0, 0, 0),

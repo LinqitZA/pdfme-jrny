@@ -912,6 +912,7 @@ export function resolveLineItemsTables(
 import { uiRender } from './ui';
 import { pdfRender } from './pdf';
 import { propPanel } from './propPanel';
+import { getLineItemsTableDynamicHeights } from './dynamicHeights';
 
 /**
  * Line Items Table icon - table grid SVG
@@ -1015,6 +1016,17 @@ export const lineItemsTable = {
    * Called by the render service before pdfme generate().
    */
   resolve: resolveLineItemsTables,
+
+  /**
+   * Compute per-row dynamic heights for pagination. Dispatched to by
+   * @pdfme/generator (see generate.ts's pluginRegistry(...).findByType(...)
+   * lookup) instead of the built-in single-fixed-height path, so an
+   * unresolved lineItemsTable schema paginates across pages — splitting
+   * rows and repeating the header — exactly like the base `table` plugin.
+   * See ./dynamicHeights.ts for the implementation and ./rowHeights.ts for
+   * the row-height math shared with the pdf() renderer above.
+   */
+  getDynamicHeights: getLineItemsTableDynamicHeights,
 
   /**
    * Compute footer row values from line items data.

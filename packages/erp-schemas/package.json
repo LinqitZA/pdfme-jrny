@@ -20,11 +20,14 @@
   },
   "dependencies": {
     "@pdfme/common": "workspace:*",
+    "@pdfme/pdf-lib": "workspace:*",
     "expr-eval-fork": "^3.0.1",
     "dompurify": "^3.0.0",
     "signature_pad": "^4.2.0"
   },
   "devDependencies": {
+    "@pdfme/generator": "workspace:*",
+    "@pdfme/schemas": "workspace:*",
     "typescript": "^6.0.2",
     "@types/dompurify": "^3.0.0",
     "jest": "^29.7.0",
