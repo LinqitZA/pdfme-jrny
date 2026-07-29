@@ -194,6 +194,7 @@ export interface PropPanel<T extends Schema> {
  * @property {PropPanel} propPanel Object for defining the property panel.
  * @property {string} [icon] Icon SVG for the plugin.
  * @property {boolean} [uninterruptedEditMode] When editing in the UI, should the field avoid re-rendering while in edit mode?
+ * @property {function} [getDynamicHeights] Optional function to compute per-row dynamic heights for pagination. When provided, the generator dispatches to this instead of the built-in table pagination logic for schemas of this plugin's type, allowing custom plugins (e.g. a line items table) to paginate across pages.
  */
 export type Plugin<T = Schema> = {
   pdf: (arg: PDFRenderProps<T & Schema>) => Promise<void> | void;
@@ -201,6 +202,10 @@ export type Plugin<T = Schema> = {
   propPanel: PropPanel<T & Schema>;
   icon?: string;
   uninterruptedEditMode?: boolean;
+  getDynamicHeights?: (
+    value: string,
+    args: { schema: Schema; basePdf: BasePdf; options: CommonOptions; _cache: Map<string | number, unknown> },
+  ) => Promise<number[]>;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

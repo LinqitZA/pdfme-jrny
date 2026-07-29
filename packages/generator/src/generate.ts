@@ -7,6 +7,7 @@ import {
   replacePlaceholders,
   pt2mm,
   cloneDeep,
+  pluginRegistry,
 } from '@pdfme/common';
 import { getDynamicHeightsForTable } from '@pdfme/schemas';
 import {
@@ -46,6 +47,10 @@ const generate = async (props: GenerateProps): Promise<Uint8Array<ArrayBuffer>> 
       options,
       _cache,
       getDynamicHeights: (value, args) => {
+        const plugin = pluginRegistry(userPlugins).findByType(args.schema.type);
+        if (plugin?.getDynamicHeights) {
+          return plugin.getDynamicHeights(value, args);
+        }
         switch (args.schema.type) {
           case 'table':
             return getDynamicHeightsForTable(value, args);
