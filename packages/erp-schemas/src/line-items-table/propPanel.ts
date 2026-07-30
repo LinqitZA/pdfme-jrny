@@ -20,6 +20,13 @@ export const propPanel = {
       widget: 'checkbox',
       span: 12,
     },
+    linesPerPage: {
+      title: 'Lines Per Page (cap)',
+      type: 'number' as const,
+      widget: 'inputNumber',
+      props: { min: 1, step: 1 },
+      span: 12,
+    },
     alternateRowShading: {
       title: 'Alternate Row Shading',
       type: 'boolean' as const,
@@ -66,6 +73,31 @@ export const propPanel = {
           type: 'number' as const,
           widget: 'inputNumber',
           props: { min: 6, max: 24, step: 1 },
+        },
+      },
+    },
+    '---carried-subtotal---': { type: 'void' as const, widget: 'Divider' },
+    carriedSubtotalSection: {
+      title: 'Carried Forward Subtotal',
+      type: 'object' as const,
+      widget: 'Card',
+      span: 24,
+      properties: {
+        'carriedSubtotal.enabled': {
+          title: 'Show on Non-Final Pages',
+          type: 'boolean' as const,
+          widget: 'checkbox',
+        },
+        'carriedSubtotal.amountColumn': {
+          title: 'Amount Column (key or index)',
+          type: 'string' as const,
+          widget: 'inputText',
+        },
+        'carriedSubtotal.label': {
+          title: 'Label',
+          type: 'string' as const,
+          widget: 'inputText',
+          props: { placeholder: 'Carried forward' },
         },
       },
     },

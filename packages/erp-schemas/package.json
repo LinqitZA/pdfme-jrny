@@ -27,5 +27,23 @@
   "devDependencies": {
     "typescript": "^6.0.2",
     "@types/dompurify": "^3.0.0"
+  },
+  "jest": {
+    "resolver": "ts-jest-resolver",
+    "moduleFileExtensions": [
+      "ts",
+      "js"
+    ],
+    "transform": {
+      "^.+\\.ts?$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.json"
+        }
+      ]
+    },
+    "testMatch": [
+      "**/*.test.ts"
+    ]
   }
 }

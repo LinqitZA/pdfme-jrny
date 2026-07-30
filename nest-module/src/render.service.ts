@@ -16,7 +16,8 @@ import { SignatureService } from './signature.service';
 import { AuditService } from './audit.service';
 import { EventEmitter } from 'events';
 import {
-  resolveLineItemsTables,
+  resolveLineItemsTableInputs,
+  lineItemsTable,
   extractWatermarkFromTemplate,
   applyWatermark,
   resolveRichText,
@@ -31,6 +32,7 @@ import {
   resolveRectangles,
   applyRectangleShadows,
   ExpressionEngine,
+  pageNumber,
 } from '@pdfme-erp/schemas';
 import type { RichTextRenderInfo, SignatureBlockRenderInfo } from '@pdfme-erp/schemas';
 import { PdfaProcessor } from './pdfa-processor';
@@ -510,8 +512,11 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     inputs = erpImageResult.inputs;
     const erpImagePlaceholders = erpImageResult.placeholders || [];
 
-    // 3c. Resolve lineItemsTable elements - convert to standard table with footer rows
-    const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
+    // 3c. Resolve lineItemsTable DATA (body rows + footer rows) natively —
+    // keeps type: 'lineItemsTable' so generate() dispatches to the plugin's
+    // own pdf()/getDynamicHeights (linesPerPage/carriedSubtotal/height-fit
+    // pagination) instead of converting to a base `table` element.
+    const resolvedLit = resolveLineItemsTableInputs(pdfmeTemplate, inputs);
     pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
     inputs = resolvedLit.inputs;
 
@@ -603,6 +608,13 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         // ERP custom: drawnSignature uses image plugin for PDF rendering
         // (signature data resolved to base64 in step 3b above)
         drawnSignature: schemas.image,
+        // ERP custom: pageNumber renders via the upstream text plugin (its
+        // `content` format template is placeholder-substituted per page by
+        // generate() when placed in template.basePdf.staticSchema).
+        pageNumber,
+        // ERP custom: lineItemsTable renders natively (own pdf()/getDynamicHeights,
+        // see step 3c above) — no longer converted to a base `table` element.
+        lineItemsTable,
       };
 
       const generateOptions: Record<string, unknown> = {};
@@ -2305,8 +2317,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     inputs = erpImageResult.inputs;
     const previewErpPlaceholders = erpImageResult.placeholders || [];
 
-    // 3c. Resolve lineItemsTable elements
-    const resolvedLit = resolveLineItemsTables(pdfmeTemplate, inputs);
+    // 3c. Resolve lineItemsTable DATA (body rows + footer rows) natively —
+    // see the corresponding step in renderNow() above for rationale.
+    const resolvedLit = resolveLineItemsTableInputs(pdfmeTemplate, inputs);
     pdfmeTemplate = resolvedLit.template as typeof pdfmeTemplate;
     inputs = resolvedLit.inputs;
 
@@ -2390,6 +2403,10 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
       checkbox: schemas.checkbox,
       ...schemas.barcodes,
       drawnSignature: schemas.image,
+      pageNumber,
+      // ERP custom: lineItemsTable renders natively (see the corresponding
+      // step in renderNow() above for rationale).
+      lineItemsTable,
     };
 
     const previewGenerateOptions: Record<string, unknown> = {};

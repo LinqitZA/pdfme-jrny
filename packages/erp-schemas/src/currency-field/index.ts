@@ -12,7 +12,12 @@
  * Schema properties:
  * - type: 'currencyField'
  * - name: string (field name for input binding)
- * - currencyCode: string (ISO 4217 code, e.g. 'USD', 'ZAR', 'EUR')
+ * - currencyCode: string (ISO 4217 code, e.g. 'USD', 'ZAR', 'EUR', OR a field
+ *   binding like '{{invoice.currency}}' resolved against the data context —
+ *   this is how the field prints the document's actual transaction currency
+ *   instead of a hardcoded default). Falls back to locale currency if unset/
+ *   unresolved; if nothing resolves, NO currency symbol is shown (never a
+ *   wrong/static default).
  * - currencySymbol: string (e.g. '$', 'R', '€') — overrides locale default
  * - symbolPosition: 'before' | 'after' (default: 'before')
  * - thousandSeparator: string (default from locale)
@@ -20,9 +25,13 @@
  * - decimalPlaces: number (default: 2)
  * - dualCurrency: optional dual-currency display config
  *   - enabled: boolean
- *   - targetCurrencyCode: string (ISO 4217)
+ *   - targetCurrencyCode: string (ISO 4217, or a field binding like '{{org.operatingCurrency}}')
  *   - targetCurrencySymbol: string
  *   - exchangeRate: number (or field binding like '{{field.exchangeRate}}')
+ *   - valueBinding: number or field binding (e.g. '{{amountOc}}') to a raw,
+ *     already-stored OC amount. When set, this exact value is used directly
+ *     for the dual-currency line instead of value * exchangeRate — an exact
+ *     stored amount is preferred over a recomputed conversion.
  *   - format: 'below' | 'inline' (default: 'below')
  * - fontSize, fontName, alignment, fontColor: standard text styling
  */
@@ -31,9 +40,15 @@ import type { LocaleConfig } from '../types';
 
 export interface DualCurrencyConfig {
   enabled: boolean;
-  targetCurrencyCode: string;
+  targetCurrencyCode: string; // literal ISO 4217 code, or a field binding like '{{org.operatingCurrency}}'
   targetCurrencySymbol?: string;
   exchangeRate: number | string; // number or field binding like '{{field.exchangeRate}}'
+  /**
+   * Optional binding to a raw, already-converted OC amount (e.g. '{{amountOc}}').
+   * When present, this is preferred over exchangeRate * value — the stored OC
+   * amount is used directly, with no rate re-conversion.
+   */
+  valueBinding?: number | string;
   format?: 'below' | 'inline'; // default: 'below'
   symbolPosition?: 'before' | 'after';
   decimalPlaces?: number;
@@ -197,6 +212,26 @@ function resolveBindingValue(
 }
 
 /**
+ * Resolve a currency code that may be a literal ISO 4217 code (e.g. 'USD')
+ * or a field binding like '{{invoice.currency}}'. Bindings are resolved
+ * against the data context (e.g. the document's transaction currency);
+ * literal codes pass through unchanged.
+ */
+function resolveCodeBinding(
+  code: string | undefined,
+  context?: Record<string, unknown>,
+): string | undefined {
+  const bindingMatch = String(code).match(/^\{\{(.+?)\}\}$/);
+  if (bindingMatch) {
+    const resolved = resolveNestedField(bindingMatch[1].trim(), context ?? {});
+    // An unresolved binding (missing/undefined/null field) is "no code" — never
+    // stringify to the literal "undefined"/"null", which would render as a bogus symbol.
+    return resolved === undefined || resolved === null ? undefined : String(resolved);
+  }
+  return code;
+}
+
+/**
  * Resolve a nested field reference like 'field.exchangeRate' from context.
  */
 function resolveNestedField(fieldPath: string, context: Record<string, unknown>): unknown {
@@ -230,12 +265,18 @@ export function formatCurrencyField(
   locale?: LocaleConfig,
   context?: Record<string, unknown>,
 ): FormattedCurrencyResult {
-  // Resolve currency settings (schema overrides > locale > defaults)
-  const currencyCode = schema.currencyCode || locale?.currency?.code || 'USD';
-  const currencySymbol = resolveCurrencySymbol(
-    currencyCode,
-    schema.currencySymbol || (locale?.currency?.code === currencyCode ? locale?.currency?.symbol : undefined),
-  );
+  // Resolve currency settings (schema overrides > locale — never a static/wrong default).
+  // schema.currencyCode may be a literal ISO 4217 code or a field binding like
+  // '{{invoice.currency}}' that resolves to the document's transaction currency.
+  const currencyCode = resolveCodeBinding(schema.currencyCode, context) || locale?.currency?.code;
+  // Only resolve a symbol when a currency code is actually present — showing a wrong
+  // symbol (e.g. a stale 'USD' default) is worse than showing no symbol at all.
+  const currencySymbol = currencyCode
+    ? resolveCurrencySymbol(
+        currencyCode,
+        schema.currencySymbol || (locale?.currency?.code === currencyCode ? locale?.currency?.symbol : undefined),
+      )
+    : '';
   const symbolPosition = schema.symbolPosition || locale?.currency?.position || 'before';
   const thousandSeparator = schema.thousandSeparator ?? locale?.currency?.thousandSeparator ?? ',';
   const decimalSeparator = schema.decimalSeparator ?? locale?.currency?.decimalSeparator ?? '.';
@@ -256,29 +297,37 @@ export function formatCurrencyField(
     name: schema.name,
     formattedValue,
     rawValue: value,
-    currencyCode,
+    currencyCode: currencyCode || '',
     currencySymbol,
   };
 
   // Handle dual-currency display
   if (schema.dualCurrency?.enabled && context) {
     try {
-      const exchangeRate = resolveBindingValue(
-        schema.dualCurrency.exchangeRate,
-        context,
-      );
-
-      if (exchangeRate > 0) {
-        const convertedValue = value * exchangeRate;
-        const targetCode = schema.dualCurrency.targetCurrencyCode;
-        const targetSymbol = resolveCurrencySymbol(
-          targetCode,
-          schema.dualCurrency.targetCurrencySymbol,
+      // Prefer a bound raw OC amount (e.g. the stored transaction-currency amount)
+      // over rate-conversion — an exact stored value beats a recomputed one.
+      let dualValue: number | undefined;
+      if (schema.dualCurrency.valueBinding != null) {
+        dualValue = resolveBindingValue(schema.dualCurrency.valueBinding, context);
+      } else {
+        const exchangeRate = resolveBindingValue(
+          schema.dualCurrency.exchangeRate,
+          context,
         );
+        if (exchangeRate > 0) {
+          dualValue = value * exchangeRate;
+        }
+      }
+
+      if (dualValue !== undefined) {
+        const targetCode = resolveCodeBinding(schema.dualCurrency.targetCurrencyCode, context);
+        const targetSymbol = targetCode
+          ? resolveCurrencySymbol(targetCode, schema.dualCurrency.targetCurrencySymbol)
+          : '';
         const targetPosition = schema.dualCurrency.symbolPosition || symbolPosition;
         const targetDecimals = schema.dualCurrency.decimalPlaces ?? decimalPlaces;
 
-        const dualFormatted = formatCurrencyValue(convertedValue, {
+        const dualFormatted = formatCurrencyValue(dualValue, {
           currencySymbol: targetSymbol,
           symbolPosition: targetPosition,
           thousandSeparator,
@@ -287,7 +336,7 @@ export function formatCurrencyField(
         });
 
         result.dualCurrencyValue = dualFormatted;
-        result.dualCurrencyRaw = convertedValue;
+        result.dualCurrencyRaw = dualValue;
 
         // Combine primary and dual values
         const displayFormat = schema.dualCurrency.format || 'below';
@@ -423,4 +472,69 @@ export const currencyField = {
   formatCurrencyValue,
   formatCurrencyField,
   resolveCurrencyFields,
+
+  /**
+   * Property panel - configures the property editor in the designer sidebar.
+   */
+  propPanel: {
+    schema: () => ({
+      currencyCode: {
+        title: 'Currency Code',
+        type: 'string' as const,
+        widget: 'input',
+        props: { placeholder: 'e.g. ZAR or {{invoice.currency}}' },
+        span: 12,
+      },
+      showCurrencyCode: {
+        title: 'Show Code Instead of Symbol',
+        type: 'boolean' as const,
+        widget: 'checkbox',
+        span: 12,
+      },
+      '---dual-currency---': { type: 'void' as const, widget: 'Divider' },
+      dualCurrencySection: {
+        title: 'Dual Currency',
+        type: 'object' as const,
+        widget: 'Card',
+        span: 24,
+        properties: {
+          'dualCurrency.enabled': {
+            title: 'Enabled',
+            type: 'boolean' as const,
+            widget: 'checkbox',
+          },
+          'dualCurrency.targetCurrencyCode': {
+            title: 'Target Currency Code',
+            type: 'string' as const,
+            widget: 'input',
+            props: { placeholder: 'e.g. USD or {{org.operatingCurrency}}' },
+          },
+          'dualCurrency.exchangeRate': {
+            title: 'Exchange Rate',
+            type: 'string' as const,
+            widget: 'input',
+            props: { placeholder: 'e.g. 18.5 or {{field.exchangeRate}}' },
+          },
+          'dualCurrency.valueBinding': {
+            title: 'OC Value Binding',
+            type: 'string' as const,
+            widget: 'input',
+            props: { placeholder: 'e.g. {{amountOc}} — overrides exchangeRate when set' },
+          },
+        },
+      },
+    }),
+    defaultSchema: {
+      type: 'currencyField',
+      currencyCode: 'USD',
+      symbolPosition: 'before',
+      decimalPlaces: 2,
+      fontSize: 12,
+      alignment: 'right',
+      fontColor: '#000000',
+      position: { x: 0, y: 0 },
+      width: 60,
+      height: 15,
+    },
+  },
 };
