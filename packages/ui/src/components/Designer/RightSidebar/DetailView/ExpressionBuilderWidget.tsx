@@ -156,10 +156,14 @@ const ExpressionBuilderWidget: React.FC<ExpressionBuilderWidgetProps> = ({
 
   const { fieldGroups, hasFields } = useFieldPalette();
 
-  // Only show for calculatedField or currencyField schema types
+  // Only show for calculatedField or currencyField schema types.
+  // NOTE: the actual guard (`return null`) MUST live below all hooks — see the
+  // guard just before the render return. Placing it here, between hook calls,
+  // changes the hook count when switching element types and crashes DetailView
+  // with "Rendered fewer hooks than expected". Matches ColumnConfigWidget /
+  // TrackingDetailWidget, which guard after their hooks.
   const schemaType = activeSchema.type;
   const isExpressionType = schemaType === 'calculatedField' || schemaType === 'currencyField';
-  if (!isExpressionType) return null;
 
   // Read current expression from schema
   const expression = String(
@@ -293,6 +297,9 @@ const ExpressionBuilderWidget: React.FC<ExpressionBuilderWidgetProps> = ({
     collect(fieldGroups);
     return fields;
   }, [fieldGroups]);
+
+  // Guard AFTER all hooks (Rules of Hooks): only render for expression types.
+  if (!isExpressionType) return null;
 
   return (
     <div

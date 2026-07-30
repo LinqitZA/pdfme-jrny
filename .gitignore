@@ -5,6 +5,17 @@ node_modules/
 .cache
 dist
 .next/
+
+# Compiled TS output must NEVER live beside the .ts sources in src/. When it
+# does, webpack/Next dev module resolution loads the stale .js instead of the
+# .ts (directory/extension resolution picks .js), silently serving old code —
+# this is what hid the line-items propPanel's linesPerPage/carriedSubtotal
+# fields. tsc emits to dist/ (outDir); anything matching below is an accident.
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+nest-module/src/**/*.js
+nest-module/src/**/*.js.map
+
 coverage/
 
 **/repomix-output.{txt,xml}

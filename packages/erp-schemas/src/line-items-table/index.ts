@@ -24,6 +24,13 @@ import type {
 } from '../types';
 import { ExpressionEngine } from '../expression-engine';
 import { formatNumber, type CarriedSubtotalConfig, type ResolvedFooterRow } from './rowHeights';
+// Keep these at the top with the other imports (they were previously declared
+// mid-file, after the exports). None of the four import back from ./index, so
+// there is no cycle that required the mid-file placement.
+import { uiRender } from './ui';
+import { pdfRender } from './pdf';
+import { propPanel } from './propPanel';
+import { getLineItemsTableDynamicHeights } from './dynamicHeights';
 
 // Re-exported for backward compatibility: formatNumber used to be defined
 // directly in this file; it now lives in ./rowHeights.ts (single source of
@@ -980,11 +987,6 @@ export function resolveLineItemsTableInputs(
     inputs,
   };
 }
-
-import { uiRender } from './ui';
-import { pdfRender } from './pdf';
-import { propPanel } from './propPanel';
-import { getLineItemsTableDynamicHeights } from './dynamicHeights';
 
 /**
  * Line Items Table icon - table grid SVG
