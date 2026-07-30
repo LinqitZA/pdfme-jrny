@@ -20,20 +20,13 @@
   },
   "dependencies": {
     "@pdfme/common": "workspace:*",
-    "@pdfme/pdf-lib": "workspace:*",
     "expr-eval-fork": "^3.0.1",
     "dompurify": "^3.0.0",
     "signature_pad": "^4.2.0"
   },
   "devDependencies": {
-    "@pdfme/generator": "workspace:*",
-    "@pdfme/schemas": "workspace:*",
     "typescript": "^6.0.2",
-    "@types/dompurify": "^3.0.0",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.4.9",
-    "ts-jest-resolver": "^2.0.1",
-    "@types/jest": "^29.5.14"
+    "@types/dompurify": "^3.0.0"
   },
   "jest": {
     "resolver": "ts-jest-resolver",
