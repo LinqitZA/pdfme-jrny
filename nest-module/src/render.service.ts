@@ -1416,19 +1416,29 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
    *
    * Priority for the value of each text-like element:
    *   1. Data-source key matching element.name      (e.g. data["paymentTerms"])
-   *   2. `{{key}}` placeholders in element.content  (e.g. content="{{customer.name}}")
+   *   2. `{{key}}` placeholders in element.content  (e.g. content="{{customer.name}}"),
+   *      substituted against the data record
    *   3. element.fallbackValue                      (designer-set fallback)
-   *   4. Empty string
+   *   4. element.content, but ONLY if it is genuine static text — i.e. content
+   *      that is NOT itself a `{{...}}` placeholder template. This lets the
+   *      designer's typed labels/titles render even when there's no matching
+   *      data-source key.
+   *   5. Empty string — used both when content is empty AND when content IS a
+   *      `{{...}}` placeholder template that failed to resolve (no matching
+   *      data key and no fallbackValue). In that case the raw, unsubstituted
+   *      `{{key}}` string is NEVER written into the output: printing internal
+   *      binding syntax onto a rendered document is worse than a blank field.
    *
    * The designer (FieldBindingWidget) writes user-selected bindings as `{{key}}`
    * into the element's `content` property. Without step 2, those bindings would
    * never resolve at render time and the PDF would show empty fields.
    *
    * Returns a set of field names whose values were resolved via `{{key}}`
-   * placeholder substitution. These should be skipped during expression
-   * evaluation because their values are data-source text (e.g. "INV-01258",
-   * "2025-11-14"), NOT arithmetic expressions — even though they may
-   * coincidentally match the EXPRESSION_PATTERN regex.
+   * placeholder substitution OR via step 4's static-content fallback. These
+   * should be skipped during expression evaluation because their values are
+   * data-source/designer text (e.g. "INV-01258", "2025-11-14", "A - B"), NOT
+   * arithmetic expressions — even though they may coincidentally match the
+   * EXPRESSION_PATTERN regex.
    */
   private resolveFieldBindings(
     pdfmeTemplate: { basePdf: unknown; schemas: unknown[] },
@@ -1485,14 +1495,21 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           const elType = meta?.type ?? '';
           const content = meta?.content ?? '';
 
-          // Step 2: substitute {{key}} placeholders in content for text-like elements.
-          if (
-            content &&
+          // Determine once whether `content` is itself a {{...}} placeholder
+          // template, and capture the boolean for reuse below — the regex is
+          // /g and therefore stateful, so we must not re-run .test() later in
+          // this iteration without resetting lastIndex. Capturing the result
+          // here (and resetting immediately) is less error-prone than testing
+          // again further down.
+          const contentIsPlaceholderTemplate =
+            !!content &&
             !RenderService.CONTENT_PLACEHOLDER_SKIP_TYPES.has(elType) &&
-            RenderService.CONTENT_PLACEHOLDER_PATTERN.test(content)
-          ) {
-            // Reset lastIndex because the regex above is /g and stateful.
-            RenderService.CONTENT_PLACEHOLDER_PATTERN.lastIndex = 0;
+            RenderService.CONTENT_PLACEHOLDER_PATTERN.test(content);
+          // Reset lastIndex because the regex above is /g and stateful.
+          RenderService.CONTENT_PLACEHOLDER_PATTERN.lastIndex = 0;
+
+          // Step 2: substitute {{key}} placeholders in content for text-like elements.
+          if (contentIsPlaceholderTemplate) {
             const substituted = this.substituteContentPlaceholders(content, inputRecord);
             // If at least one placeholder resolved to a non-empty value, use the
             // substituted string. If everything substituted to empty (i.e. the
@@ -1511,7 +1528,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           }
 
           // Step 3+4+5: fallbackValue, then the element's own designer-typed
-          // `content`, then empty string.
+          // STATIC `content`, then empty string.
           //
           // The `content` step exists because these templates are 100% data-driven:
           // without it, ANY element whose name does not match a datasource key was
@@ -1519,11 +1536,25 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           // the designer. That made customer-editable label text impossible.
           // An element deliberately left with empty content still renders blank,
           // which is the documented way to let a customer supply their own wording.
+          //
+          // IMPORTANT: this fallback must apply ONLY to genuine static text. If
+          // `content` was a {{...}} placeholder template that failed to resolve
+          // above (missing data key, no fallbackValue), we must NOT fall through
+          // to `content` here — that would print the raw, unsubstituted
+          // "{{customer.email}}" binding syntax onto the rendered document.
           const fallback = fallbackMap.get(name);
           if (fallback !== undefined) {
             inputRecord[name] = fallback;
+          } else if (contentIsPlaceholderTemplate) {
+            // Unresolved placeholder template, no fallbackValue: render blank,
+            // never the raw "{{...}}" string.
+            inputRecord[name] = '';
           } else {
             inputRecord[name] = content || '';
+            // Track that this field was resolved from the designer's static
+            // content, so resolveExpressions() does not misread customer-typed
+            // text like "A - B" as arithmetic.
+            substitutedFields.add(name);
           }
         }
       }
