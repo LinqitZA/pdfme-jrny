@@ -63,6 +63,12 @@ export class PdfmeErpModule {
     const storageProvider = {
       provide: 'FILE_STORAGE',
       useFactory: () => {
+        // Prefer an adapter supplied by the host app. Hardcoding LocalDiskStorageAdapter
+        // here shadowed the host's @Global FILE_STORAGE binding, so every generated PDF
+        // went to local disk no matter how the host was configured.
+        if (config.storage.adapter) {
+          return config.storage.adapter;
+        }
         return new LocalDiskStorageAdapter(
           config.storage.rootDir,
           config.storage.tempDir,

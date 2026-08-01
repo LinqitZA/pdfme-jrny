@@ -2,11 +2,21 @@
  * Type definitions for @pdfme-erp/nest module
  */
 
+import type { FileStorageService } from './file-storage.service';
+
 export interface PdfmeErpModuleConfig {
   storage: {
     rootDir: string;
     tempDir: string;
     tempRetentionMinutes?: number; // default 60
+    /**
+     * Optional pre-built storage adapter. When supplied it is used verbatim and
+     * rootDir/tempDir are ignored for durable writes (temp files still use tempDir).
+     * This lets the host app inject object storage (JRNYFS/S3) instead of local disk.
+     * When omitted the module falls back to LocalDiskStorageAdapter, so existing
+     * consumers are unaffected.
+     */
+    adapter?: FileStorageService;
   };
   jwt: {
     secret: string;
