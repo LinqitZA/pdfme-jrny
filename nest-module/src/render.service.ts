@@ -1510,9 +1510,21 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             }
           }
 
-          // Step 3+4: fallbackValue, then empty string.
+          // Step 3+4+5: fallbackValue, then the element's own designer-typed
+          // `content`, then empty string.
+          //
+          // The `content` step exists because these templates are 100% data-driven:
+          // without it, ANY element whose name does not match a datasource key was
+          // overwritten with '' — including static titles and labels a user typed in
+          // the designer. That made customer-editable label text impossible.
+          // An element deliberately left with empty content still renders blank,
+          // which is the documented way to let a customer supply their own wording.
           const fallback = fallbackMap.get(name);
-          inputRecord[name] = fallback !== undefined ? fallback : '';
+          if (fallback !== undefined) {
+            inputRecord[name] = fallback;
+          } else {
+            inputRecord[name] = content || '';
+          }
         }
       }
     }
