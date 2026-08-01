@@ -1501,10 +1501,25 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           // this iteration without resetting lastIndex. Capturing the result
           // here (and resetting immediately) is less error-prone than testing
           // again further down.
+          //
+          // Two distinct booleans are needed:
+          //  - contentIsPlaceholderTemplate: gates step 2 (attempt substitution).
+          //    Skip-type elements (image, table, richText, etc.) never run
+          //    substitution, so this is false for them regardless of content.
+          //  - contentLooksLikePlaceholder: gates the step-5 leak guard below.
+          //    This must NOT exclude skip types — a richText/table/etc. element
+          //    whose content is a {{key}} binding that never resolved must still
+          //    be blanked, not printed verbatim. FieldBindingWidget writes
+          //    {{key}} into `content` for ANY selected schema, with no type
+          //    gate, so this is reachable for every element type.
           const contentIsPlaceholderTemplate =
             !!content &&
             !RenderService.CONTENT_PLACEHOLDER_SKIP_TYPES.has(elType) &&
             RenderService.CONTENT_PLACEHOLDER_PATTERN.test(content);
+          // Reset lastIndex because the regex above is /g and stateful.
+          RenderService.CONTENT_PLACEHOLDER_PATTERN.lastIndex = 0;
+          const contentLooksLikePlaceholder =
+            !!content && RenderService.CONTENT_PLACEHOLDER_PATTERN.test(content);
           // Reset lastIndex because the regex above is /g and stateful.
           RenderService.CONTENT_PLACEHOLDER_PATTERN.lastIndex = 0;
 
@@ -1545,9 +1560,13 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           const fallback = fallbackMap.get(name);
           if (fallback !== undefined) {
             inputRecord[name] = fallback;
-          } else if (contentIsPlaceholderTemplate) {
+          } else if (contentLooksLikePlaceholder) {
             // Unresolved placeholder template, no fallbackValue: render blank,
-            // never the raw "{{...}}" string.
+            // never the raw "{{...}}" string. Uses contentLooksLikePlaceholder
+            // (not contentIsPlaceholderTemplate) so this guard also applies to
+            // skip-type elements (richText, table, image, etc.) — those never
+            // attempt step-2 substitution, but a {{key}} left in their content
+            // must still never be printed verbatim.
             inputRecord[name] = '';
           } else {
             inputRecord[name] = content || '';
