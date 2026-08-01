@@ -11,7 +11,8 @@ export interface PdfmeErpModuleConfig {
     tempRetentionMinutes?: number; // default 60
     /**
      * Optional pre-built storage adapter. When supplied it is used verbatim and
-     * rootDir/tempDir are ignored for durable writes (temp files still use tempDir).
+     * rootDir/tempDir are unused (LocalDiskStorageAdapter, the only reader of
+     * tempDir, is skipped entirely — temp files then use os.tmpdir() instead).
      * This lets the host app inject object storage (JRNYFS/S3) instead of local disk.
      * When omitted the module falls back to LocalDiskStorageAdapter, so existing
      * consumers are unaffected.

@@ -229,6 +229,22 @@ export class HealthController {
    */
   @Get('health/storage-structure')
   async getStorageStructure(@Query('orgId') orgId?: string) {
+    // getRootDir()/getTempDir() are only on LocalDiskStorageAdapter, not on the
+    // FileStorageService contract. When the host app injects an object-storage
+    // adapter (e.g. S3StorageAdapter for JRNYFS), report that honestly instead
+    // of throwing or inventing local paths.
+    if (
+      typeof (this.fileStorage as any).getRootDir !== 'function' ||
+      typeof (this.fileStorage as any).getTempDir !== 'function'
+    ) {
+      return {
+        diskBacked: false,
+        adapter: this.fileStorage.constructor?.name || 'unknown',
+        message:
+          'Storage adapter is not disk-backed (e.g. object storage); no local directory structure to report.',
+      };
+    }
+
     const adapter = this.fileStorage as LocalDiskStorageAdapter;
     const rootDir = adapter.getRootDir();
     const tempDir = adapter.getTempDir();
