@@ -138,13 +138,17 @@ export class TemplateService {
     // Check org access: must be same org or system template
     if (source.orgId && source.orgId !== orgId) return null;
 
-    const id = createId();
+    // NOTE: `templates.id` is a Postgres `uuid` primary key with `defaultRandom()`.
+    // Do NOT hand-assign it here — a cuid2 (createId()) is not a valid uuid and
+    // fails the insert with "invalid input syntax for type uuid". Let the column
+    // default generate it; `code` remains a separate human-readable identifier,
+    // capped at varchar(50) to satisfy the schema constraint.
+    const code = `${source.code}-fork-${createId().slice(0, 12)}`.slice(0, 50);
     const now = new Date();
     const [result] = await this.db
       .insert(templates)
       .values({
-        id,
-        code: id.slice(0, 50),
+        code,
         orgId,
         documentType: source.documentType,
         name: newName || `${source.name} (Fork)`,
