@@ -6,7 +6,7 @@
  * System templates (orgId=null) are visible to all orgs.
  */
 
-import { Injectable, Inject, Optional, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, Optional, BadRequestException, Logger } from '@nestjs/common';
 import { eq, and, or, ne, isNull, lt, SQL, asc, desc, inArray, ilike } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import { Parser } from 'expr-eval-fork';
@@ -75,6 +75,8 @@ const LOCK_DURATION_MS = 30 * 60 * 1000; // 30 minutes
 
 @Injectable()
 export class TemplateService {
+  private readonly logger = new Logger(TemplateService.name);
+
   constructor(
     @Inject('DRIZZLE_DB') private readonly db: PdfmeDatabase,
     @Optional() private readonly auditService?: AuditService,
@@ -1726,6 +1728,7 @@ export class TemplateService {
     signaturesRestored: number;
     templates: Array<{ id: string; name: string; type: string; status: string }>;
     fontValidation?: { total: number; accepted: number; rejected: number; errors: string[] };
+    signatureErrors?: string[];
   }> {
     const createdTemplates: Array<{ id: string; name: string; type: string; status: string }> = [];
     const fontValidationErrors: string[] = [];
@@ -1821,6 +1824,7 @@ export class TemplateService {
 
     // 3. Restore signatures
     let signaturesRestored = 0;
+    const signatureErrors: string[] = [];
     for (const sig of (backup.signatures || [])) {
       try {
         // Write signature file to storage
@@ -1833,10 +1837,12 @@ export class TemplateService {
 
           await this.storage.write(newPath, buffer);
 
-          // Insert signature record
-          const newId = createId();
+          // Insert signature record.
+          // NOTE: `user_signatures.id` is a Postgres `uuid` primary key with
+          // `defaultRandom()` (same class of bug fixed for templates.id in
+          // 28e923fd / 85de46b3). Do NOT hand-assign a cuid2 here — let the
+          // column default generate it.
           await this.db.insert(userSignatures).values({
-            id: newId,
             orgId: targetOrgId,
             userId: sig.userId,
             filePath: newPath,
@@ -1844,8 +1850,14 @@ export class TemplateService {
           });
           signaturesRestored++;
         }
-      } catch {
-        // Skip failed signatures
+      } catch (err: unknown) {
+        // Restore is best-effort across signatures: one bad record must not
+        // abort the rest of the import. But it must not fail silently either
+        // — log it and surface it in the response so a swallowed insert
+        // failure (e.g. a bad uuid) is visible, not invisible.
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Failed to restore signature for user ${sig.userId} (${sig.filePath}): ${message}`);
+        signatureErrors.push(`${sig.userId} (${sig.filePath}): ${message}`);
       }
     }
 
@@ -1861,6 +1873,7 @@ export class TemplateService {
         rejected: rejectedFonts,
         errors: fontValidationErrors,
       } : undefined,
+      signatureErrors: signatureErrors.length > 0 ? signatureErrors : undefined,
     };
   }
 
@@ -1881,6 +1894,7 @@ export class TemplateService {
     signaturesRestored: number;
     templates: Array<{ id: string; name: string; type: string; status: string }>;
     fontValidation?: { total: number; accepted: number; rejected: number; errors: string[] };
+    signatureErrors?: string[];
   }> {
     // @ts-ignore - adm-zip has no type declarations
     const AdmZip = (await import('adm-zip')).default;

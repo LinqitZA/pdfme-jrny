@@ -7,7 +7,6 @@
 
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { eq, and } from 'drizzle-orm';
-import { createId } from '@paralleldrive/cuid2';
 import * as net from 'net';
 import { printers } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
@@ -48,21 +47,25 @@ export class PrinterService {
       throw new Error(`SSRF_BLOCKED: Printer host '${dto.host}' is not on a private network`);
     }
 
-    const id = createId();
+    // NOTE: `printers.id` is a Postgres `uuid` primary key with `defaultRandom()`.
+    // Do NOT hand-assign it here — a cuid2 (createId()) is not a valid uuid and
+    // fails the insert with "invalid input syntax for type uuid" (see 28e923fd /
+    // 85de46b3, the identical bug fixed for templates.id). Let the column default
+    // generate it and read the real value back via .returning().
     const now = new Date();
-    const record = {
-      id,
-      orgId,
-      name: dto.name,
-      host: dto.host,
-      port: dto.port || 9100,
-      type: dto.type || 'raw',
-      isDefault: dto.isDefault ?? false,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await this.db.insert(printers).values(record);
+    const [record] = await this.db
+      .insert(printers)
+      .values({
+        orgId,
+        name: dto.name,
+        host: dto.host,
+        port: dto.port || 9100,
+        type: dto.type || 'raw',
+        isDefault: dto.isDefault ?? false,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
     return record;
   }
 

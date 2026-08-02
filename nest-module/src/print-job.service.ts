@@ -10,7 +10,6 @@
 
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { eq, and, desc, lt, lte, or, SQL } from 'drizzle-orm';
-import { createId } from '@paralleldrive/cuid2';
 import { printJobs } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';
@@ -55,27 +54,31 @@ export class PrintJobService {
    * Create a new print job record in PENDING status.
    */
   async create(dto: CreatePrintJobDto) {
-    const id = createId();
+    // NOTE: `print_jobs.id` is a Postgres `uuid` primary key with `defaultRandom()`.
+    // Do NOT hand-assign it here — a cuid2 (createId()) is not a valid uuid and
+    // fails the insert with "invalid input syntax for type uuid" (see 28e923fd /
+    // 85de46b3, the identical bug fixed for templates.id). Let the column default
+    // generate it and read the real value back via .returning().
     const now = new Date();
-    const record = {
-      id,
-      orgId: dto.orgId,
-      templateId: dto.templateId || null,
-      printerId: dto.printerId,
-      status: 'pending' as const,
-      totalLabels: dto.totalLabels,
-      labelsPrinted: 0,
-      renderedPdfPath: null as string | null,
-      inputsSnapshot: dto.inputsSnapshot ? JSON.parse(JSON.stringify(dto.inputsSnapshot)) : null,
-      errorMessage: null as string | null,
-      errorAt: null as Date | null,
-      createdAt: now,
-      updatedAt: now,
-      completedAt: null as Date | null,
-      createdBy: dto.createdBy,
-    };
-
-    await this.db.insert(printJobs).values(record);
+    const [record] = await this.db
+      .insert(printJobs)
+      .values({
+        orgId: dto.orgId,
+        templateId: dto.templateId || null,
+        printerId: dto.printerId,
+        status: 'pending' as const,
+        totalLabels: dto.totalLabels,
+        labelsPrinted: 0,
+        renderedPdfPath: null as string | null,
+        inputsSnapshot: dto.inputsSnapshot ? JSON.parse(JSON.stringify(dto.inputsSnapshot)) : null,
+        errorMessage: null as string | null,
+        errorAt: null as Date | null,
+        createdAt: now,
+        updatedAt: now,
+        completedAt: null as Date | null,
+        createdBy: dto.createdBy,
+      })
+      .returning();
     return record;
   }
 
