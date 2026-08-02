@@ -9,7 +9,7 @@
  * PDF/A-3b XMP metadata and document info directly.
  */
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -37,6 +37,7 @@ export interface PdfaValidationResult {
 
 @Injectable()
 export class PdfaProcessor {
+  private readonly logger = new Logger(PdfaProcessor.name);
   private ghostscriptAvailable: boolean | null = null;
   private verapdfAvailable: boolean | null = null;
   private _forceFailure: string | null = null;
@@ -121,24 +122,37 @@ export class PdfaProcessor {
       // Write input PDF to temp file
       fs.writeFileSync(inputPath, pdfBuffer);
 
-      // Create PDFA_def.ps content for PDF/A-3b
-      const pdfaDef = `
-% PDFA_def.ps - PDF/A-3b definitions
-/ICCProfile (${this.getDefaultIccProfilePath()}) def
-[
-  /Title (PDF/A-3b Document)
+      // Create PDFA_def.ps content for PDF/A-3b.
+      //
+      // This MUST use the standard Ghostscript _objdef/{Catalog} idiom:
+      //   - The ICC profile is embedded as its own stream object via
+      //     `/_objdef {icc_PDFA} /type /stream /OBJ pdfmark`, then filled from
+      //     the profile file. A bare `/ICCProfile (path) def` binds a path
+      //     STRING — it embeds nothing.
+      //   - `pdfmark` dictionaries are `<< >>`, never `{ }` (a PostScript
+      //     procedure) — the interpreter needs a dictionary literal.
+      //   - Each `[ ... ] /PUT pdfmark` (or `/OBJ pdfmark`) must be a single,
+      //   self-contained statement: the `[` mark is opened and the matching
+      //   `]` closed within the same pdfmark call. `pdfmark` resolves its
+      //   arguments via `counttomark`, so a mark left open across multiple
+      //   pdfmark calls (or closed before the pdfmark that owns it) throws
+      //   Ghostscript's `/unmatchedmark in --pdfmark--`.
+      //   - The OutputIntent must be attached to `{Catalog}`, not a bare
+      //     array — PDF/A readers look for it on the document catalog.
+      const iccProfilePath = this.getDefaultIccProfilePath();
+      const pdfaDef = `%!
+[/_objdef {icc_PDFA} /type /stream /OBJ pdfmark
+[{icc_PDFA} (${iccProfilePath}) (r) file /PUT pdfmark
+[{icc_PDFA} << /N 3 >> /PUT pdfmark
+[{Catalog} << /OutputIntents [ <<
+  /Type /OutputIntent /S /GTS_PDFA1
+  /OutputConditionIdentifier (sRGB IEC61966-2.1)
+  /Info (sRGB IEC61966-2.1)
+  /RegistryName (http://www.color.org)
+  /DestOutputProfile {icc_PDFA}
+>> ] >> /PUT pdfmark
+[ /Title (PDF/A-3b Document)
   /DOCINFO pdfmark
-
-  % PDF/A-3b identification
-  [{
-    /Type /OutputIntent
-    /S /GTS_PDFA1
-    /DestOutputProfile ICCProfile
-    /OutputConditionIdentifier (sRGB IEC61966-2.1)
-    /Info (sRGB IEC61966-2.1)
-    /RegistryName (http://www.color.org)
-  }]
-  /PUT pdfmark
 `;
       fs.writeFileSync(pdfaDefPath, pdfaDef);
 
@@ -157,7 +171,24 @@ export class PdfaProcessor {
         inputPath,
       ];
 
-      await execFileAsync('gs', args, { timeout: 60000 });
+      try {
+        await execFileAsync('gs', args, { timeout: 60000 });
+      } catch (err: unknown) {
+        // IMPORTANT: Ghostscript writes its real diagnostics (e.g.
+        // "Error: /unmatchedmark in --pdfmark--") to STDOUT, not stderr.
+        // Node's child_process only folds stderr into `err.message`, so a
+        // bare `throw err` here hides the actual cause behind the useless
+        // "Unrecoverable error, exit code 1" stderr line. Log both streams
+        // at error level and fold stdout into the rethrown message so the
+        // failure is diagnosable from logs alone.
+        const stdout = (err as { stdout?: string })?.stdout ?? '';
+        const stderr = (err as { stderr?: string })?.stderr ?? '';
+        const baseMessage = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Ghostscript PDF/A-3b conversion failed (exit): ${baseMessage}\n--- gs stdout ---\n${stdout}\n--- gs stderr ---\n${stderr}`,
+        );
+        throw new Error(`Ghostscript PDF/A-3b conversion failed: ${baseMessage}${stdout ? ` | stdout: ${stdout.trim()}` : ''}`);
+      }
 
       // Read the converted PDF
       const outputBuffer = fs.readFileSync(outputPath);

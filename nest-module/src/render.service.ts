@@ -458,6 +458,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
             generatedBy: userId,
             inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
             errorMessage: `DataSource error: ${errorMessage}`,
+            isPdfaCompliant: false,
           })
           .returning();
         return { error: `DataSource error: ${errorMessage}`, document: failedDoc };
@@ -496,6 +497,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           generatedBy: userId,
           inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage,
+          isPdfaCompliant: false,
         })
         .returning();
       return { error: errorMessage, document: failedDoc };
@@ -653,6 +655,7 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
           generatedBy: userId,
           inputSnapshot: dto.storeInputSnapshot ? (dto.inputs || null) : null,
           errorMessage: errorMessage,
+          isPdfaCompliant: false,
         })
         .returning();
       return { error: errorMessage, document: failedDoc };
@@ -715,8 +718,9 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
     } catch (err: unknown) {
       pdfaConversionFailed = true;
       pdfaErrorMessage = err instanceof Error ? err.message : String(err);
-      console.error(`[RenderService] PDF/A-3b conversion failed: ${pdfaErrorMessage}`);
-      console.error('[RenderService] Storing raw (non-PDF/A) PDF for debugging');
+      this.logger.error(
+        `PDF/A-3b conversion failed for entity ${dto.entityId} (template ${dto.templateId}): ${pdfaErrorMessage}. Storing raw, NON-PDF/A-compliant PDF and marking isPdfaCompliant=false.`,
+      );
     }
 
     // 4e. Apply PDF/UA accessibility tags if enabled for this org
@@ -765,8 +769,10 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
 
     if (pdfaConversionFailed) {
       // PDF/A conversion failed — store the raw PDF anyway (non-PDF/A) instead of failing
-      // This ensures PDF generation succeeds even when Ghostscript is misconfigured
-      console.warn(`[RenderService] PDF/A-3b conversion failed for ${dto.entityId}, storing raw PDF: ${pdfaErrorMessage}`);
+      // the whole render. This is a deliberate degrade-not-fail choice, but it must never
+      // be silent: isPdfaCompliant=false below and errorMessage record the fallback so
+      // downstream consumers (archival/statutory retention) can detect and re-process it.
+      this.logger.warn(`PDF/A-3b conversion failed for ${dto.entityId}, storing raw (non-compliant) PDF: ${pdfaErrorMessage}`);
     }
 
     const filePath = `${orgId}/documents/${docId}.pdf`;
@@ -790,6 +796,8 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
         outputChannel: dto.channel,
         generatedBy: userId,
         inputSnapshot: dto.storeInputSnapshot ? (inputs || dto.inputs || null) : null,
+        isPdfaCompliant: !pdfaConversionFailed,
+        errorMessage: pdfaConversionFailed ? `PDF/A-3b conversion failed, raw PDF stored: ${pdfaErrorMessage}` : null,
       })
       .returning();
 
