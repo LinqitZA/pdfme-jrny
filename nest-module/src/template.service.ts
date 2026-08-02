@@ -86,13 +86,17 @@ export class TemplateService {
    * Create a new template. Defaults to status=draft, version=1.
    */
   async create(dto: CreateTemplateDto) {
-    const id = createId();
+    // NOTE: `templates.id` is a Postgres `uuid` primary key with `defaultRandom()`.
+    // Do NOT hand-assign it here — a cuid2 (createId()) is not a valid uuid and
+    // fails the insert with "invalid input syntax for type uuid" (see 28e923fd,
+    // the identical bug in forkTemplate()). Let the column default generate it;
+    // `code` remains a separate human-readable identifier.
+    const code = createId().slice(0, 50);
     const now = new Date();
     const [result] = await this.db
       .insert(templates)
       .values({
-        id,
-        code: id.slice(0, 50),
+        code,
         orgId: dto.orgId ?? null,
         documentType: dto.type,
         name: dto.name,
@@ -893,9 +897,11 @@ export class TemplateService {
     schema: unknown;
     createdBy: string;
   }, changeNote?: string) {
-    const id = createId();
-    await this.db.insert(templateVersions).values({
-      id,
+    // NOTE: `template_versions.id` is a Postgres `uuid` primary key with
+    // `defaultRandom()`, same as `templates.id` (see 28e923fd and the identical
+    // fix in create() above). Do NOT hand-assign a cuid2 here — let the column
+    // default generate it and read the real value back via .returning().
+    const [result] = await this.db.insert(templateVersions).values({
       templateId: template.id,
       orgId: template.orgId,
       version: template.version,
@@ -904,12 +910,12 @@ export class TemplateService {
       savedBy: template.createdBy,
       savedAt: new Date(),
       changeNote: changeNote || null,
-    });
+    }).returning();
 
     // Purge old versions beyond the cap of 50
     await this.purgeOldVersions(template.id, 50);
 
-    return id;
+    return result?.id;
   }
 
   /**
