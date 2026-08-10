@@ -6,7 +6,7 @@
  * Uses exponential backoff between retries.
  */
 
-import { Injectable, Inject, Optional, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Queue, Worker, Job, QueueEvents } from 'bullmq';
 
 export interface RenderJobData {

@@ -9,7 +9,7 @@
  */
 
 import { Injectable, Inject, Logger } from '@nestjs/common';
-import { eq, and, desc, lt, lte, or, SQL } from 'drizzle-orm';
+import { eq, and, desc, lt, SQL } from 'drizzle-orm';
 import { printJobs } from './db/schema';
 import type { PdfmeDatabase } from './db/connection';
 import { FileStorageService } from './file-storage.service';

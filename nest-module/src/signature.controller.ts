@@ -23,7 +23,7 @@ import {
 } from '@nestjs/common';
 import { SignatureService } from './signature.service';
 import { AuditService } from './audit.service';
-import { LocalDiskStorageAdapter } from './local-disk-storage.adapter';
+
 import { Response, Request } from 'express';
 import type { JwtPayload } from './auth.guard';
 import { Optional } from '@nestjs/common';

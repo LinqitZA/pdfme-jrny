@@ -6,7 +6,7 @@
  */
 
 import { Injectable, Inject, Optional, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
-import { eq, and, or, inArray, desc, gt, lt, ne } from 'drizzle-orm';
+import { eq, and, or, inArray, desc, lt } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import * as crypto from 'crypto';
 import { templates, generatedDocuments, renderBatches } from './db/schema';

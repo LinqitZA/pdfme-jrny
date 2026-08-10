@@ -7,7 +7,7 @@
  */
 
 import { Injectable, Inject } from '@nestjs/common';
-import { eq, and, desc, lt, gte, lte, sql } from 'drizzle-orm';
+import { eq, and, desc, lt, gte, lte } from 'drizzle-orm';
 import { createId } from '@paralleldrive/cuid2';
 import type { PdfmeDatabase } from './db/connection';
 import { Pool } from 'pg';

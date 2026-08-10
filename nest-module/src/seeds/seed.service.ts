@@ -7,7 +7,7 @@ import { Injectable, Inject, OnModuleInit, Logger } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { templates } from '../db/schema';
 import { systemTemplates } from './templates/system-templates';
-import { runSeedData, getSeedDataForType, getAllSeedData } from './data/seed-runner';
+import { runSeedData, getAllSeedData } from './data/seed-runner';
 import { getSeedSummary, getSeedInputsForTemplate } from './data/seed-data';
 import type { PdfmeDatabase } from '../db/connection';
 
