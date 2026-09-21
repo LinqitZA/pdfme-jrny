@@ -32,6 +32,11 @@ export const DEFAULT_GRID_BORDER_WIDTH = 0.25;
 export const DEFAULT_OUTER_BORDER_COLOR = '#000000';
 /** Default outer/header border width (pt). */
 export const DEFAULT_OUTER_BORDER_WIDTH = 0.5;
+/** Default header background, used when the schema sets none and when it sets one
+ * this renderer cannot parse. */
+export const DEFAULT_HEADER_BG = '#2d3748';
+/** Default alternating row shade. */
+export const DEFAULT_ALTERNATE_ROW_COLOR = '#f7fafc';
 
 export interface PdfColumn {
   key: string;
@@ -154,20 +159,75 @@ export interface LineItemsTableGeometrySchema {
   [key: string]: unknown;
 }
 
+/** A colour pdf-lib will accept: every component a finite number in [0, 1]. */
+export interface ParsedColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
+/** Black. Used only when a caller supplies no fallback of its own. */
+const BLACK: ParsedColor = { r: 0, g: 0, b: 0 };
+
+function clamp01(n: number): number {
+  return n < 0 ? 0 : n > 1 ? 1 : n;
+}
+
 /**
- * Parse a hex color string (#RGB, #RRGGBB, RGB, or RRGGBB) to normalised
- * {r, g, b}. Shorthand 3-digit hex (e.g. '#000') is expanded to 6-digit
- * (each nibble doubled) before parsing — footer row styling
- * (RowStyle.borderBottom, e.g. '1px solid #000') commonly uses this form.
+ * Parse a colour from a schema into normalised {r, g, b}.
+ *
+ * Accepts every form the template editor can store:
+ *  - `#RRGGBB` / `RRGGBB`
+ *  - `#RGB` / `RGB` shorthand, each nibble doubled (footer row styling uses this,
+ *    e.g. RowStyle.borderBottom of '1px solid #000')
+ *  - `#RRGGBBAA`, alpha discarded — pdf-lib takes opacity separately
+ *  - `rgb(r, g, b)` and `rgba(r, g, b, a)`
+ *
+ * The rgb() forms matter because the prop panel's colour pickers are form-render
+ * `color` widgets, which can hand back a CSS colour string rather than hex. The
+ * editor preview assigns that value straight to `style.backgroundColor`, where CSS
+ * accepts it, so a template can look right in the editor and still hold a value a
+ * hex-only parser turns into NaN.
+ *
+ * NEVER returns NaN. pdf-lib asserts its colour components are numbers, so a NaN
+ * here does not misdraw a rectangle — it throws and the whole document fails to
+ * render. A colour is decoration; an unrecognised one falls back rather than
+ * costing the caller their document.
  */
-export function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  let h = hex.replace('#', '');
+export function parseColor(value: string, fallback: string | ParsedColor = BLACK): ParsedColor {
+  const parsed = tryParseColor(value);
+  if (parsed) return parsed;
+  if (typeof fallback !== 'string') return fallback;
+  return tryParseColor(fallback) ?? BLACK;
+}
+
+function tryParseColor(value: string): ParsedColor | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+
+  const fn = /^rgba?\(([^)]*)\)$/.exec(raw);
+  if (fn) {
+    // Commas or whitespace — both `rgb(3,115,227)` and the browser-normalised
+    // `rgb(3 115 227)` occur. Alpha, if present, is dropped.
+    const parts = fn[1].split(/[\s,/]+/).filter(Boolean).map(Number);
+    if (parts.length < 3 || parts.slice(0, 3).some((n) => !Number.isFinite(n))) return null;
+    return {
+      r: clamp01(parts[0] / 255),
+      g: clamp01(parts[1] / 255),
+      b: clamp01(parts[2] / 255),
+    };
+  }
+
+  let h = raw.replace('#', '');
   if (h.length === 3) {
     h = h
       .split('')
       .map((c) => c + c)
       .join('');
   }
+  // 8-digit is #RRGGBBAA; the alpha pair is ignored.
+  if ((h.length !== 6 && h.length !== 8) || !/^[0-9a-f]+$/.test(h)) return null;
   return {
     r: parseInt(h.substring(0, 2), 16) / 255,
     g: parseInt(h.substring(2, 4), 16) / 255,

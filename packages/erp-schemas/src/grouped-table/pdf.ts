@@ -7,6 +7,8 @@
  * element reaches the generator, it renders a simple table directly using pdf-lib.
  */
 
+import { parseColor } from '../line-items-table/rowHeights';
+
 /**
  * Render a grouped table element to a PDF page.
  * Uses pdf-lib to draw a basic table representation.
@@ -60,21 +62,14 @@ export async function pdfRender(arg: {
   const headerFontSize = (headerStyle.fontSize as number) || 9;
   const bodyFontSize = 8;
 
-  function hexToRgb(hex: string): { r: number; g: number; b: number } {
-    const h = hex.replace('#', '');
-    return {
-      r: parseInt(h.substring(0, 2), 16) / 255,
-      g: parseInt(h.substring(2, 4), 16) / 255,
-      b: parseInt(h.substring(4, 6), 16) / 255,
-    };
-  }
-
   let currentY = y;
 
   // Draw header
   if (columns.length > 0) {
     const hdrHeight = (headerFontSize + 6) * mmToPt / 3;
-    const bgColor = hexToRgb((headerStyle.backgroundColor as string) || '#e0e0e0');
+    // Shared with lineItemsTable: the same colour pickers feed this schema, and a
+    // local hex-only copy failed the whole document on an rgb() value.
+    const bgColor = parseColor(headerStyle.backgroundColor as string, '#e0e0e0');
 
     page.drawRectangle({
       x,

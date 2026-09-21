@@ -49,7 +49,9 @@
  */
 
 import {
-  hexToRgb,
+  parseColor,
+  DEFAULT_HEADER_BG,
+  DEFAULT_ALTERNATE_ROW_COLOR,
   computeColWidthsPt,
   computeWrappedRows,
   computeHeaderHeightPt,
@@ -94,7 +96,8 @@ export async function pdfRender(arg: {
   const showHeader = schema.showHeader !== false;
   const repeatHeader = schema.repeatHeader !== false;
   const headerBg =
-    ((schema.headerStyle as Record<string, unknown>)?.backgroundColor as string) || '#2d3748';
+    ((schema.headerStyle as Record<string, unknown>)?.backgroundColor as string) ||
+    DEFAULT_HEADER_BG;
   const headerFontSize = getHeaderFontSize(schema as LineItemsTableGeometrySchema);
   const bodyFontSize = getBodyFontSize(schema as LineItemsTableGeometrySchema);
 
@@ -139,9 +142,9 @@ export async function pdfRender(arg: {
   let currentY = y;
 
   // ── Border/grid styling (schema-configurable, with sensible defaults) ──
-  const outerBorderColor = hexToRgb((schema.borderColor as string) || DEFAULT_OUTER_BORDER_COLOR);
+  const outerBorderColor = parseColor(schema.borderColor as string, DEFAULT_OUTER_BORDER_COLOR);
   const outerBorderWidth = (schema.borderWidth as number) || DEFAULT_OUTER_BORDER_WIDTH;
-  const gridBorderColor = hexToRgb((schema.gridColor as string) || DEFAULT_GRID_BORDER_COLOR);
+  const gridBorderColor = parseColor(schema.gridColor as string, DEFAULT_GRID_BORDER_COLOR);
   const gridBorderWidth = (schema.gridWidth as number) || DEFAULT_GRID_BORDER_WIDTH;
 
   /** Draw a full-width horizontal divider line at the given y (pt). */
@@ -210,7 +213,7 @@ export async function pdfRender(arg: {
   // ── Draw header ────────────────────────────────────────────────────
   if (showHeaderOnThisChunk) {
     const hdrHeight = computeHeaderHeightPt(headerFontSize);
-    const bgColor = hexToRgb(headerBg);
+    const bgColor = parseColor(headerBg, DEFAULT_HEADER_BG);
 
     page.drawRectangle({
       x,
@@ -251,7 +254,10 @@ export async function pdfRender(arg: {
 
     // Alternating row shading
     if (schema.alternateRowShading && originalRowIndex % 2 === 1) {
-      const altColor = hexToRgb((schema.alternateRowColor as string) || '#f7fafc');
+      const altColor = parseColor(
+        schema.alternateRowColor as string,
+        DEFAULT_ALTERNATE_ROW_COLOR,
+      );
       page.drawRectangle({
         x,
         y: currentY - rHeight,
@@ -405,7 +411,9 @@ export async function pdfRender(arg: {
       // No alternating shading on footer rows — but an explicit
       // backgroundColor override is honored if present.
       if (footerRow.style?.backgroundColor) {
-        const bg = hexToRgb(footerRow.style.backgroundColor);
+        // White, not black, when the value cannot be parsed: an unreadable footer row
+        // is a worse outcome than no shading at all.
+        const bg = parseColor(footerRow.style.backgroundColor, '#ffffff');
         page.drawRectangle({
           x,
           y: currentY - rHeight,
@@ -439,7 +447,7 @@ export async function pdfRender(arg: {
 
       const border = parseBorderBottom(footerRow.style?.borderBottom);
       if (border) {
-        drawHorizontalLine(currentY, hexToRgb(border.color), border.widthPt);
+        drawHorizontalLine(currentY, parseColor(border.color, '#000000'), border.widthPt);
       }
     }
   }
