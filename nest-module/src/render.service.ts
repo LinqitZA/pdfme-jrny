@@ -315,8 +315,14 @@ export class RenderService implements OnModuleInit, OnModuleDestroy {
   } | null> {
     // Get per-tenant quota override, or fall back to global default
     const perTenantQuota = this.orgSettingsService.getDocumentsQuotaBytes(orgId);
-    const globalQuota = this.moduleConfig?.quotas?.documentsBytes ?? 5 * 1024 * 1024 * 1024; // 5GB default
+    // null = no global document quota; left out = 5 GB default
+    const configuredQuota = this.moduleConfig?.quotas?.documentsBytes;
+    const globalQuota = configuredQuota === null ? null : (configuredQuota ?? 5 * 1024 * 1024 * 1024);
     const quotaBytes = perTenantQuota !== null ? perTenantQuota : globalQuota;
+
+    // No quota: return before measuring usage. usage() lists every stored
+    // document, so its cost grows with every PDF ever rendered.
+    if (quotaBytes === null) return null;
 
     // Get current usage
     const usage = await this.fileStorage.usage(orgId);

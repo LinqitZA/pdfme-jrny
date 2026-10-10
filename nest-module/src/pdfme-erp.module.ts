@@ -113,7 +113,12 @@ export class PdfmeErpModule {
           bulkMaxEntityIds: config.rateLimits?.bulkMaxEntityIds ?? 2000,
         },
         quotas: {
-          documentsBytes: config.quotas?.documentsBytes ?? 5 * 1024 * 1024 * 1024,
+          // null switches the document quota off (self-hosted: the disk is the limit);
+          // left out, it defaults to 5 GB.
+          documentsBytes:
+            config.quotas?.documentsBytes === null
+              ? null
+              : (config.quotas?.documentsBytes ?? 5 * 1024 * 1024 * 1024),
           assetsBytes: config.quotas?.assetsBytes ?? 500 * 1024 * 1024,
         },
         queue: {

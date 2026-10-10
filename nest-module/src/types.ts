@@ -44,7 +44,7 @@ export interface PdfmeErpModuleConfig {
     bulkMaxEntityIds?: number; // default 2000
   };
   quotas?: {
-    documentsBytes?: number; // default 5GB
+    documentsBytes?: number | null; // default 5GB; null = no document quota (no storage listing per render)
     assetsBytes?: number;    // default 500MB
   };
   queue?: {
